@@ -150,17 +150,16 @@ MIN_CHUNK = 8
 
 
 def vis_gpu(
-    antpos,
-    freq,
-    eq2tops,
-    crd_eq,
-    I_sky,
-    bm_cube,
-    nthreads=NTHREADS,
-    max_memory=MAX_MEMORY,
-    precision=1,
-    verbose=False,
-):
+    antpos: np.ndarray,
+    freq: float,
+    eq2tops: np.ndarray,
+    crd_eq: np.ndarray,
+    sky_flux: np.ndarray,
+    beams: np.ndarray,
+    nthreads: int = NTHREADS,
+    max_memory: int = MAX_MEMORY,
+    precision: int = 1,
+) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     assert precision in (1, 2)
     if precision == 1:
@@ -180,17 +179,17 @@ def vis_gpu(
     assert antpos.shape == (nant, 3)
     npix = crd_eq.shape[1]
     assert crd_eq.shape == (3, npix)
-    assert I_sky.shape == (npix,)
-    beam_px = bm_cube.shape[1]
-    assert bm_cube.shape == (nant, beam_px, beam_px)
+    assert sky_flux.shape == (npix,)
+    beam_px = beams.shape[1]
+    assert beams.shape == (nant, beam_px, beam_px)
     ntimes = eq2tops.shape[0]
     assert eq2tops.shape == (ntimes, 3, 3)
     # ensure data types
     antpos = antpos.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
     crd_eq = crd_eq.astype(real_dtype)
-    Isqrt = np.sqrt(I_sky).astype(real_dtype)
-    bm_cube = bm_cube.astype(real_dtype)  # XXX complex?
+    Isqrt = np.sqrt(sky_flux).astype(real_dtype)
+    beams = beams.astype(real_dtype)  # XXX complex?
     chunk = max(
         min(npix, MIN_CHUNK),
         2 ** int(np.ceil(np.log2(float(nant * npix) / max_memory / 2))),
@@ -217,7 +216,7 @@ def vis_gpu(
     h = cublasCreate()  # handle for managing cublas
     # define GPU buffers and transfer initial values
     bm_texref.set_array(
-        numpy3d_to_array(bm_cube)
+        numpy3d_to_array(beams)
     )  # never changes, transpose happens in copy so cuda bm_tex is (BEAM_PX,BEAM_PX,NANT)
     antpos_gpu = gpuarray.to_gpu(antpos)  # never changes, set to -2*pi*antpos/c
     Isqrt_gpu = gpuarray.empty(shape=(npixc,), dtype=real_dtype)
