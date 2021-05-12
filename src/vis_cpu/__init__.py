@@ -12,13 +12,4 @@ finally:
     del get_distribution, DistributionNotFound
 
 from .vis_cpu import vis_cpu
-
-try:
-    from .vis_gpu import vis_gpu
-except ImportError:
-
-    def vis_gpu(*args, **kwargs):
-        """Mock GPU version of the code (GPU has not been installed)."""
-        raise ImportError(
-            "You need to install vis_cpu with the .[gpu] extra to get the gpu function!"
-        )
+from .vis_gpu import vis_gpu

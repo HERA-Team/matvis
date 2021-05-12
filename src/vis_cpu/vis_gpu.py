@@ -1,16 +1,22 @@
 """GPU implementation of the simulator."""
 import numpy as np
 from astropy.constants import c as speed_of_light
-from pycuda import compiler, driver, gpuarray
-from skcuda.cublas import (
-    cublasCgemm,
-    cublasCreate,
-    cublasDestroy,
-    cublasDgemm,
-    cublasSetStream,
-    cublasSgemm,
-    cublasZgemm,
-)
+
+try:
+    from pycuda import compiler, driver, gpuarray
+    from skcuda.cublas import (
+        cublasCgemm,
+        cublasCreate,
+        cublasDestroy,
+        cublasDgemm,
+        cublasSetStream,
+        cublasSgemm,
+        cublasZgemm,
+    )
+
+    HAVE_CUDA = True
+except ImportError:
+    HAVE_CUDA = False
 
 from .vis_cpu import vis_cpu
 
@@ -119,6 +125,9 @@ def numpy3d_to_array(np_array):
     be used to do that directly).  A transpose happens implicitly; the CUDA
     array has dim (w,h,d).
     """
+    if not HAVE_CUDA:
+        raise ImportError("You need to install the [gpu] extra to use this function!")
+
     import pycuda.autoinit
 
     d, h, w = np_array.shape
@@ -161,6 +170,9 @@ def vis_gpu(
     precision: int = 1,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
+    if not HAVE_CUDA:
+        raise ImportError("You need to install the [gpu] extra to use this function!")
+
     assert precision in (1, 2)
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64

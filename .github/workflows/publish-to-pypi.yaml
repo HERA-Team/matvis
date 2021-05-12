@@ -36,7 +36,7 @@ jobs:
       # deploy to Test PyPI on any push except when merging to master, since that will
       # already exist, and thus fail.
       - name: Publish distribution 📦 to Test PyPI
-        if: ${{ !contains(github.ref, 'master') }}
+        if: ${{ !contains(github.ref, 'main') }}
         uses: pypa/gh-action-pypi-publish@master
         with:
           password: ${{ secrets.test_pypi_password }}
