@@ -9,8 +9,7 @@ on:
       - 'v*'
   pull_request:
     branches:
-      - 'master'
-      - 'dev'
+      - 'main'
 
 jobs:
   tests:
