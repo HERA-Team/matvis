@@ -12,4 +12,5 @@ finally:
     del get_distribution, DistributionNotFound
 
 from .vis_cpu import vis_cpu
+from .vis_gpu import HAVE_CUDA as HAVE_GPU
 from .vis_gpu import vis_gpu
