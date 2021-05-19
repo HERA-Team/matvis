@@ -25,3 +25,7 @@ Installation
 ============
 Merely do ``pip install vis_cpu``. If you want to use the GPU functions, install
 with ``pip install vis_cpu.[gpu]``.
+
+Read the Docs
+=============
+https://vis-cpu.readthedocs.io/en/latest/
