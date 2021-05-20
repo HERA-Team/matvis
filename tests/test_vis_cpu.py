@@ -32,24 +32,19 @@ def test_vis_cpu():
     # SED for each point source
     fluxes = np.ones(NPTSRC)
     I_sky = fluxes[:,np.newaxis] * (freq[np.newaxis,:] / 100.e6)**-2.7
-    print("****", I_sky.shape)
     
     # Point source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
-    print(">>>>", crd_eq.shape)
     
     # Get coordinate transforms as a function of LST
     lsts = np.linspace(0., 2.*np.pi, NTIMES)
     eq2tops = conversions.get_eq2tops(lsts, latitude=-30.7215*np.pi/180.) # HERA latitude
-    print(">>>>", eq2tops.shape)
     
     # Create beam models
     beam = AnalyticBeam(type='gaussian', diameter=14.)
     beam_pix = conversions.uvbeam_to_lm(beam, freq, n_pix_lm=63, 
                                         polarized=False)
-    beam_cube = np.array([beam_pix, beam_pix+1e-17])
-    i = 0
-    print("xxxx", beam_cube.shape, beam_cube[:,i,:,:].shape)
+    beam_cube = np.array([beam_pix, beam_pix])
     
     # Run vis_cpu with pixel beams
     for i in range(freq.size):
