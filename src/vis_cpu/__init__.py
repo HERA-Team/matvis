@@ -14,3 +14,4 @@ finally:
 from .vis_cpu import vis_cpu
 from .vis_gpu import HAVE_CUDA as HAVE_GPU
 from .vis_gpu import vis_gpu
+from .wrapper import simulate_vis
