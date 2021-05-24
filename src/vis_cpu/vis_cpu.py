@@ -115,11 +115,11 @@ def vis_cpu(
 
     ang_freq = 2 * np.pi * freq
 
-    # Empty arrays: beam pattern, visibilities, delays, complex voltages.
-    A_s = np.empty((nax, nfeed, nant, npix), dtype=real_dtype)
-    vis = np.empty((nax, nfeed, ntimes, nant, nant), dtype=complex_dtype)
-    tau = np.empty((nant, npix), dtype=real_dtype)
-    v = np.empty((nant, npix), dtype=complex_dtype)
+    # Zero arrays: beam pattern, visibilities, delays, complex voltages
+    A_s = np.zeros((nax, nfeed, nant, npix), dtype=real_dtype)
+    vis = np.zeros((nax, nfeed, ntimes, nant, nant), dtype=complex_dtype)
+    tau = np.zeros((nant, npix), dtype=real_dtype)
+    v = np.zeros((nant, npix), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Precompute splines is using pixelized beams
