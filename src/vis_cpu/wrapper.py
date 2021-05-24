@@ -2,7 +2,7 @@
 Simple wrapper for basic usage of vis_cpu.
 """
 import numpy as np
-from vis_cpu import vis_cpu, conversions
+from . import vis_cpu, conversions
 
 
 def simulate_vis(ants, fluxes, ra, dec, freqs, lsts, beams, pixel_beams=False, 
