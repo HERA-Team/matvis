@@ -38,12 +38,12 @@ def vis_cpu(
     crd_eq : array_like
         Cartesian unit vectors of sources in an ECI (Earth Centered
         Inertial) system, which has the Earth's center of mass at
-        the origin, and is fixed with respect to the distant stars. 
+        the origin, and is fixed with respect to the distant stars.
         The components of the ECI vector for each source are:
-            (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
+        (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
         Shape=(3, NSRCS).
     I_sky : array_like
-        Intensity distribution of sources/pixels on the sky. 
+        Intensity distribution of sources/pixels on the sky.
         Shape=(NSRCS,).
     bm_cube : array_like, optional
         Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
@@ -81,7 +81,9 @@ def vis_cpu(
     assert ncrd1 == 3 and ncrd2 == 3, "eq2tops must have shape (NTIMES, 3, 3)."
     ncrd, nsrcs = crd_eq.shape
     assert ncrd == 3, "crd_eq must have shape (3, NSRCS)."
-    assert I_sky.ndim == 1 and I_sky.shape[0] == nsrcs, "I_sky must have shape (NSRCS,)."
+    assert (
+        I_sky.ndim == 1 and I_sky.shape[0] == nsrcs
+    ), "I_sky must have shape (NSRCS,)."
 
     if beam_list is None:
         bm_pix = bm_cube.shape[-1]
@@ -133,7 +135,7 @@ def vis_cpu(
                 # TODO: Try using a log-space beam for accuracy!
         else:
             # Primary beam pattern using direct interpolation of UVBeam object
-            az, za = conversions.lm_to_az_za(el=ty, m=tx) # args: (el=ty, m=tx)
+            az, za = conversions.lm_to_az_za(el=ty, m=tx)
             for i in range(nant):
                 interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
                 A_s[i] = interp_beam[0, 0, 1]  # FIXME: assumes xx pol for now
