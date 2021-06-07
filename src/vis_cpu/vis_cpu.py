@@ -30,16 +30,21 @@ def vis_cpu(
     freq : float
         Frequency to evaluate the visibilities at [GHz].
     eq2tops : array_like
-        Set of 3x3 transformation matrices converting equatorial
-        coordinates to topocentric at each
-        hour angle (and declination) in the dataset.
+        Set of 3x3 transformation matrices to rotate the RA and Dec
+        cosines in an ECI coordinate system (see `crd_eq`) to
+        topocentric ENU (East-North-Up) unit vectors at each
+        time/LST/hour angle in the dataset.
         Shape=(NTIMES, 3, 3).
     crd_eq : array_like
-        Equatorial coordinates of Healpix pixels, in Cartesian system.
-        Shape=(3, NPIX).
+        Cartesian unit vectors of sources in an ECI (Earth Centered
+        Inertial) system, which has the Earth's center of mass at
+        the origin, and is fixed with respect to the distant stars. 
+        The components of the ECI vector for each source are:
+            (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
+        Shape=(3, NSRCS).
     I_sky : array_like
-        Intensity distribution on the sky,
-        stored as array of Healpix pixels. Shape=(NPIX,).
+        Intensity distribution of sources/pixels on the sky. 
+        Shape=(NSRCS,).
     bm_cube : array_like, optional
         Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
     beam_list : list of UVBeam, optional
@@ -74,9 +79,9 @@ def vis_cpu(
     assert ncrd == 3, "antpos must have shape (NANTS, 3)."
     ntimes, ncrd1, ncrd2 = eq2tops.shape
     assert ncrd1 == 3 and ncrd2 == 3, "eq2tops must have shape (NTIMES, 3, 3)."
-    ncrd, npix = crd_eq.shape
-    assert ncrd == 3, "crd_eq must have shape (3, NPIX)."
-    assert I_sky.ndim == 1 and I_sky.shape[0] == npix, "I_sky must have shape (NPIX,)."
+    ncrd, nsrcs = crd_eq.shape
+    assert ncrd == 3, "crd_eq must have shape (3, NSRCS)."
+    assert I_sky.ndim == 1 and I_sky.shape[0] == nsrcs, "I_sky must have shape (NSRCS,)."
 
     if beam_list is None:
         bm_pix = bm_cube.shape[-1]
@@ -96,10 +101,10 @@ def vis_cpu(
     ang_freq = 2 * np.pi * freq
 
     # Empty arrays: beam pattern, visibilities, delays, complex voltages.
-    A_s = np.empty((nant, npix), dtype=real_dtype)
+    A_s = np.empty((nant, nsrcs), dtype=real_dtype)
     vis = np.empty((ntimes, nant, nant), dtype=complex_dtype)
-    tau = np.empty((nant, npix), dtype=real_dtype)
-    v = np.empty((nant, npix), dtype=complex_dtype)
+    tau = np.empty((nant, nsrcs), dtype=real_dtype)
+    v = np.empty((nant, nsrcs), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Precompute splines is using pixelized beams
@@ -115,6 +120,9 @@ def vis_cpu(
 
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
+        # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
+        # (topocentric) cosines, with (tx, ty, tz) = (e, n, u) components
+        # relative to the center of the array
         tx, ty, tz = crd_top = np.dot(eq2top, crd_eq)
 
         # Primary beam response
@@ -125,7 +133,7 @@ def vis_cpu(
                 # TODO: Try using a log-space beam for accuracy!
         else:
             # Primary beam pattern using direct interpolation of UVBeam object
-            az, za = conversions.lm_to_az_za(tx, ty)
+            az, za = conversions.lm_to_az_za(el=ty, m=tx) # args: (el=ty, m=tx)
             for i in range(nant):
                 interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
                 A_s[i] = interp_beam[0, 0, 1]  # FIXME: assumes xx pol for now
