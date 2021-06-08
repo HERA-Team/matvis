@@ -135,7 +135,7 @@ def vis_cpu(
                 # TODO: Try using a log-space beam for accuracy!
         else:
             # Primary beam pattern using direct interpolation of UVBeam object
-            az, za = conversions.lm_to_az_za(el=ty, m=tx)
+            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty)
             for i in range(nant):
                 interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
                 A_s[i] = interp_beam[0, 0, 1]  # FIXME: assumes xx pol for now
