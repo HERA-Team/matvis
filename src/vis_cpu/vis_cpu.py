@@ -4,19 +4,19 @@ import numpy as np
 from astropy.constants import c
 from scipy.interpolate import RectBivariateSpline
 from typing import Optional, Sequence
-
 from . import conversions
+
+        
 
 
 def vis_cpu(
     antpos: np.ndarray,
     freq: float,
-    eq2tops: np.ndarray,
-    crd_eq: np.ndarray,
     I_sky: np.ndarray,
-    bm_cube: Optional[np.ndarray] = None,
-    beam_list: Optional[Sequence[np.ndarray]] = None,
-    precision: int = 1,
+    ntimes : int,
+    npix : int,
+    beam_list: Sequence[np.ndarray],
+    az_za_transforms : conversions.AzZaTransforms
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -57,80 +57,33 @@ def vis_cpu(
     array_like
         Visibilities. Shape=(NTIMES, NANTS, NANTS).
     """
-    assert precision in (1, 2)
-    if precision == 1:
-        real_dtype = np.float32
-        complex_dtype = np.complex64
-    else:
-        real_dtype = np.float64
-        complex_dtype = np.complex128
-
-    if bm_cube is None and beam_list is None:
-        raise RuntimeError("One of bm_cube/beam_list must be specified")
-    if bm_cube is not None and beam_list is not None:
-        raise RuntimeError("Cannot specify both bm_cube and beam_list")
 
     nant, ncrd = antpos.shape
     assert ncrd == 3, "antpos must have shape (NANTS, 3)."
-    ntimes, ncrd1, ncrd2 = eq2tops.shape
-    assert ncrd1 == 3 and ncrd2 == 3, "eq2tops must have shape (NTIMES, 3, 3)."
-    ncrd, npix = crd_eq.shape
-    assert ncrd == 3, "crd_eq must have shape (3, NPIX)."
     assert I_sky.ndim == 1 and I_sky.shape[0] == npix, "I_sky must have shape (NPIX,)."
-
-    if beam_list is None:
-        bm_pix = bm_cube.shape[-1]
-        assert bm_cube.shape == (
-            nant,
-            bm_pix,
-            bm_pix,
-        ), "bm_cube must have shape (NANTS, BM_PIX, BM_PIX)."
-    else:
-        assert len(beam_list) == nant, "beam_list must have length nant"
+    assert len(beam_list) == nant, "beam_list must have length nant"
 
     # Intensity distribution (sqrt) and antenna positions. Does not support
     # negative sky.
-    Isqrt = np.sqrt(I_sky).astype(real_dtype)
-    antpos = antpos.astype(real_dtype)
+    Isqrt = np.sqrt(I_sky)
 
     ang_freq = 2 * np.pi * freq
 
     # Empty arrays: beam pattern, visibilities, delays, complex voltages.
-    A_s = np.empty((nant, npix), dtype=real_dtype)
-    vis = np.empty((ntimes, nant, nant), dtype=complex_dtype)
-    tau = np.empty((nant, npix), dtype=real_dtype)
-    v = np.empty((nant, npix), dtype=complex_dtype)
-    crd_eq = crd_eq.astype(real_dtype)
-
-    # Precompute splines is using pixelized beams
-    if beam_list is None:
-        bm_pix_x = np.linspace(-1, 1, bm_pix)
-        bm_pix_y = np.linspace(-1, 1, bm_pix)
-
-        splines = []
-        for i in range(nant):
-            # Linear interpolation of primary beam pattern.
-            spl = RectBivariateSpline(bm_pix_y, bm_pix_x, bm_cube[i], kx=1, ky=1)
-            splines.append(spl)
+    A_s = np.empty((nant, npix))
+    vis = np.empty((ntimes, nant, nant), dtype=np.complex128)
+    tau = np.empty((nant, npix))
+    v = np.empty((nant, npix), dtype=np.complex128)
 
     # Loop over time samples
-    for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
-        tx, ty, tz = crd_top = np.dot(eq2top, crd_eq)
+    for t in range(ntimes):
+        # Primary beam pattern using direct interpolation of UVBeam object
+        az, za, crd_top = az_za_transforms.transform(None, None, t)
+        for i in range(nant):
+            interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
+            A_s[i] = interp_beam[0, 0, 1]  # FIXME: assumes xx pol for now
 
-        # Primary beam response
-        if beam_list is None:
-            # Primary beam pattern using pixelized primary beam
-            for i in range(nant):
-                A_s[i] = splines[i](ty, tx, grid=False)
-                # TODO: Try using a log-space beam for accuracy!
-        else:
-            # Primary beam pattern using direct interpolation of UVBeam object
-            az, za = conversions.lm_to_az_za(tx, ty)
-            for i in range(nant):
-                interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
-                A_s[i] = interp_beam[0, 0, 1]  # FIXME: assumes xx pol for now
-
-        A_s = np.where(tz > 0, A_s, 0)
+        A_s = np.where(crd_top[2] > 0, A_s, 0)
 
         # Calculate delays, where tau = (b * s) / c
         np.dot(antpos, crd_top, out=tau)
@@ -149,3 +102,54 @@ def vis_cpu(
             np.dot(v[i : i + 1].conj(), v[i:].T, out=vis[t, i : i + 1, i:])
 
     return vis
+
+
+class VisCPU:
+    def __init__(self, uvdata, beams, sky_freqs, point_source_pos, point_source_flux, **kwargs):
+        self.beams = beams
+        self.npix = point_source_pos.shape[0]
+        self.times = np.unique(uvdata.get_times("XX"))
+        self.point_source_flux = point_source_flux/2.0
+        self.sky_freqs = sky_freqs
+        self.uvdata = uvdata
+        self.az_za_transforms = conversions.AzZaTransforms(
+                            obstimes=self.times,
+                            ra=point_source_pos[:, 0],
+                            dec=point_source_pos[:, 1],
+                            precompute=True,
+                            use_central_time_values=False,
+                            uvbeam_az_correction=True,
+                            astropy=True
+                        )
+        # Get antpos for active antennas only
+        #self.antpos = self.uvdata.get_ENU_antpos()[0].astype(self._real_dtype)
+        ant_list = uvdata.get_ants() # ordered list of active ants
+        self.antpos = []
+        _antpos = uvdata.get_ENU_antpos()[0]
+        for ant in ant_list:
+            # uvdata.get_ENU_antpos() and uvdata.antenna_numbers have entries 
+            # for all telescope antennas, even ones that aren't included in the 
+            # data_array. This extracts only the data antennas.
+            idx = np.where(ant == uvdata.antenna_numbers)
+            self.antpos.append(_antpos[idx].flatten())
+        self.antpos = np.array(self.antpos)
+        
+        assert point_source_flux.shape[0] == sky_freqs.size
+        assert point_source_flux.shape[1] == self.npix
+        
+    def simulate(self):
+        visfull = np.zeros_like(self.uvdata.data_array, dtype=np.complex128)
+        for i in range(self.sky_freqs.size):
+            vis = vis_cpu(self.antpos, self.sky_freqs[i], self.point_source_flux[i], 
+                    len(self.times), self.npix, self.beams, self.az_za_transforms)
+            indices = np.triu_indices(vis.shape[1])
+            vis_upper_tri = vis[:, indices[0], indices[1]]
+
+            visfull[:, 0, i, 0] = vis_upper_tri.flatten()
+            
+        self.uvdata.data_array += visfull
+            
+        
+            
+
+
