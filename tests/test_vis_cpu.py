@@ -33,10 +33,11 @@ def test_vis_cpu():
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
     # Get coordinate transforms as a function of LST
+    hera_lat = -30.7215 * np.pi / 180.0
     lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
-    eq2tops = conversions.get_eq2tops(
-        lsts, latitude=-30.7215 * np.pi / 180.0
-    )  # HERA latitude
+    eq2tops = np.array(
+        [conversions.eci_to_enu_matrix(-lst, lat=hera_lat) for lst in lsts]
+    )
 
     # Create beam models
     beam = AnalyticBeam(type="gaussian", diameter=14.0)
