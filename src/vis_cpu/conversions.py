@@ -1,4 +1,5 @@
-"""Functions for converting co-ordinates."""
+"""Functions for converting coordinates."""
+
 import astropy.units as u
 import numpy as np
 from astropy.coordinates import EarthLocation, SkyCoord
@@ -95,6 +96,23 @@ def enu_to_eci_matrix(ha, lat):
     )
 
 
+def point_source_crd_eq(ra, dec):
+    """Coordinate transform of source locations from equatorial to Cartesian.
+
+    Parameters
+    ----------
+    ra, dec : array_like
+        1D arrays of source positions in equatorial coordinates (radians).
+
+    Returns
+    -------
+    array_like
+        Equatorial coordinates of sources, in Cartesian
+        system. Shape=(3, NSRCS).
+    """
+    return np.asarray([np.cos(ra) * np.cos(dec), np.cos(dec) * np.sin(ra), np.sin(dec)])
+
+
 def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs"):
     """Convert RA and Dec coordinates into the ECI system used by vis_cpu.
 
@@ -183,3 +201,63 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     pdec = np.arcsin(pz)
     pra = np.arctan2(py, px)
     return pra, pdec
+
+
+def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
+    """Convert a UVbeam to a uniform (l,m) grid.
+
+    Parameters
+    ----------
+    uvbeam : UVBeam object
+        Beam to convert to an (l, m) grid.
+    freqs : array_like
+        Frequencies to interpolate to in [Hz]. Shape=(NFREQS,).
+    n_pix_lm : int, optional
+        Number of pixels for each side of the beam grid.
+    polarized : bool, optional
+        Whether to return full polarized beam information or not.
+
+    Returns
+    -------
+    ndarray
+        The beam map cube. Shape: (NFREQS, BEAM_PIX, BEAM_PIX) if
+        `polarized=False` or (NAXES, NFEEDS, NFREQS, BEAM_PIX, BEAM_PIX) if
+        `polarized=True`.
+    """
+    # Define angle cosines
+    L = np.linspace(-1, 1, n_pix_lm, dtype=np.float32)
+    L, m = np.meshgrid(L, L)
+    L = L.flatten()
+    m = m.flatten()
+
+    # Apply horizon cut
+    lsqr = L ** 2.0 + m ** 2.0
+    n = np.where(lsqr < 1.0, np.sqrt(1.0 - lsqr), 0.0)
+
+    # Calculate azimuth and zenith angle
+    az = -np.arctan2(m, L)
+    za = np.pi / 2.0 - np.arcsin(n)
+
+    # Interpolate beam onto cube
+    efield_beam = uvbeam.interp(az, za, freqs, **kwargs)[0]
+    if polarized:
+        bm = efield_beam[:, 0, :, :, :]  # spw=0
+    else:
+        bm = efield_beam[0, 0, 1, :, :]  # (phi, e) == 'xx' component
+
+    # Peak normalization and reshape output
+    if polarized:
+        Naxes = bm.shape[0]  # polarization vector axes
+        Nfeeds = bm.shape[1]  # polarized feeds
+
+        # Separately normalize each polarization channel
+        for i in range(Naxes):
+            for j in range(Nfeeds):
+                if np.max(bm[i, j]) > 0.0:
+                    bm /= np.max(bm[i, j])
+        return bm.reshape((Naxes, Nfeeds, len(freqs), n_pix_lm, n_pix_lm))
+    else:
+        # Normalize single polarization channel
+        if np.max(bm) > 0.0:
+            bm /= np.max(bm)
+        return bm.reshape((len(freqs), n_pix_lm, n_pix_lm))
