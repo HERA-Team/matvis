@@ -48,16 +48,12 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
     ----------
     uvbeam : UVBeam object
         Beam to convert to an (l, m) grid.
-
     freqs : array_like
         Frequencies to interpolate to in [Hz]. Shape=(NFREQS,).
-
     n_pix_lm : int, optional
-        Number of pixels for each side of the beam grid. Default is 63.
-
+        Number of pixels for each side of the beam grid.
     polarized : bool, optional
         Whether to return full polarized beam information or not.
-        Default: False.
 
     Returns
     -------
@@ -161,9 +157,6 @@ def get_eq2tops(lsts, latitude):
         to topocenteric co-ordinates at each LST.
         Shape=(NTIMES, 3, 3).
     """
-    eq2tops = np.empty((len(lsts), 3, 3), dtype=lsts.dtype)
-
-    for i, st in enumerate(lsts):
-        eq2tops[i] = eq2top_m(-st, latitude)  # dec = latitude
-
-    return eq2tops
+    return np.array(
+        [eq2top_m(-sid_time, latitude) for sid_time in lsts], dtype=lsts.dtype
+    )
