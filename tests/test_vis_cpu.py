@@ -36,7 +36,7 @@ def test_vis_cpu():
     hera_lat = -30.7215 * np.pi / 180.0
     lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
     eq2tops = np.array(
-        [conversions.eci_to_enu_matrix(-lst, lat=hera_lat) for lst in lsts]
+        [conversions.eci_to_enu_matrix(lst, lat=hera_lat) for lst in lsts]
     )
 
     # Create beam models

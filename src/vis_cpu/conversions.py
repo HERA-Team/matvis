@@ -7,28 +7,50 @@ from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
 
 
-def enu_to_az_za(enu_e, enu_n):
+def enu_to_az_za(enu_e, enu_n, orientation="astropy"):
     """Convert angle cosines in ENU coordinates into azimuth and zenith angle.
 
-    For a pointing vector in ENU coordinates vec{p}, the input arguments are
-    ``enu_e = vec{p}.hat{e}`` and ``enu_n = vec{p}.hat{n}`, where ``hat{e}`` is
-    a unit vector in ENU coordinates etc.
+    For a pointing vector in East-North-Up (ENU) coordinates vec{p}, the input 
+    arguments are ``enu_e = vec{p}.hat{e}`` and ``enu_n = vec{p}.hat{n}`, where 
+    ``hat{e}`` is a unit vector in ENU coordinates etc.
+    
+    For a drift-scan telescope pointing at the zenith, the ``hat{e}`` direction 
+    is aligned with the ``U`` direction (in the UVW plane), which means that we 
+    can identify the direction cosines ``l = enu_e`` and ``m = enu_n``.
+    
+    Azimuth is oriented East of North, i.e. Az(N) = 0 deg, Az(E) = +90 deg in  
+    the astropy convention, and North of East, i.e. Az(N) = +90 deg, and 
+    Az(E) = 0 deg in the UVBeam convention.
 
     Parameters
     ----------
     enu_e, enu_n : array_like
         Normalized angle cosine coordinates on the interval (-1, +1).
-
+    
+    orientation : str, optional
+        Orientation convention used for the azimuth angle. The default is 
+        ``'astropy'``, which uses an East of North convention (Az(N) = 0 deg, 
+        Az(E) = +90 deg). Alternatively, the ``'uvbeam'`` convention uses 
+        North of East (Az(N) = +90 deg, Az(E) = 0 deg).
+    
     Returns
     -------
     az, za : array_like
         Corresponding azimuth and zenith angles (in radians).
     """
+    assert orientation in ['astropy', 'uvbeam'], \
+        "orientation must be either 'astropy' or 'uvbeam'"
+    
     lsqr = enu_n ** 2.0 + enu_e ** 2.0
     zeta = np.where(lsqr < 1.0, np.sqrt(1.0 - lsqr), 0.0)
 
-    az = -np.arctan2(enu_e, enu_n)
+    az = np.arctan2(enu_e, enu_n)
     za = 0.5 * np.pi - np.arcsin(zeta)
+    
+    # Flip and rotate azimuth coordinate if uvbeam convention is used
+    if orientation == 'uvbeam':
+        az = 0.5*np.pi - az
+    
     return az, za
 
 
@@ -38,14 +60,18 @@ def eci_to_enu_matrix(ha, lat):
     Transformation matrix to project Earth-Centered Inertial (ECI) coordinates
     to local observer-centric East-North-Up (ENU) coordinates at a given time
     and location.
+    
+    The ECI coordinates are aligned with the celestial pole, i.e. for (x,y,z)
+    (RA=0  deg, Dec=0  deg) = (1, 0, 0)
+    (RA=90 deg, Dec=0  deg) = (0, 1, 0)
+    (RA=0  deg, Dec=90 deg) = (0, 0, 1)
 
     Note: This is a stripped-down version of the ``eq2top_m`` function.
 
     Parameters
     ----------
     ha : float
-        Hour angle, in radians, where HA = LST - RA. Normally, this is passed
-        in as ``ha = -lst``.
+        Hour angle, in radians, where HA = LST - RA.
 
     lat : float
         Latitude of the observer, in radians.
@@ -53,14 +79,14 @@ def eci_to_enu_matrix(ha, lat):
     Returns
     -------
     m : array_like
-        Array of 3x3 matrices containing the rotation matrices for each time.
+        3x3 array containing the rotation matrix for a given time.
     """
     # Reference: https://gssc.esa.int/navipedia/index.php/Transformations_between_ECEF_and_ENU_coordinates
     return np.array(
         [
-            [np.sin(ha), np.cos(ha), 0.0 * ha],
-            [-np.sin(lat) * np.cos(ha), np.sin(lat) * np.sin(ha), np.cos(lat)],
-            [np.cos(lat) * np.cos(ha), -np.cos(lat) * np.sin(ha), np.sin(lat)],
+            [-np.sin(ha), np.cos(ha), 0.0 * ha],
+            [-np.sin(lat) * np.cos(ha), -np.sin(lat) * np.sin(ha), np.cos(lat)],
+            [np.cos(lat) * np.cos(ha), np.cos(lat) * np.sin(ha), np.sin(lat)],
         ]
     )
 
@@ -71,12 +97,16 @@ def enu_to_eci_matrix(ha, lat):
     3x3 transformation matrix to project local observer-centric East-North-Up
     (ENU) coordinates at a given time and location to Earth-Centered Inertial
     (ECI) coordinates.
+    
+    The ECI coordinates are aligned with the celestial pole, i.e. for (x,y,z)
+    (RA=0  deg, Dec=0  deg) = (1, 0, 0)
+    (RA=90 deg, Dec=0  deg) = (0, 1, 0)
+    (RA=0  deg, Dec=90 deg) = (0, 0, 1)
 
     Parameters
     ----------
     ha : float
-        Hour angle, in radians, where HA = LST - RA. Normally, this is passed
-        in as ``ha = -lst``.
+        Hour angle, in radians, where HA = LST - RA.
 
     lat : float
         Latitude of the observer, in radians.
@@ -84,13 +114,13 @@ def enu_to_eci_matrix(ha, lat):
     Returns
     -------
     m : array_like
-        Array of 3x3 matrices containing the rotation matrices for each time.
+        3x3 array containing the rotation matrix for a given time.
     """
     # Reference: https://gssc.esa.int/navipedia/index.php/Transformations_between_ECEF_and_ENU_coordinates
     return np.array(
         [
-            [np.sin(ha), -np.cos(ha) * np.sin(lat), np.cos(ha) * np.cos(lat)],
-            [np.cos(ha), np.sin(ha) * np.sin(lat), -np.sin(ha) * np.cos(lat)],
+            [-np.sin(ha), -np.cos(ha) * np.sin(lat), np.cos(ha) * np.cos(lat)],
+            [np.cos(ha), -np.sin(ha) * np.sin(lat), np.sin(ha) * np.cos(lat)],
             [0.0 * ha, np.cos(lat), np.sin(lat)],
         ]
     )
@@ -98,7 +128,19 @@ def enu_to_eci_matrix(ha, lat):
 
 def point_source_crd_eq(ra, dec):
     """Coordinate transform of source locations from equatorial to Cartesian.
-
+    
+    This converts RA and Dec angles to a Cartesian x,y,z unit vector in an 
+    Earth-Centered Inertial (ECI) coordinate system aligned with the celestial 
+    pole, i.e. for (x,y,z)
+    (RA=0  deg, Dec=0  deg) = (1, 0, 0)
+    (RA=90 deg, Dec=0  deg) = (0, 1, 0)
+    (RA=0  deg, Dec=90 deg) = (0, 0, 1)
+    
+    The RA and Dec are assumed to be in a particular reference frame that may 
+    not match-up with standard frames like ICRS/J2000. To convert coordinates 
+    from a standard system into the relevant frame, see 
+    :func:`~equatorial_to_eci_coords`.
+    
     Parameters
     ----------
     ra, dec : array_like
@@ -117,7 +159,8 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     """Convert RA and Dec coordinates into the ECI system used by vis_cpu.
 
     Convert RA and Dec coordinates into the ECI (Earth-Centered Inertial)
-    system used by vis_cpu.
+    system used by vis_cpu. This ECI system is aligned with the celestial pole, 
+    not the Earth's axis.
 
     To ensure that all corrections are properly taken into account, this
     function uses Astropy to find the Alt/Az positions of the coordinates at a
@@ -192,6 +235,7 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     astropy_enu = np.array(
         [np.cos(el) * np.sin(az), np.cos(el) * np.cos(az), np.sin(el)]
     )
+    # In astropy, Az oriented East of North, i.e. Az(N) = 0 deg, Az(E) = +90 deg
 
     # Convert to ECI coordinates using ENU->ECI transform
     astropy_eci = np.dot(m, astropy_enu)
@@ -204,7 +248,12 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
 
 
 def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
-    """Convert a UVbeam to a uniform (l,m) grid.
+    """Evaluate a UVBeam object on a uniform direction cosine (l,m) grid.
+    
+    Here, (l, m) are the direction cosines, associated with the East and North 
+    ENU coordinates (and also the U and V directions for a zenith-pointing 
+    drift-scan telescope). For a vector in East-North-Up (ENU) coordinates 
+    vec{p}, we therefore have ``l = vec{p}.hat{e}`` etc.
 
     Parameters
     ----------
@@ -229,14 +278,10 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
     L, m = np.meshgrid(L, L)
     L = L.flatten()
     m = m.flatten()
-
-    # Apply horizon cut
-    lsqr = L ** 2.0 + m ** 2.0
-    n = np.where(lsqr < 1.0, np.sqrt(1.0 - lsqr), 0.0)
-
-    # Calculate azimuth and zenith angle
-    az = -np.arctan2(m, L)
-    za = np.pi / 2.0 - np.arcsin(n)
+    
+    # Get azimuth and zenith angles (note the different azimuth convention 
+    # used by UVBeam)
+    az, za = enu_to_az_za(enu_e=L, enu_n=m, orientation="uvbeam")
 
     # Interpolate beam onto cube
     efield_beam = uvbeam.interp(az, za, freqs, **kwargs)[0]
@@ -261,3 +306,4 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
         if np.max(bm) > 0.0:
             bm /= np.max(bm)
         return bm.reshape((len(freqs), n_pix_lm, n_pix_lm))
+        

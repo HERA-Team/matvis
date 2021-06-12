@@ -94,7 +94,7 @@ def simulate_vis(
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
     # Get coordinate transforms as a function of LST
-    eq2tops = np.array([conversions.eci_to_enu_matrix(-lst, latitude) for lst in lsts])
+    eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     # Create beam pixel models (if requested)
     if pixel_beams:
