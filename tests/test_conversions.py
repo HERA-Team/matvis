@@ -10,7 +10,7 @@ from astropy.time import Time
 from vis_cpu import conversions
 
 np.random.seed(0)
-NTIMES = 4
+NTIMES = 24
 NFREQ = 5
 NPTSRC = 20
 
@@ -86,6 +86,10 @@ def test_equatorial_to_enu():
         # Rotation matrices from ECI <-> ENU
         mat_eci_to_enu = conversions.eci_to_enu_matrix(lst, lat=hera_lat)
         mat_enu_to_eci = conversions.enu_to_eci_matrix(lst, lat=hera_lat)
+
+        # Test that transforms are one anothers' inverse
+        assert np.allclose(np.dot(mat_eci_to_enu, mat_enu_to_eci), np.eye(3))
+        assert np.allclose(np.dot(mat_enu_to_eci, mat_eci_to_enu), np.eye(3))
 
         # Convert to local direction cosines l,m,n
         tx, ty, tz = crd_top = np.dot(mat_eci_to_enu, crd_eq)
