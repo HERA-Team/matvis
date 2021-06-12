@@ -170,11 +170,12 @@ def vis_cpu(
                 # Extract requested polarizations
                 for p1 in range(nax):
                     for p2 in range(nfeed):
-                        # FIXME: Need to check whether the beam pixel grid has been reshaped in l,m or m,l order
+                        # FIXME: Need to check whether the beam pixel grid has
+                        # been reshaped in l,m or m,l order
                         A_s[p1, p2, i] = splines[p1][p2][i](ty, tx, grid=False)
         else:
             # Primary beam pattern using direct interpolation of UVBeam object
-            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation='uvbeam')
+            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
             for i in range(nant):
                 interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
 
