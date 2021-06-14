@@ -222,13 +222,13 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
         raise TypeError("location must be an astropy.EarthLocation object")
 
     # Local sidereal time at this obstime and location
-    lst = obstime.sidereal_time("mean", longitude=location.lon).rad
+    lst = obstime.sidereal_time("apparent", longitude=location.lon).rad
 
     # Create Astropy SkyCoord object
     skycoords = SkyCoord(ra, dec, unit=unit, frame=frame)
 
     # Rotation matrix from Cartesian ENU to Cartesian ECI
-    m = enu_to_eci_matrix(-lst, location.lat.rad)  # Evaluated at HA (= LST - RA) = -LST
+    m = enu_to_eci_matrix(lst, location.lat.rad)  # Evaluated at HA (= LST - RA) = LST
 
     # Get AltAz and ENU coords of sources at reference time and location. Ref:
     # https://gssc.esa.int/navipedia/index.php/Transformations_between_ECEF_and_ENU_coordinates
