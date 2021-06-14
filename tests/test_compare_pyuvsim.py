@@ -3,7 +3,6 @@ import numpy as np
 from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
 from astropy.units import Quantity
-from hera_sim import io
 from pyradiosky import SkyModel
 from pyuvsim import AnalyticBeam, simsetup, uvsim
 from pyuvsim.telescope import BeamList
@@ -11,7 +10,7 @@ from pyuvsim.telescope import BeamList
 from vis_cpu import conversions, simulate_vis, vis_cpu
 
 nfreq = 3
-ntime = 5
+ntime = 20
 nants = 3
 nsource = 500
 
@@ -36,17 +35,21 @@ def test_compare_pyuvsim():
     for i in range(nants):
         ants[i] = (x[i], y[i], z[i])
 
-    # Observing parameters in a UVData object.
-    uvdata = io.empty_uvdata(
-        nfreq=nfreq,  # Need >=2 freqs for healvis to work
+    # Observing parameters in a UVData object
+    uvdata = simsetup.initialize_uvdata_from_keywords(
+        Nfreqs=nfreq,
         start_freq=100e6,
         channel_width=97.3e3,
         start_time=obstime.jd,
-        integration_time=1820.0,  # Just over 30 mins between time samples
-        ntimes=ntime,
-        ants=ants,
+        integration_time=182.0,  # Just over 3 mins between time samples
+        Ntimes=ntime,
+        array_layout=ants,
         polarization_array=np.array(["XX", "YY", "XY", "YX"]),
-        Npols=4,
+        telescope_location=(hera_lat, hera_lon, hera_alt),
+        telescope_name="test_array",
+        phase_type="drift",
+        vis_units="Jy",
+        complete=True,
     )
     lsts = np.unique(uvdata.lst_array)
 
@@ -133,8 +136,22 @@ def test_compare_pyuvsim():
     # Compare
     # ---------------------------------------------------------------------------
     # Loop over baselines and compare
+    diff_re = 0.0
+    diff_im = 0.0
     for i in range(nants):
         for j in range(i, nants):
-            d = uvd_uvsim.get_data((i, j, "XX")).T
+            d_uvsim = uvd_uvsim.get_data((i, j, "XX")).T
+
             # FIXME: There is a factor of 2 in amplitude unaccounted for
-            assert np.allclose(0.5 * vis_vc[:, :, i, j], d, rtol=2e-4, atol=2e-4)
+            d_viscpu = 0.5 * vis_vc[:, :, i, j]
+
+            # Keep track of maximum difference
+            delta = d_uvsim - d_viscpu
+            if np.abs(np.max(delta.real)) > diff_re:
+                diff_re = np.abs(np.max(delta.real))
+            if np.abs(np.max(delta.imag)) > diff_im:
+                diff_im = np.abs(np.max(delta.imag))
+
+            assert np.allclose(
+                d_uvsim, d_viscpu, rtol=2e-4, atol=5e-4
+            ), "Max. difference (re, im): %10.10e, %10.10e" % (diff_re, diff_im)
