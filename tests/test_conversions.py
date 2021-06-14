@@ -149,3 +149,36 @@ def test_equatorial_to_enu():
         assert np.isclose(_tx, 1.0)
         assert np.isclose(_ty, 0.0)
         assert np.isclose(_tz, 0.0)
+
+
+def test_equatorial_to_eci_coords():
+    """Test correction of ICRS coords to vis_cpu implicit coord system."""
+    nsrcs = 200  # no. of sources to transform
+
+    # Point source equatorial coords in ICRS (randomly distributed)
+    np.random.seed(1)
+    ra = np.random.uniform(low=0.0, high=2.0 * np.pi, size=nsrcs)
+    dec = np.random.uniform(low=-0.5 * np.pi, high=0.5 * np.pi, size=ra.size)
+
+    # HERA location
+    location = EarthLocation.from_geodetic(lat=-30.7215, lon=21.4283, height=1073.0)
+
+    # Observation time
+    obstime = Time("2018-08-31T04:02:30.11", format="isot", scale="utc")
+
+    # Check that function runs
+    new_ra, new_dec = conversions.equatorial_to_eci_coords(
+        ra, dec, obstime, location, unit="rad", frame="icrs"
+    )
+    assert np.all(~np.isnan(new_ra))  # check that there are no NaN values
+    assert np.all(~np.isnan(new_dec))
+
+    # Check that input-checking errors are raised
+    with pytest.raises(TypeError):
+        _ra, _dec = conversions.equatorial_to_eci_coords(
+            ra, dec, "2018-08-31T04:02:30.11", location, unit="rad", frame="icrs"
+        )
+    with pytest.raises(TypeError):
+        _ra, _dec = conversions.equatorial_to_eci_coords(
+            ra, dec, obstime, (-30.7, 21.4, 1073.0), unit="rad", frame="icrs"
+        )

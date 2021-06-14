@@ -216,10 +216,10 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
         Arrays of RA and Dec coordinates with respect to the ECI system used
         by vis_cpu.
     """
-    assert isinstance(obstime, Time), "obstime must be an astropy.Time object"
-    assert isinstance(
-        location, EarthLocation
-    ), "location must be an astropy.EarthLocation object"
+    if not isinstance(obstime, Time):
+        raise TypeError("obstime must be an astropy.Time object")
+    if not isinstance(location, EarthLocation):
+        raise TypeError("location must be an astropy.EarthLocation object")
 
     # Local sidereal time at this obstime and location
     lst = obstime.sidereal_time("mean", longitude=location.lon).rad
