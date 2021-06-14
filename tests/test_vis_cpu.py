@@ -18,8 +18,8 @@ ants = {0: (0, 0, 0), 1: (1, 1, 0)}
 def test_vis_cpu():
     """Test basic operation of vis_cpu."""
     # Point source equatorial coords (radians)
-    ra = np.linspace(0.0, np.pi, NPTSRC)
-    dec = np.linspace(0.0, np.pi, NPTSRC)
+    ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
+    dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
 
     # Antenna x,y,z positions and frequency array
     antpos = np.array([ants[k] for k in ants.keys()])
@@ -63,8 +63,8 @@ def test_vis_cpu():
 def test_simulate_vis():
     """Test basic operation of simple wrapper around vis_cpu, `simulate_vis`."""
     # Point source equatorial coords (radians)
-    ra = np.linspace(0.0, np.pi, NPTSRC)
-    dec = np.linspace(0.0, np.pi, NPTSRC)
+    ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
+    dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
 
     # Antenna x,y,z positions and frequency array
     freq = np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
