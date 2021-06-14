@@ -186,7 +186,7 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
                                                lon=21.4283,
                                                height=1073.)
         # Observation time
-        t = Time('2018-08-31T04:02:30.11', format='isot', scale='utc')
+        obstime = Time('2018-08-31T04:02:30.11', format='isot', scale='utc')
 
 
     Parameters
