@@ -6,9 +6,12 @@ import numpy as np
 def lm_to_az_za(el, m):
     """Convert l and m (on intervals -1, +1) to azimuth and zenith angle.
 
+    In an East-North-Up (ENU) coordinate system, m = vec{p}.hat{e}
+    and el = vec{p}.hat{n} for a pointing vector vec{p}.
+
     Parameters
     ----------
-    l, m : array_like
+    el, m : array_like
         Normalized angular coordinates on the interval (-1, +1).
 
     Returns

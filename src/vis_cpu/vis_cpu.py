@@ -29,15 +29,20 @@ def vis_cpu(
     freq : float
         Frequency to evaluate the visibilities at [GHz].
     eq2tops : array_like
-        Set of 3x3 transformation matrices converting equatorial
-        coordinates to topocentric at each
-        hour angle (and declination) in the dataset.
+        Set of 3x3 transformation matrices to rotate the RA and Dec
+        cosines in an ECI coordinate system (see `crd_eq`) to
+        topocentric ENU (East-North-Up) unit vectors at each
+        time/LST/hour angle in the dataset.
         Shape=(NTIMES, 3, 3).
     crd_eq : array_like
-        Equatorial coordinates of sources, in Cartesian system.
+        Cartesian unit vectors of sources in an ECI (Earth Centered
+        Inertial) system, which has the Earth's center of mass at
+        the origin, and is fixed with respect to the distant stars.
+        The components of the ECI vector for each source are:
+        (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
         Shape=(3, NSRCS).
     I_sky : array_like
-        Intensity distribution on the sky, stored as array of sources.
+        Intensity distribution of sources/pixels on the sky.
         Shape=(NSRCS,).
     bm_cube : array_like, optional
         Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
@@ -153,6 +158,9 @@ def vis_cpu(
 
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
+        # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
+        # (topocentric) cosines, with (tx, ty, tz) = (e, n, u) components
+        # relative to the center of the array
         tx, ty, tz = crd_top = np.dot(eq2top, crd_eq)
 
         # Primary beam response
@@ -165,7 +173,7 @@ def vis_cpu(
                         A_s[p1, p2, i] = splines[p1][p2][i](ty, tx, grid=False)
         else:
             # Primary beam pattern using direct interpolation of UVBeam object
-            az, za = conversions.lm_to_az_za(tx, ty)
+            az, za = conversions.lm_to_az_za(el=ty, m=tx)
             for i in range(nant):
                 interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
 
