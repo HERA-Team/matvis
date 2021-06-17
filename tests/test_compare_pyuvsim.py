@@ -11,7 +11,7 @@ from vis_cpu import conversions, simulate_vis, vis_cpu
 
 nfreq = 3
 ntime = 20
-nants = 3
+nants = 10  # 3
 nsource = 500
 
 
@@ -140,10 +140,8 @@ def test_compare_pyuvsim():
     diff_im = 0.0
     for i in range(nants):
         for j in range(i, nants):
-            d_uvsim = uvd_uvsim.get_data((i, j, "XX")).T
-
-            # FIXME: There is a factor of 2 in amplitude unaccounted for
-            d_viscpu = 0.5 * vis_vc[:, :, i, j]
+            d_uvsim = uvd_uvsim.get_data((i, j, "XX")).T  # pyuvsim visibility
+            d_viscpu = vis_vc[:, :, i, j]  # vis_cpu visibility
 
             # Keep track of maximum difference
             delta = d_uvsim - d_viscpu

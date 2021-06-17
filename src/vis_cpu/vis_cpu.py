@@ -90,7 +90,11 @@ def vis_cpu(
         (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
         Shape=(3, NSRCS).
     I_sky : array_like
-        Intensity distribution of sources/pixels on the sky.
+        Intensity distribution of sources/pixels on the sky, assuming intensity
+        (Stokes I) only. The Stokes I intensity will be split equally between
+        the two linear polarization channels, resulting in a factor of 0.5 from
+        the value inputted here. This is done even if only one polarization
+        channel is simulated.
         Shape=(NSRCS,).
     bm_cube : array_like, optional
         Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
@@ -168,11 +172,12 @@ def vis_cpu(
         assert len(beam_list) == nant, "beam_list must have length nant"
 
     # Intensity distribution (sqrt) and antenna positions. Does not support
-    # negative sky.
-    Isqrt = np.sqrt(I_sky).astype(real_dtype)
+    # negative sky. Factor of 0.5 accounts for splitting Stokes I between
+    # polarization channels
+    Isqrt = 0.5 * np.sqrt(I_sky).astype(real_dtype)
     antpos = antpos.astype(real_dtype)
 
-    ang_freq = 2 * np.pi * freq
+    ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
     A_s = np.zeros((nax, nfeed, nant, nsrcs), dtype=real_dtype)
