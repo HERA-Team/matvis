@@ -5,13 +5,13 @@ channels:
 dependencies:
   - mpi4py>=3.0,<4  # Required here so that we get
   - astropy>=4,<5
-  - numpy>=1.15,<1.17
-  - scipy>=1.5,<1.7
-  - pip>=20.1
+  - numpy>=1.20,<2.0
+  - scipy>=1.6,<2.0
+  - pip>=21.1,<22
   - pytest>=6.2.4
   - pytest-cov>=2.11.1
-  - matplotlib>=3.2.2,<4
-  - ipython>=7.15
+  - matplotlib>=3.3.4,<4
+  - ipython>=7.22,<8
   - h5py>=3.2,<4
   - pip:
     - pyuvsim[sim]>=1.2,<1.4
