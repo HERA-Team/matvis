@@ -3,16 +3,16 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - mpi4py>=3.0  # Required here so that we get
+  - mpi4py>=3.0,<4  # Required here so that we get
   - astropy>=4,<5
   - numpy>=1.15,<1.17
   - scipy>=1.5,<1.7
   - pip>=20.1
-  - pytest=6.2.4
-  - pytest-cov=2.11.1
+  - pytest>=6.2.4
+  - pytest-cov>=2.11.1
   - matplotlib>=3.2.2,<4
-  - ipython=7.15
+  - ipython>=7.15
   - h5py>=3.2,<4
   - pip:
-    - pyuvsim[sim]>=1.2
-    - pyradiosky>=0.1.1
+    - pyuvsim[sim]>=1.2,<1.4
+    - pyradiosky>=0.1.1,<0.3
