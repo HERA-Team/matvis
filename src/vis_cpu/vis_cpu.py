@@ -174,7 +174,7 @@ def vis_cpu(
     # Intensity distribution (sqrt) and antenna positions. Does not support
     # negative sky. Factor of 0.5 accounts for splitting Stokes I between
     # polarization channels
-    Isqrt = 0.5 * np.sqrt(I_sky).astype(real_dtype)
+    Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
     antpos = antpos.astype(real_dtype)
 
     ang_freq = 2.0 * np.pi * freq

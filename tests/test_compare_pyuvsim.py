@@ -11,7 +11,7 @@ from vis_cpu import conversions, simulate_vis, vis_cpu
 
 nfreq = 3
 ntime = 20
-nants = 10  # 3
+nants = 4
 nsource = 500
 
 
