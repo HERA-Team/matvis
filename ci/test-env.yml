@@ -1,0 +1,11 @@
+name: tests
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pyuvsim[sim]
+  - pytest
+  - pytest-cov
+  - pyradiosky
+  - matplotlib
+  - ipython
