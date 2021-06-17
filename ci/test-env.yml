@@ -4,3 +4,4 @@ channels:
   - defaults
 dependencies:
   - mpi4py  # Required here so that we get
+  - pip

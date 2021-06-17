@@ -50,6 +50,7 @@ jobs:
 
       - name: Install
         run: |
+          echo $(which pip)
           pip install .[test]
 
       - name: Run Tests
