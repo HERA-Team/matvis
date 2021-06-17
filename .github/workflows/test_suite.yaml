@@ -18,15 +18,18 @@ jobs:
       PYTHON: ${{ matrix.python-version }}
       OS: ${{ matrix.os }}
     name: Testing
-    #    needs: [linter]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         python-version: [3.7, 3.8, 3.9]
+    defaults:
+     run:
+       # Adding -l {0} helps ensure conda can be found properly in windows.
+       shell: bash -l {0}
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@main
         with:
           fetch-depth: 1
 
