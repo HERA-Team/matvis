@@ -46,12 +46,11 @@ jobs:
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v2.1.1
         with:
-          auto-update-conda: true
-          # miniconda-version: "latest"
+          # auto-update-conda: true
+          miniconda-version: "latest"
           python-version: ${{ matrix.python-version }}
           environment-file: ci/test-env.yml
           activate-environment: tests
-          mamba-version: "*"
           channels: conda-forge,defaults
           channel-priority: strict
           use-only-tar-bz2: true
