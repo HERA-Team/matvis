@@ -83,8 +83,12 @@ def simulate_vis(
 
     # Get polarization information from beams
     if polarized:
-        naxes = beams[0].Naxes_vec
-        nfeeds = beams[0].Nfeeds
+        try:
+            naxes = beams[0].Naxes_vec
+            nfeeds = beams[0].Nfeeds
+        except AttributeError:
+            # If Naxes_vec and Nfeeds properties aren't set, assume no pol.
+            naxes = nfeeds = 1
 
     # Antenna x,y,z positions
     antpos = np.array([ants[k] for k in ants.keys()])
@@ -94,7 +98,7 @@ def simulate_vis(
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
     # Get coordinate transforms as a function of LST
-    eq2tops = conversions.get_eq2tops(lsts, latitude=latitude)  # HERA latitude
+    eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     # Create beam pixel models (if requested)
     if pixel_beams:
