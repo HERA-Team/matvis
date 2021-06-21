@@ -8,6 +8,54 @@ from typing import Optional, Sequence
 from . import conversions
 
 
+def construct_pixel_beam_spline(bm_cube):
+    """Construct bivariate spline for pixelated beams for all antennas.
+
+    Uses the ``scipy.interpolate.RectBivariateSpline`` function.
+
+    Parameters
+    ----------
+    bm_cube : array_like
+        Pixelized beam maps for each antenna.
+        Shape: (NANT, BEAM_PIX, BEAM_PIX) if unpolarized, or
+        (NANT, NAXES, NFEEDS, BEAM_PIX, BEAM_PIX) if polarized.
+
+    Returns
+    -------
+    splines : list of fn
+        List of interpolation functions, one for each antenna, in order.
+    """
+    if len(bm_cube.shape) == 5:
+        # Polarized beam
+        nax, nfeed, nant, bm_pix, _ = bm_cube.shape
+    else:
+        nax = nfeed = 1
+        nant, bm_pix, _ = bm_cube.shape
+
+    # x and y coordinates of beam
+    bm_pix_x = np.linspace(-1, 1, bm_pix)
+    bm_pix_y = np.linspace(-1, 1, bm_pix)
+
+    # Construct splines for each polarization (pol. vector axis + feed) and
+    # antenna. The `splines` list has shape (Naxes, Nfeeds, Nants).
+    splines = []
+    for p1 in range(nax):
+        spl_axes = []
+        for p2 in range(nfeed):
+            spl_feeds = []
+
+            # Loop over antennas
+            for i in range(nant):
+                # Linear interpolation of primary beam pattern.
+                spl = RectBivariateSpline(
+                    bm_pix_y, bm_pix_x, bm_cube[p1, p2, i], kx=1, ky=1
+                )
+                spl_feeds.append(spl)
+            spl_axes.append(spl_feeds)
+        splines.append(spl_axes)
+    return splines
+
+
 def vis_cpu(
     antpos: np.ndarray,
     freq: float,
@@ -29,15 +77,24 @@ def vis_cpu(
     freq : float
         Frequency to evaluate the visibilities at [GHz].
     eq2tops : array_like
-        Set of 3x3 transformation matrices converting equatorial
-        coordinates to topocentric at each
-        hour angle (and declination) in the dataset.
+        Set of 3x3 transformation matrices to rotate the RA and Dec
+        cosines in an ECI coordinate system (see `crd_eq`) to
+        topocentric ENU (East-North-Up) unit vectors at each
+        time/LST/hour angle in the dataset.
         Shape=(NTIMES, 3, 3).
     crd_eq : array_like
-        Equatorial coordinates of sources, in Cartesian system.
+        Cartesian unit vectors of sources in an ECI (Earth Centered
+        Inertial) system, which has the Earth's center of mass at
+        the origin, and is fixed with respect to the distant stars.
+        The components of the ECI vector for each source are:
+        (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
         Shape=(3, NSRCS).
     I_sky : array_like
-        Intensity distribution on the sky, stored as array of sources.
+        Intensity distribution of sources/pixels on the sky, assuming intensity
+        (Stokes I) only. The Stokes I intensity will be split equally between
+        the two linear polarization channels, resulting in a factor of 0.5 from
+        the value inputted here. This is done even if only one polarization
+        channel is simulated.
         Shape=(NSRCS,).
     bm_cube : array_like, optional
         Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
@@ -115,11 +172,12 @@ def vis_cpu(
         assert len(beam_list) == nant, "beam_list must have length nant"
 
     # Intensity distribution (sqrt) and antenna positions. Does not support
-    # negative sky.
-    Isqrt = np.sqrt(I_sky).astype(real_dtype)
+    # negative sky. Factor of 0.5 accounts for splitting Stokes I between
+    # polarization channels
+    Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
     antpos = antpos.astype(real_dtype)
 
-    ang_freq = 2 * np.pi * freq
+    ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
     A_s = np.zeros((nax, nfeed, nant, nsrcs), dtype=real_dtype)
@@ -128,31 +186,15 @@ def vis_cpu(
     v = np.zeros((nant, nsrcs), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
-    # Precompute splines is using pixelized beams
+    # Precompute splines using pixelized beams
     if beam_list is None:
-        bm_pix_x = np.linspace(-1, 1, bm_pix)
-        bm_pix_y = np.linspace(-1, 1, bm_pix)
-
-        # Construct splines for each polarization (pol. vector axis + feed) and
-        # antenna. The `splines` list has shape (Naxes, Nfeeds, Nants).
-        splines = []
-        for p1 in range(nax):
-            spl_axes = []
-            for p2 in range(nfeed):
-                spl_feeds = []
-
-                # Loop over antennas
-                for i in range(nant):
-                    # Linear interpolation of primary beam pattern.
-                    spl = RectBivariateSpline(
-                        bm_pix_y, bm_pix_x, bm_cube[p1, p2, i], kx=1, ky=1
-                    )
-                    spl_feeds.append(spl)
-                spl_axes.append(spl_feeds)
-            splines.append(spl_axes)
+        splines = construct_pixel_beam_spline(bm_cube)
 
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
+        # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
+        # (topocentric) cosines, with (tx, ty, tz) = (e, n, u) components
+        # relative to the center of the array
         tx, ty, tz = crd_top = np.dot(eq2top, crd_eq)
 
         # Primary beam response
@@ -162,10 +204,12 @@ def vis_cpu(
                 # Extract requested polarizations
                 for p1 in range(nax):
                     for p2 in range(nfeed):
+                        # The beam pixel grid has been reshaped in the order
+                        # ty,tx, which implies m,l order
                         A_s[p1, p2, i] = splines[p1][p2][i](ty, tx, grid=False)
         else:
             # Primary beam pattern using direct interpolation of UVBeam object
-            az, za = conversions.lm_to_az_za(tx, ty)
+            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
             for i in range(nant):
                 interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
 
@@ -207,6 +251,7 @@ def vis_cpu(
         return vis
     else:
         return vis[0, 0]
+
 
 
 class VisCPU:
@@ -352,12 +397,4 @@ class VisCPU:
             # Compute visibilities using product of complex voltages (upper triangle).
             for i in range(len(antpos)):
                 np.dot(v[i : i + 1].conj(), v[i:].T, out=vis[t, i : i + 1, i:])
-
-        return vis
-
-
-
-            
-        
-            
 
