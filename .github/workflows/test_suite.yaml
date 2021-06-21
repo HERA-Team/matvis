@@ -77,5 +77,6 @@ jobs:
         uses: codecov/codecov-action@master
         if: matrix.os == 'ubuntu-latest' && success()
         with:
-          token: ${{secrets.CODECOV_TOKEN}} #required
           file: ./coverage.xml #optional
+          fail_ci_if_error: true # optional (default = false)
+          verbose: true # optional (default = false)
