@@ -3,6 +3,10 @@
 import numpy as np
 from astropy.constants import c
 from scipy.interpolate import RectBivariateSpline
+from vis_cpu.wrapper import simulate_vis
+from vis_cpu.conversions import equatorial_to_eci_coords
+from astropy.coordinates import EarthLocation
+from astropy.time import Time
 from typing import Optional, Sequence
 
 from . import conversions
@@ -54,7 +58,6 @@ def construct_pixel_beam_spline(bm_cube):
             spl_axes.append(spl_feeds)
         splines.append(spl_axes)
     return splines
-
 
 def vis_cpu(
     antpos: np.ndarray,
@@ -252,19 +255,20 @@ def vis_cpu(
     else:
         return vis[0, 0]
 
-
-
 class VisCPU:
-    def __init__(self, uvdata, beams, sky_freqs, point_source_pos, point_source_flux, **kwargs):
+    def __init__(self, uvdata, beams, sky_freqs, point_source_pos, point_source_flux, which, **kwargs):
         self.beams = beams
         self.npix = point_source_pos.shape[0]
         self.times = np.unique(uvdata.get_times("XX"))
-        self.point_source_flux = point_source_flux/2.0
+        self.point_source_flux = point_source_flux
         self.sky_freqs = sky_freqs
         self.uvdata = uvdata
+        self.which = which
+        self.point_source_pos = point_source_pos
         print("POS", point_source_pos)
         print("TIME", self.times)
-        self.az_za_transforms = conversions.AzZaTransforms(
+        if which == "astropy":
+            self.az_za_transforms = conversions.AzZaTransforms(
                             obstimes=self.times,
                             ra=point_source_pos[:, 0],
                             dec=point_source_pos[:, 1],
@@ -286,10 +290,21 @@ class VisCPU:
             self.antpos.append(_antpos[idx].flatten())
         self.antpos = np.array(self.antpos)
         
+	# Reconstruct antenna list tuples
+        self.ants = {}
+        for i in range(len(self.antpos)):
+            self.ants[str(i)] = ( self.antpos[i][0], self.antpos[i][1], self.antpos[i][2] )
+
         assert point_source_flux.shape[0] == sky_freqs.size
         assert point_source_flux.shape[1] == self.npix
-        
+
     def simulate(self):
+        if self.which == "astropy":
+            self.simulate_astropy()
+        else:
+            self.simulate_az_fix()
+        
+    def simulate_astropy(self):
         visfull = np.zeros_like(self.uvdata.data_array, dtype=np.complex128)
         for i in range(self.sky_freqs.size):
             vis = self.vis_cpu(self.antpos, self.sky_freqs[i], self.point_source_flux[i], 
@@ -300,22 +315,37 @@ class VisCPU:
             visfull[:, 0, i, 0] = vis_upper_tri.flatten()
             
         self.uvdata.data_array += visfull
-        
-    
 
-    def vis_cpu(self, 
+    def simulate_az_fix(self):
+        location = EarthLocation.from_geodetic(lat=-30.7215, lon=21.4283,  height=1073.)
+        obstime = Time(self.uvdata.time_array[0], format='jd', scale='utc')
+
+        ra, dec = equatorial_to_eci_coords(self.point_source_pos[:, 0], self.point_source_pos[:, 1], obstime, location)
+
+        visfull = np.zeros_like(self.uvdata.data_array)
+
+        # This will loop over frequency like the loop in _base_simulate
+        for i, vis in enumerate(simulate_vis(self.ants, self.point_source_flux.T, ra, dec, self.sky_freqs, np.unique(self.uvdata.lst_array), self.beams)):
+            indices = np.triu_indices(vis.shape[1])
+            vis_upper_tri = vis[:, indices[0], indices[1]]
+
+            visfull[:, 0, i, 0] = vis_upper_tri.flatten()
+
+        self.uvdata.data_array += visfull
+
+    def vis_cpu(self,
         antpos: np.ndarray,
         freq: float,
         I_sky: np.ndarray,
         ntimes : int,
         npix : int,
         beam_list: Sequence[np.ndarray],
-        az_za_transforms : conversions.AzZaTransforms
+        az_za_transforms : conversions.AzZaTransforms,
+        precision: int = 1,
+        polarized: bool = False,
     ):
         """
         Calculate visibility from an input intensity map and beam model.
-
-        Provided as a standalone function.
 
         Parameters
         ----------
@@ -324,62 +354,107 @@ class VisCPU:
         freq : float
             Frequency to evaluate the visibilities at [GHz].
         eq2tops : array_like
-            Set of 3x3 transformation matrices converting equatorial
-            coordinates to topocentric at each
-            hour angle (and declination) in the dataset.
+            Set of 3x3 transformation matrices to rotate the RA and Dec
+            cosines in an ECI coordinate system (see `crd_eq`) to
+            topocentric ENU (East-North-Up) unit vectors at each
+            time/LST/hour angle in the dataset.
             Shape=(NTIMES, 3, 3).
         crd_eq : array_like
-            Equatorial coordinates of Healpix pixels, in Cartesian system.
-            Shape=(3, NPIX).
+            Cartesian unit vectors of sources in an ECI (Earth Centered
+            Inertial) system, which has the Earth's center of mass at
+            the origin, and is fixed with respect to the distant stars.
+            The components of the ECI vector for each source are:
+            (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
+            Shape=(3, NSRCS).
         I_sky : array_like
-            Intensity distribution on the sky,
-            stored as array of Healpix pixels. Shape=(NPIX,).
+            Intensity distribution of sources/pixels on the sky, assuming intensity
+            (Stokes I) only. The Stokes I intensity will be split equally between
+            the two linear polarization channels, resulting in a factor of 0.5 from
+            the value inputted here. This is done even if only one polarization
+            channel is simulated.
+            Shape=(NSRCS,).
         bm_cube : array_like, optional
             Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
         beam_list : list of UVBeam, optional
             If specified, evaluate primary beam values directly using UVBeam
-            objects instead of using pixelized beam maps (`bm_cube` will be ignored
-            if `beam_list` is not None).
+            objects instead of using pixelized beam maps (``bm_cube`` will be
+            ignored if ``beam_list`` is not ``None``).
         precision : int, optional
             Which precision level to use for floats and complex numbers.
             Allowed values:
             - 1: float32, complex64
             - 2: float64, complex128
+        polarized : bool, optional
+            Whether to simulate a full polarized response in terms of nn, ne, en,
+            ee visibilities.
+
+            If False, a single Jones matrix element will be used, corresponding to
+            the (phi, e) element, i.e. the [0,0,1] component of the beam returned
+            by its ``interp()`` method.
+
+            See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
+            Default: False.
 
         Returns
         -------
-        array_like
-            Visibilities. Shape=(NTIMES, NANTS, NANTS).
+        vis : array_like
+            Simulated visibilities. If `polarized = True`, the output will have
+            shape (NAXES, NFEED, NTIMES, NANTS, NANTS), otherwise it will have
+            shape (NTIMES, NANTS, NANTS).
         """
+        assert precision in (1, 2)
+        if precision == 1:
+            real_dtype = np.float32
+            complex_dtype = np.complex64
+        else:
+            real_dtype = np.float64
+            complex_dtype = np.complex128
 
-        print("ANT", antpos)
-        print("FREQ", freq)
-        print("SKY", I_sky)
+        # Specify number of polarizations (axes/feeds)
+        if polarized:
+            nax = nfeed = 2
+        else:
+            nax = nfeed = 1
+
         nant, ncrd = antpos.shape
         assert ncrd == 3, "antpos must have shape (NANTS, 3)."
-        assert I_sky.ndim == 1 and I_sky.shape[0] == npix, "I_sky must have shape (NPIX,)."
+        assert (
+            I_sky.ndim == 1 and I_sky.shape[0] == npix
+        ), "I_sky must have shape (NSRCS,)."
+
         assert len(beam_list) == nant, "beam_list must have length nant"
 
         # Intensity distribution (sqrt) and antenna positions. Does not support
-        # negative sky.
-        Isqrt = np.sqrt(I_sky)
+        # negative sky. Factor of 0.5 accounts for splitting Stokes I between
+        # polarization channels
+        Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
+        antpos = antpos.astype(real_dtype)
 
-        ang_freq = 2 * np.pi * freq
+        ang_freq = 2.0 * np.pi * freq
 
-        # Empty arrays: beam pattern, visibilities, delays, complex voltages.
-        A_s = np.empty((nant, npix))
-        vis = np.empty((ntimes, nant, nant), dtype=np.complex128)
-        tau = np.empty((nant, npix))
-        v = np.empty((nant, npix), dtype=np.complex128)
+        # Zero arrays: beam pattern, visibilities, delays, complex voltages
+        A_s = np.zeros((nax, nfeed, nant, npix), dtype=real_dtype)
+        vis = np.zeros((nax, nfeed, ntimes, nant, nant), dtype=complex_dtype)
+        tau = np.zeros((nant, npix), dtype=real_dtype)
+        v = np.zeros((nant, npix), dtype=complex_dtype)
 
         # Loop over time samples
         for t in range(ntimes):
             # Primary beam pattern using direct interpolation of UVBeam object
             az, za, crd_top = az_za_transforms.transform(None, None, t)
+            print(az, za)
+            crd_top = crd_top.astype(real_dtype)
             for i in range(nant):
                 interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
-                A_s[i] = interp_beam[0, 0, 1]  # FIXME: assumes xx pol for now
 
+                if polarized:
+                    A_s[:, :, i] = interp_beam[:, 0, :, 0, :]  # spw=0 and freq=0
+                else:
+                    A_s[:, :, i] = interp_beam[
+                        0, 0, 1, :, :
+                    ]  # (phi, e) == 'xx' component
+
+            # Horizon cut
             A_s = np.where(crd_top[2] > 0, A_s, 0)
 
             # Calculate delays, where tau = (b * s) / c
@@ -392,9 +467,21 @@ class VisCPU:
             np.exp(1.0j * (ang_freq * tau), out=v)
 
             # Complex voltages.
-            v *= A_s * Isqrt
+            v *= Isqrt
 
             # Compute visibilities using product of complex voltages (upper triangle).
+            # Input arrays have shape (Nax, Nfeed, [Nants], Nsrcs
             for i in range(len(antpos)):
-                np.dot(v[i : i + 1].conj(), v[i:].T, out=vis[t, i : i + 1, i:])
+                vis[:, :, t, i : i + 1, i:] = np.einsum(
+                    "ijln,jkmn->iklm",
+                    A_s[:, :, i : i + 1].conj()
+                    * v[np.newaxis, np.newaxis, i : i + 1].conj(),
+                    A_s[:, :, i:] * v[np.newaxis, np.newaxis, i:],
+                    optimize=True,
+                )
 
+        # Return visibilities with or without multiple polarization channels
+        if polarized:
+            return vis
+        else:
+            return vis[0, 0]

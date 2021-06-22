@@ -122,7 +122,7 @@ def simulate_vis(
     for i in range(freqs.size):
 
         if pixel_beams:
-            vis[i] = vis_cpu(
+            vis[i] = vis_cpu.vis_cpu(
                 antpos,
                 freqs[i],
                 eq2tops,
@@ -133,7 +133,7 @@ def simulate_vis(
                 polarized=polarized,
             )
         else:
-            vis[i] = vis_cpu(
+            vis[i] = vis_cpu.vis_cpu(
                 antpos,
                 freqs[i],
                 eq2tops,
