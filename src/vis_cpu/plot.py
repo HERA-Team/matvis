@@ -1,8 +1,6 @@
 """Plotting convenience functions to help in analyzing vis_cpu output."""
 import numpy as np
 import pylab as plt
-from IPython.display import HTML
-from matplotlib import animation, rc
 
 from . import conversions
 
@@ -66,11 +64,12 @@ def animate_source_map(
     """
     Create an animated map of sources as a function of LST, Az, and ZA.
 
-    The sources are colored by the beam value.
+    The sources are colored by the beam value. Note that the ``IPython``
+    package is required by this function.
 
-    NOTE: If you get an error about the `ffmpeg` encoder not being installed,
-    you may need to change the path setting in matplotlib:
-    `plt.rcParams['animation.ffmpeg_path'] = '/path/to/ffmpeg'`.
+    NOTE: If you get an error about the ``ffmpeg`` encoder not being installed,
+    you may need to change the path setting in ``matplotlib``:
+    ``plt.rcParams['animation.ffmpeg_path'] = '/path/to/ffmpeg'``.
 
     Parameters
     ----------
@@ -93,6 +92,9 @@ def animate_source_map(
     anim : matplotlib HTML animation
         Animation object HTML, for display in a Jupyter notebook.
     """
+    from IPython.display import HTML
+    from matplotlib import animation, rc
+
     # Point source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
