@@ -163,8 +163,9 @@ def vis_gpu(
     freq: float,
     eq2tops: np.ndarray,
     crd_eq: np.ndarray,
-    sky_flux: np.ndarray,
-    beams: np.ndarray,
+    I_sky: np.ndarray,
+    beam_list: np.ndarray,
+    bm_cube: np.ndarray,
     nthreads: int = NTHREADS,
     max_memory: int = MAX_MEMORY,
     precision: int = 1,
@@ -173,6 +174,8 @@ def vis_gpu(
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
+    beams = bm_cube
+    sky_flux = I_sky
     assert precision in (1, 2)
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64
