@@ -286,7 +286,7 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
     az, za = enu_to_az_za(enu_e=L, enu_n=m, orientation="uvbeam")
 
     # Interpolate beam onto cube
-    efield_beam = uvbeam.interp(az, za, freqs, **kwargs)[0]
+    efield_beam = uvbeam.interp(az_array=az, za_array=za, freq_array=freqs, **kwargs)[0]
     if polarized:
         bm = efield_beam[:, 0, :, :, :]  # spw=0
     else:
