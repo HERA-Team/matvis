@@ -58,7 +58,7 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", constraint_az_between_zero
     if orientation == "uvbeam":
         az = 0.5 * np.pi - az
     if constraint_az_between_zero_twopi:
-        az = np.mode(az, 2 * np.pi)
+        az = np.mod(az, 2 * np.pi)
     return az, za
 
 
