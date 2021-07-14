@@ -7,9 +7,7 @@ from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
 
 
-def enu_to_az_za(
-    enu_e, enu_n, orientation="astropy", periodic_azimuth=True
-):
+def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     """Convert angle cosines in ENU coordinates into azimuth and zenith angle.
 
     For a pointing vector in East-North-Up (ENU) coordinates vec{p}, the input
@@ -292,9 +290,7 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
 
     # Get azimuth and zenith angles (note the different azimuth convention
     # used by UVBeam)
-    az, za = enu_to_az_za(
-        enu_e=L, enu_n=m, orientation="uvbeam", periodic_azimuth=True
-    )
+    az, za = enu_to_az_za(enu_e=L, enu_n=m, orientation="uvbeam", periodic_azimuth=True)
 
     # Interpolate beam onto cube
     efield_beam = uvbeam.interp(az_array=az, za_array=za, freq_array=freqs, **kwargs)[0]
