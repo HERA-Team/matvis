@@ -37,8 +37,9 @@ def enu_to_az_za(
 
     periodic_azimuth : bool, optional
         if True, constrain az to be betwee 0 and 2 * pi
-        This avoids negative az values which are standard for outputs of arctan2
-        and avoids problems that can arise with
+        This avoids the issue that arctan2 outputs angles between -pi and pi
+        while most CST beam formats store azimuths between 0 and 2pi which leads
+        interpolation domain mismatches.
 
     Returns
     -------
