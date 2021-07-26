@@ -159,15 +159,15 @@ def vis_cpu(
         if polarized:
             assert bm_cube.shape == (nax, nfeed, nant, bm_pix, bm_pix), (
                 "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) "
-                "if polarized=True. Shape wanted: {}; shape given: {}".format((nax, nfeed, nant, bm_pix, bm_pix), bm_cube.shape)
+                "if polarized=True. Shape wanted: {}; shape given: {}".format(
+                    (nax, nfeed, nant, bm_pix, bm_pix), bm_cube.shape)
             )
         else:
-            try:
-                bm_cube.shape == (1, 1, nant, bm_pix, bm_pix)
-            except:
+            if bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
                 assert bm_cube.shape == (nant, bm_pix, bm_pix), (
-                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) if polarized=False. "
-                    "Shape wanted: {}; shape given: {}".format((nant, bm_pix, bm_pix), bm_cube.shape)
+                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
+                    "Shape wanted: {}; shape given: {}".format(
+                        (nant, bm_pix, bm_pix), bm_cube.shape)
                 )
                 bm_cube = bm_cube[np.newaxis, np.newaxis]
     else:
@@ -240,10 +240,10 @@ def vis_cpu(
         # Compute visibilities using product of complex voltages (upper triangle).
         # Input arrays have shape (Nax, Nfeed, [Nants], Nsrcs
         for i in range(len(antpos)):
-            vis[:, :, t, i : i + 1, i:] = np.einsum(
+            vis[:, :, t, i: i + 1, i:] = np.einsum(
                 "ijln,jkmn->iklm",
-                A_s[:, :, i : i + 1].conj()
-                * v[np.newaxis, np.newaxis, i : i + 1].conj(),
+                A_s[:, :, i: i + 1].conj()
+                * v[np.newaxis, np.newaxis, i: i + 1].conj(),
                 A_s[:, :, i:] * v[np.newaxis, np.newaxis, i:],
                 optimize=True,
             )
