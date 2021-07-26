@@ -162,13 +162,14 @@ def vis_cpu(
                 "if polarized=True. Shape wanted: {}; shape given: {}".format((nax, nfeed, nant, bm_pix, bm_pix), bm_cube.shape)
             )
         else:
-            assert bm_cube.shape == (
-                nant,
-                bm_pix,
-                bm_pix,
-            ), "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) if polarized=False. \
-Shape wanted: {}; shape given: {}".format((nant, bm_pix, bm_pix), bm_cube.shape)
-            bm_cube = bm_cube[np.newaxis, np.newaxis]
+            try:
+                bm_cube.shape == (1, 1, nant, bm_pix, bm_pix)
+            except:
+                assert bm_cube.shape == (nant, bm_pix, bm_pix), (
+                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) if polarized=False. "
+                    "Shape wanted: {}; shape given: {}".format((nant, bm_pix, bm_pix), bm_cube.shape)
+                )
+                bm_cube = bm_cube[np.newaxis, np.newaxis]
     else:
         assert len(beam_list) == nant, "beam_list must have length nant"
 
