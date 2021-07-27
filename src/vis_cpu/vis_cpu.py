@@ -28,8 +28,8 @@ def construct_pixel_beam_spline(bm_cube):
     # Raise error if complex
     if np.any(np.iscomplex(bm_cube)):
         raise TypeError(
-            "bm_cube cannot be complex; interpolate real and "
-            "imaginary components separately"
+            "bm_cube cannot be complex. Interpolate real and "
+            "imaginary components separately."
         )
 
     if len(bm_cube.shape) == 5:
@@ -174,7 +174,8 @@ def vis_cpu(
         else:
             if bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
                 assert bm_cube.shape == (nant, bm_pix, bm_pix), (
-                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
+                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) "
+                    "or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
                     "Shape wanted: {}; shape given: {}".format(
                         (nant, bm_pix, bm_pix), bm_cube.shape
                     )
