@@ -7,7 +7,7 @@ from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
 
 
-def enu_to_az_za(enu_e, enu_n, orientation="astropy"):
+def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     """Convert angle cosines in ENU coordinates into azimuth and zenith angle.
 
     For a pointing vector in East-North-Up (ENU) coordinates vec{p}, the input
@@ -33,6 +33,12 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy"):
         Az(E) = +90 deg). Alternatively, the ``'uvbeam'`` convention uses
         North of East (Az(N) = +90 deg, Az(E) = 0 deg).
 
+    periodic_azimuth : bool, optional
+        if True, constrain az to be betwee 0 and 2 * pi
+        This avoids the issue that arctan2 outputs angles between -pi and pi
+        while most CST beam formats store azimuths between 0 and 2pi which leads
+        interpolation domain mismatches.
+
     Returns
     -------
     az, za : array_like
@@ -52,7 +58,8 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy"):
     # Flip and rotate azimuth coordinate if uvbeam convention is used
     if orientation == "uvbeam":
         az = 0.5 * np.pi - az
-
+    if periodic_azimuth:
+        az = np.mod(az, 2 * np.pi)
     return az, za
 
 
@@ -283,10 +290,10 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
 
     # Get azimuth and zenith angles (note the different azimuth convention
     # used by UVBeam)
-    az, za = enu_to_az_za(enu_e=L, enu_n=m, orientation="uvbeam")
+    az, za = enu_to_az_za(enu_e=L, enu_n=m, orientation="uvbeam", periodic_azimuth=True)
 
     # Interpolate beam onto cube
-    efield_beam = uvbeam.interp(az, za, freqs, **kwargs)[0]
+    efield_beam = uvbeam.interp(az_array=az, za_array=za, freq_array=freqs, **kwargs)[0]
     if polarized:
         bm = efield_beam[:, 0, :, :, :]  # spw=0
     else:
