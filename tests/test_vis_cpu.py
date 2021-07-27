@@ -59,6 +59,34 @@ def test_vis_cpu():
 
         assert np.all(~np.isnan(_vis))  # check that there are no NaN values
 
+    # Check that a wrongly-sized beam cube raises an error
+    # for both polarized and unpolarized sims
+    nb_bm_pix = beam_cube.shape[-1]
+    broken_beam_cube_for_unpol = np.empty((2, 2, 2, nb_bm_pix, nb_bm_pix))
+    broken_beam_cube_for_pol = np.empty((1, 2, 2, nb_bm_pix, nb_bm_pix))
+    with pytest.raises(AssertionError):
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            I_sky[:, 0],
+            bm_cube=broken_beam_cube_for_unpol,
+            precision=1,
+            polarized=False,
+        )
+    with pytest.raises(AssertionError):
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            I_sky[:, 0],
+            bm_cube=broken_beam_cube_for_pol,
+            precision=1,
+            polarized=True,
+        )
+
 
 def test_simulate_vis():
     """Test basic operation of simple wrapper around vis_cpu, `simulate_vis`."""
