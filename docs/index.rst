@@ -9,6 +9,7 @@ Contents
    License <license>
    Authors <authors>
    Changelog <changelog>
+   Tutorials <tutorials>
    Module Reference <api>
 
 
