@@ -152,4 +152,4 @@ def test_compare_pyuvsim():
 
             assert np.allclose(
                 d_uvsim, d_viscpu, rtol=2e-4, atol=5e-4
-            ), "Max. difference (re, im): %10.10e, %10.10e" % (diff_re, diff_im)
+            ), "Max. difference (re, im): {:10.10e}, {:10.10e}".format(diff_re, diff_im)
