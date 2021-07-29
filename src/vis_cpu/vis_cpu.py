@@ -230,7 +230,9 @@ def vis_cpu(
             # Primary beam pattern using direct interpolation of UVBeam object
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
             for i in range(nant):
-                interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
+                interp_beam = beam_list[i].interp(
+                    az_array=az, za_array=za, freq_array=np.atleast_1d(freq)
+                )[0]
 
                 if polarized:
                     A_s[:, :, i] = interp_beam[:, 0, :, 0, :]  # spw=0 and freq=0
