@@ -165,3 +165,26 @@ def test_beam_interpolation():
         # Check that results are close (they should be for 1000^2 pixel-beams
         # if the elliptical beams are both oriented the same way)
         assert np.allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
+
+
+def test_beam_interpolation_pol():
+    """Test beam interpolation for polarized beams."""
+    # Frequency array
+    freq = np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
+
+    # Get Gaussian beam and transform into an elliptical version
+    base_beam = AnalyticBeam("gaussian", diameter=14.0)
+    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
+
+    # Construct pixel beam from analytic beam
+    beam_pix = conversions.uvbeam_to_lm(
+        beam_analytic, freq, n_pix_lm=20, polarized=True
+    )
+    assert np.all(~np.isnan(beam_pix))
+    assert np.all(~np.isinf(beam_pix))
+
+    # Check that unpolarized beam pixelization has 2 fewer dimensions
+    beam_pix_unpol = conversions.uvbeam_to_lm(
+        beam_analytic, freq, n_pix_lm=200, polarized=False
+    )
+    assert len(beam_pix.shape) == len(beam_pix_unpol.shape) + 2
