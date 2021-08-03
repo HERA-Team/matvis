@@ -2,6 +2,22 @@
 Changelog
 =========
 
+Version 0.2.2
+=============
+
+Fixed
+-----
+
+- Fix issue with complex primary beams being cast to real
+
+Version 0.2.1
+=============
+
+Fixed
+-----
+
+- Make IPython import optional.
+
 Version 0.2.0
 =============
 

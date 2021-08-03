@@ -16,7 +16,7 @@ def construct_pixel_beam_spline(bm_cube):
     Parameters
     ----------
     bm_cube : array_like
-        Pixelized beam maps for each antenna.
+        Pixelized beam maps for each antenna (must be real-valued).
         Shape: (NANT, BEAM_PIX, BEAM_PIX) if unpolarized, or
         (NANT, NAXES, NFEEDS, BEAM_PIX, BEAM_PIX) if polarized.
 
@@ -25,6 +25,13 @@ def construct_pixel_beam_spline(bm_cube):
     splines : list of fn
         List of interpolation functions, one for each antenna, in order.
     """
+    # Raise error if complex
+    if np.any(np.iscomplex(bm_cube)):
+        raise TypeError(
+            "bm_cube cannot be complex. Interpolate real and "
+            "imaginary components separately."
+        )
+
     if len(bm_cube.shape) == 5:
         # Polarized beam
         nax, nfeed, nant, bm_pix, _ = bm_cube.shape
@@ -156,6 +163,7 @@ def vis_cpu(
 
     if beam_list is None:
         bm_pix = bm_cube.shape[-1]
+        complex_bm_pix = np.iscomplex(bm_pix)
         if polarized:
             assert bm_cube.shape == (nax, nfeed, nant, bm_pix, bm_pix), (
                 "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) "
@@ -166,7 +174,8 @@ def vis_cpu(
         else:
             if bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
                 assert bm_cube.shape == (nant, bm_pix, bm_pix), (
-                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
+                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) "
+                    "or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
                     "Shape wanted: {}; shape given: {}".format(
                         (nant, bm_pix, bm_pix), bm_cube.shape
                     )
@@ -184,7 +193,7 @@ def vis_cpu(
     ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    A_s = np.zeros((nax, nfeed, nant, nsrcs), dtype=real_dtype)
+    A_s = np.zeros((nax, nfeed, nant, nsrcs), dtype=complex_dtype)
     vis = np.zeros((nax, nfeed, ntimes, nant, nant), dtype=complex_dtype)
     tau = np.zeros((nant, nsrcs), dtype=real_dtype)
     v = np.zeros((nant, nsrcs), dtype=complex_dtype)
@@ -192,7 +201,9 @@ def vis_cpu(
 
     # Precompute splines using pixelized beams
     if beam_list is None:
-        splines = construct_pixel_beam_spline(bm_cube)
+        splines_re = construct_pixel_beam_spline(bm_cube.real)
+        if complex_bm_pix:
+            splines_im = construct_pixel_beam_spline(bm_cube.imag)
 
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
@@ -210,12 +221,18 @@ def vis_cpu(
                     for p2 in range(nfeed):
                         # The beam pixel grid has been reshaped in the order
                         # ty,tx, which implies m,l order
-                        A_s[p1, p2, i] = splines[p1][p2][i](ty, tx, grid=False)
+                        A_s[p1, p2, i] = splines_re[p1][p2][i](ty, tx, grid=False)
+                        if complex_bm_pix:
+                            A_s[p1, p2, i] += 1.0j * splines_im[p1][p2][i](
+                                ty, tx, grid=False
+                            )
         else:
             # Primary beam pattern using direct interpolation of UVBeam object
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
             for i in range(nant):
-                interp_beam = beam_list[i].interp(az, za, np.atleast_1d(freq))[0]
+                interp_beam = beam_list[i].interp(
+                    az_array=az, za_array=za, freq_array=np.atleast_1d(freq)
+                )[0]
 
                 if polarized:
                     A_s[:, :, i] = interp_beam[:, 0, :, 0, :]  # spw=0 and freq=0
@@ -226,6 +243,10 @@ def vis_cpu(
 
         # Horizon cut
         A_s = np.where(tz > 0, A_s, 0)
+
+        # Check for invalid beam values
+        if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
+            raise ValueError("Beam interpolation resulted in an invalid value")
 
         # Calculate delays, where tau = (b * s) / c
         np.dot(antpos, crd_top, out=tau)

@@ -50,7 +50,9 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     ], "orientation must be either 'astropy' or 'uvbeam'"
 
     lsqr = enu_n ** 2.0 + enu_e ** 2.0
-    zeta = np.where(lsqr < 1.0, np.sqrt(1.0 - lsqr), 0.0)
+    mask = lsqr < 1
+    zeta = np.zeros_like(lsqr)
+    zeta[mask] = np.sqrt(1 - lsqr[mask])
 
     az = np.arctan2(enu_e, enu_n)
     za = 0.5 * np.pi - np.arcsin(zeta)
@@ -283,7 +285,7 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
         `polarized=True`.
     """
     # Define angle cosines
-    L = np.linspace(-1, 1, n_pix_lm, dtype=np.float32)
+    L = np.linspace(-1, 1, n_pix_lm)
     L, m = np.meshgrid(L, L)
     L = L.flatten()
     m = m.flatten()
