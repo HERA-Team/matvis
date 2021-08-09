@@ -2,6 +2,15 @@
 Changelog
 =========
 
+Version 0.2.3
+=============
+
+Fixed
+-----
+
+- Fix issue with spurious beam normalization when a pixel beam
+  interpolation grid is generated from a UVBeam object
+
 Version 0.2.2
 =============
 
