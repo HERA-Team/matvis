@@ -13,6 +13,7 @@ dependencies:
   - matplotlib>=3.3.4,<4
   - ipython>=7.22,<8
   - h5py>=3.2,<4
+  - ffmpeg
   - pip:
     - pyuvsim[sim]>=1.2,<1.4
     - pyradiosky>=0.1.1,<0.3
