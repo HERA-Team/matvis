@@ -102,6 +102,33 @@ def test_vis_cpu():
         )
     assert np.all(~np.isnan(_vis))  # check that there are no NaN values
 
+    # Check that errors are raised when beams are input incorrectly
+    with pytest.raises(RuntimeError):
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            I_sky[:, i],
+            bm_cube=None,
+            beam_list=None,
+            precision=1,
+            polarized=False,
+        )
+
+    with pytest.raises(RuntimeError):
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            I_sky[:, i],
+            bm_cube=beam_cube[:, i, :, :],
+            beam_list=[beam, beam],
+            precision=1,
+            polarized=False,
+        )
+
 
 def test_simulate_vis():
     """Test basic operation of simple wrapper around vis_cpu, `simulate_vis`."""

@@ -50,6 +50,7 @@ def test_compare_pyuvsim():
         phase_type="drift",
         vis_units="Jy",
         complete=True,
+        write_files=False,
     )
     lsts = np.unique(uvdata.lst_array)
 

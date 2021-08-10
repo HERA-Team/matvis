@@ -163,7 +163,7 @@ def vis_cpu(
 
     if beam_list is None:
         bm_pix = bm_cube.shape[-1]
-        complex_bm_cube = np.iscomplex(bm_cube)
+        complex_bm_cube = np.any(np.iscomplex(bm_cube))
         if polarized:
             assert bm_cube.shape == (nax, nfeed, nant, bm_pix, bm_pix), (
                 "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) "
