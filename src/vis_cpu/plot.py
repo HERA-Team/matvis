@@ -34,13 +34,12 @@ def _source_az_za_beam(
         Value of the beam (E-field, not power, unless the beam object contains
         only the power beam) for each source.
     """
-    # Equatorial to topocentric conversion at given LST
-    eq2tops = conversions.get_eq2tops(np.atleast_1d(lst), latitude=latitude)
-    eq2top = eq2tops[0]
+    # Get coordinate transforms as a function of LST
+    eq2top = conversions.eci_to_enu_matrix(lst, latitude)
 
-    # Get source az, za
+    # Get source az, za (note the azimuth convention used by UVBeam)
     tx, ty, tz = np.dot(eq2top, crd_eq)
-    az, za = conversions.lm_to_az_za(tx, ty)
+    az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
     # Get beam values
     interp_beam = beam.interp(az, za, np.atleast_1d(ref_freq))[0]
