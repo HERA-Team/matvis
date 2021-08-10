@@ -163,7 +163,7 @@ def vis_cpu(
 
     if beam_list is None:
         bm_pix = bm_cube.shape[-1]
-        complex_bm_pix = np.iscomplex(bm_pix)
+        complex_bm_cube = np.iscomplex(bm_cube)
         if polarized:
             assert bm_cube.shape == (nax, nfeed, nant, bm_pix, bm_pix), (
                 "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) "
@@ -202,7 +202,7 @@ def vis_cpu(
     # Precompute splines using pixelized beams
     if beam_list is None:
         splines_re = construct_pixel_beam_spline(bm_cube.real)
-        if complex_bm_pix:
+        if complex_bm_cube:
             splines_im = construct_pixel_beam_spline(bm_cube.imag)
 
     # Loop over time samples
@@ -222,7 +222,7 @@ def vis_cpu(
                         # The beam pixel grid has been reshaped in the order
                         # ty,tx, which implies m,l order
                         A_s[p1, p2, i] = splines_re[p1][p2][i](ty, tx, grid=False)
-                        if complex_bm_pix:
+                        if complex_bm_cube:
                             A_s[p1, p2, i] += 1.0j * splines_im[p1][p2][i](
                                 ty, tx, grid=False
                             )
