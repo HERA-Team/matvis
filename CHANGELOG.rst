@@ -10,6 +10,16 @@ Fixed
 
 - Fix issue with spurious beam normalization when a pixel beam
   interpolation grid is generated from a UVBeam object
+- Fix bug where the imaginary part of complex pixel beams was
+  being discarded
+- Fix bug that was causing polarized calculations to fail with
+  ``simulate_vis``
+- CI paths fixed so coverage reports are linked properly
+
+Added
+-----
+
+- New units tests
 
 Version 0.2.2
 =============
