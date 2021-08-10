@@ -87,8 +87,8 @@ def simulate_vis(
             naxes = beams[0].Naxes_vec
             nfeeds = beams[0].Nfeeds
         except AttributeError:
-            # If Naxes_vec and Nfeeds properties aren't set, assume no pol.
-            naxes = nfeeds = 1
+            # If Naxes_vec and Nfeeds properties aren't set, assume all pol.
+            naxes = nfeeds = 2
 
     # Antenna x,y,z positions
     antpos = np.array([ants[k] for k in ants.keys()])
@@ -122,18 +122,27 @@ def simulate_vis(
     for i in range(freqs.size):
 
         if pixel_beams:
-            vis[i] = vis_cpu(
+
+            # Get per-freq. pixel beam
+            bm = beam_cube[:, :, :, i, :, :] if polarized else beam_cube[:, i, :, :]
+
+            # Run vis_cpu
+            v = vis_cpu(
                 antpos,
                 freqs[i],
                 eq2tops,
                 crd_eq,
                 fluxes[:, i],
-                bm_cube=beam_cube[:, i, :, :],
+                bm_cube=bm,
                 precision=precision,
                 polarized=polarized,
             )
+            if polarized:
+                vis[:, :, i] = v  # v.shape: (nax, nfeed, ntimes, nant, nant)
+            else:
+                vis[i] = v  # v.shape: (ntimes, nant, nant)
         else:
-            vis[i] = vis_cpu(
+            v = vis_cpu(
                 antpos,
                 freqs[i],
                 eq2tops,
@@ -143,5 +152,9 @@ def simulate_vis(
                 precision=precision,
                 polarized=polarized,
             )
+            if polarized:
+                vis[:, :, i] = v  # v.shape: (nax, nfeed, ntimes, nant, nant)
+            else:
+                vis[i] = v  # v.shape: (ntimes, nant, nant)
 
     return vis

@@ -13,7 +13,7 @@ NTIMES = 10
 NFREQ = 5
 NPTSRC = 20
 
-ants = {0: (0, 0, 0), 1: (1, 1, 0)}
+ants = {0: (0.0, 0.0, 0.0), 1: (20.0, 20.0, 0.0)}
 
 
 def test_vis_cpu():
@@ -177,6 +177,38 @@ def test_simulate_vis():
         beams=[beam, beam],
         pixel_beams=False,
         polarized=False,
+        precision=1,
+        latitude=-30.7215 * np.pi / 180.0,
+    )
+    assert np.all(~np.isnan(vis))  # check that there are no NaN values
+
+    # Run vis_cpu with UVBeam beams (polarized mode)
+    vis = simulate_vis(
+        ants,
+        I_sky,
+        ra,
+        dec,
+        freq,
+        lsts,
+        beams=[beam, beam],
+        pixel_beams=False,
+        polarized=True,
+        precision=1,
+        latitude=-30.7215 * np.pi / 180.0,
+    )
+    assert np.all(~np.isnan(vis))  # check that there are no NaN values
+
+    # Run vis_cpu with pixel beams (polarized mode)
+    vis = simulate_vis(
+        ants,
+        I_sky,
+        ra,
+        dec,
+        freq,
+        lsts,
+        beams=[beam, beam],
+        pixel_beams=True,
+        polarized=True,
         precision=1,
         latitude=-30.7215 * np.pi / 180.0,
     )
