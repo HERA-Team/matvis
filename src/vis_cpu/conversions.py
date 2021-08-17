@@ -266,6 +266,8 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
     drift-scan telescope). For a vector in East-North-Up (ENU) coordinates
     vec{p}, we therefore have ``l = vec{p}.hat{e}`` etc.
 
+    N.B. This function does not perform any beam normalization.
+
     Parameters
     ----------
     uvbeam : UVBeam object
@@ -301,19 +303,10 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
     else:
         bm = efield_beam[0, 0, 1, :, :]  # (phi, e) == 'xx' component
 
-    # Peak normalization and reshape output
+    # Reshape output
     if polarized:
         Naxes = bm.shape[0]  # polarization vector axes
         Nfeeds = bm.shape[1]  # polarized feeds
-
-        # Separately normalize each polarization channel
-        for i in range(Naxes):
-            for j in range(Nfeeds):
-                if np.max(bm[i, j]) > 0.0:
-                    bm /= np.max(bm[i, j])
         return bm.reshape((Naxes, Nfeeds, len(freqs), n_pix_lm, n_pix_lm))
     else:
-        # Normalize single polarization channel
-        if np.max(bm) > 0.0:
-            bm /= np.max(bm)
         return bm.reshape((len(freqs), n_pix_lm, n_pix_lm))
