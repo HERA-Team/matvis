@@ -37,6 +37,20 @@ class EllipticalBeam(object):
         self.ystretch = ystretch
         self.rotation = rotation
 
+    @property
+    def beam_type(self) -> str:
+        """Whether the beam is `power` or `efield`."""
+        return self.base_beam.beam_type
+
+    def efield_to_power(self):
+        """Convert from efield to power beam."""
+        self.base_beam.efield_to_power()
+
+    @property
+    def polarization_array(self):
+        """The polarization array of the base beam."""
+        return self.base_beam.polarization_array
+
     def interp(self, az_array, za_array, freq_array):
         """Evaluate the beam after applying shearing, stretching, or rotation.
 
@@ -111,7 +125,11 @@ def test_beam_interpolation():
 
     # Get Gaussian beam and transform into an elliptical version
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
+    beam_analytic = base_beam  # EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
+    beam_analytic = conversions.prepare_beam(
+        beam_analytic, polarized=False, use_feed="x"
+    )
+
     beam_list = [beam_analytic, beam_analytic]
 
     # Construct pixel beam from analytic beam
@@ -164,7 +182,7 @@ def test_beam_interpolation():
 
         # Check that results are close (they should be for 1000^2 pixel-beams
         # if the elliptical beams are both oriented the same way)
-        assert np.allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
 
 
 def test_beam_interpolation_pol():

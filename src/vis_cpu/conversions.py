@@ -2,9 +2,18 @@
 
 import astropy.units as u
 import numpy as np
+import pyuvdata.utils as uvutils
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
+from copy import deepcopy
+from numpy import typing as npt
+from pyuvdata.uvbeam import UVBeam
+
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 
 def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
@@ -258,7 +267,57 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     return pra, pdec
 
 
-def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
+def prepare_beam(
+    uvbeam: UVBeam, polarized: bool = False, use_feed: Literal["x", "y"] = "x"
+) -> UVBeam:
+    """Prepare an imput beam for either interpolation or simulation.
+
+    The point of this function is to take an arbitrary UVBeam (or AnalyticBeam) and
+    do the necessary checks and conversions to convert it to a format that can be
+    interpolated to an (l,m) grid, or passed to vis_cpu. The output beam type is
+    dependent on the input parameters ``polarized`` and ``use_feed``.
+    """
+    use_feed = use_feed.lower()
+    if use_feed not in "xy":
+        raise ValueError("use_feed must be either 'x' or 'y'")
+    use_pol = use_feed * 2
+
+    # Interpolate beam onto cube
+    if polarized:
+        if uvbeam.beam_type != "efield":
+            raise ValueError("Beam type must be efield")
+        uvbeam_ = uvbeam
+    elif uvbeam.beam_type == "efield":
+        uvbeam_ = uvbeam.copy() if isinstance(uvbeam, UVBeam) else deepcopy(uvbeam)
+        # Analytic beams have no concept of feeds, so assume they have a "single" feed
+        if getattr(uvbeam_, "Nfeeds", 1) > 1:
+            uvbeam_.select(feeds=[use_feed])
+
+        uvbeam_.efield_to_power()
+
+    elif getattr(uvbeam, "Npols", 1) > 1:
+        pol = uvutils.polstr2num(use_pol)
+
+        if pol not in uvbeam.polarization_array:
+            raise ValueError(
+                f"You want to use {use_feed} feed, but it does not exist in the UVBeam"
+            )
+
+        uvbeam_ = uvbeam.select(polarizations=[pol], inplace=False)
+    else:
+        uvbeam_ = uvbeam
+
+    return uvbeam_
+
+
+def uvbeam_to_lm(
+    uvbeam: UVBeam,
+    freqs: npt.ArrayLike,
+    n_pix_lm: int = 63,
+    polarized: bool = False,
+    use_feed: Literal["x", "y"] = "x",
+    **kwargs,
+):
     """Evaluate a UVBeam object on a uniform direction cosine (l,m) grid.
 
     Here, (l, m) are the direction cosines, associated with the East and North
@@ -278,6 +337,19 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
         Number of pixels for each side of the beam grid.
     polarized : bool, optional
         Whether to return full polarized beam information or not.
+    use_feed
+        Which feed to use in the case of an *unpolarized* simulation (for a polarized
+        sim, it uses all available feeds).
+
+    Notes
+    -----
+    When ``polarized=True``, all combinations of axes and feeds are returned. In this
+    case, the input ``uvbeam`` must have a beam type of ``efield``, or else an error
+    is raised. Conversely, if ``polarized=False``, the convention is to return the
+    real-valued beam equal to the square root of the power beam of a linear polarization.
+    That is, either the sqrt of XX or YY. Needless to say, the desired feed must be
+    defined in the beam object. The input beam in this case can be in either 'efield'
+    or 'power' mode.
 
     Returns
     -------
@@ -292,16 +364,23 @@ def uvbeam_to_lm(uvbeam, freqs, n_pix_lm=63, polarized=False, **kwargs):
     L = L.flatten()
     m = m.flatten()
 
+    uvbeam = prepare_beam(uvbeam, polarized=polarized, use_feed=use_feed)
+
     # Get azimuth and zenith angles (note the different azimuth convention
     # used by UVBeam)
     az, za = enu_to_az_za(enu_e=L, enu_n=m, orientation="uvbeam", periodic_azimuth=True)
 
     # Interpolate beam onto cube
-    efield_beam = uvbeam.interp(az_array=az, za_array=za, freq_array=freqs, **kwargs)[0]
     if polarized:
+        efield_beam = uvbeam.interp(
+            az_array=az, za_array=za, freq_array=freqs, **kwargs
+        )[0]
         bm = efield_beam[:, 0, :, :, :]  # spw=0
     else:
-        bm = efield_beam[0, 0, 1, :, :]  # (phi, e) == 'xx' component
+        power_beam = uvbeam.interp(
+            az_array=az, za_array=za, freq_array=freqs, **kwargs
+        )[0]
+        bm = np.sqrt(power_beam[0, 0, 0, :, :])
 
     # Reshape output
     if polarized:
