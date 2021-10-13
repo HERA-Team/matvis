@@ -151,6 +151,13 @@ def test_compare_pyuvsim():
             if np.abs(np.max(delta.imag)) > diff_im:
                 diff_im = np.abs(np.max(delta.imag))
 
+            err = f"Max diff: {diff_re:10.10e} + 1j*{diff_im:10.10e}\n"
+            err += f"Baseline: ({i},{j})\n"
+            err += f"Avg. diff: {delta.mean():10.10e}\n"
+            err += f"Max values: \n    uvsim={d_uvsim.max():10.10e}"
+            err += f"\n    viscpu={d_viscpu.max():10.10e}"
             assert np.allclose(
                 d_uvsim, d_viscpu, rtol=2e-4, atol=5e-4
-            ), "Max. difference (re, im): {:10.10e}, {:10.10e}".format(diff_re, diff_im)
+            ), err
+            
+            #"Max. difference (re, im): {:10.10e}, {:10.10e}".format(diff_re, diff_im)

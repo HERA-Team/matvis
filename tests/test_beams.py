@@ -125,7 +125,7 @@ def test_beam_interpolation():
 
     # Get Gaussian beam and transform into an elliptical version
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam_analytic = base_beam  # EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
+    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
     beam_analytic = conversions.prepare_beam(
         beam_analytic, polarized=False, use_feed="x"
     )
