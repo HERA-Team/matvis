@@ -7,7 +7,7 @@ from vis_cpu import conversions, simulate_vis, vis_cpu
 np.random.seed(0)
 NTIMES = 3
 NFREQ = 2
-NPTSRC = 400
+NPTSRC = 4000
 ants = {0: (0, 0, 0), 1: (1, 1, 0)}
 
 
