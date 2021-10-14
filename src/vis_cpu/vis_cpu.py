@@ -104,11 +104,14 @@ def vis_cpu(
         channel is simulated.
         Shape=(NSRCS,).
     bm_cube : array_like, optional
-        Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
+        Pixelized beam maps for each antenna. If ``polarized=False``,
+        shape=``(NANT, BM_PIX, BM_PIX)``, otherwise
+        shape=``(NAX, NFEED, NANT, BM_PIX, BM_PIX)``. Only one of ``bm_cube`` and
+        ``beam_list`` should be provided.
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
-        objects instead of using pixelized beam maps (``bm_cube`` will be
-        ignored if ``beam_list`` is not ``None``).
+        objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
+        ``beam_list`` should be provided.
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
@@ -132,7 +135,7 @@ def vis_cpu(
         shape (NAXES, NFEED, NTIMES, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
-    assert precision in (1, 2)
+    assert precision in {1, 2}
     if precision == 1:
         real_dtype = np.float32
         complex_dtype = np.complex64
@@ -171,16 +174,15 @@ def vis_cpu(
                     (nax, nfeed, nant, bm_pix, bm_pix), bm_cube.shape
                 )
             )
-        else:
-            if bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
-                assert bm_cube.shape == (nant, bm_pix, bm_pix), (
-                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) "
-                    "or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
-                    "Shape wanted: {}; shape given: {}".format(
-                        (nant, bm_pix, bm_pix), bm_cube.shape
-                    )
+        elif bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
+            assert bm_cube.shape == (nant, bm_pix, bm_pix), (
+                "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) "
+                "or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
+                "Shape wanted: {}; shape given: {}".format(
+                    (nant, bm_pix, bm_pix), bm_cube.shape
                 )
-                bm_cube = bm_cube[np.newaxis, np.newaxis]
+            )
+            bm_cube = bm_cube[np.newaxis, np.newaxis]
     else:
         assert len(beam_list) == nant, "beam_list must have length nant"
 
