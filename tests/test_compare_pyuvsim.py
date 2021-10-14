@@ -156,8 +156,6 @@ def test_compare_pyuvsim():
             err += f"Avg. diff: {delta.mean():10.10e}\n"
             err += f"Max values: \n    uvsim={d_uvsim.max():10.10e}"
             err += f"\n    viscpu={d_viscpu.max():10.10e}"
-            assert np.allclose(
-                d_uvsim, d_viscpu, rtol=2e-4, atol=5e-4
-            ), err
-            
-            #"Max. difference (re, im): {:10.10e}, {:10.10e}".format(diff_re, diff_im)
+            assert np.allclose(d_uvsim, d_viscpu, rtol=2e-4, atol=5e-4), err
+
+            # "Max. difference (re, im): {:10.10e}, {:10.10e}".format(diff_re, diff_im)
