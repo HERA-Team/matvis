@@ -293,7 +293,7 @@ def prepare_beam(
         if getattr(uvbeam_, "Nfeeds", 1) > 1:
             uvbeam_.select(feeds=[use_feed])
 
-        uvbeam_.efield_to_power()
+        uvbeam_.efield_to_power(calc_cross_pols=False)
 
     elif getattr(uvbeam, "Npols", 1) > 1:
         pol = uvutils.polstr2num(use_pol)
