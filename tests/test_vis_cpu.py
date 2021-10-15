@@ -130,7 +130,11 @@ def test_vis_cpu():
         )
 
 
-def test_simulate_vis():
+@pytest.mark.parametrize(
+    "pixel_beams,polarized",
+    [(True, False), (False, False), (False, True), (True, True)],
+)
+def test_simulate_vis(pixel_beams, polarized):
     """Test basic operation of simple wrapper around vis_cpu, `simulate_vis`."""
     # Point source equatorial coords (radians)
     ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
@@ -158,57 +162,9 @@ def test_simulate_vis():
         freq,
         lsts,
         beams=[beam, beam],
-        pixel_beams=True,
+        pixel_beams=pixel_beams,
         beam_npix=63,
-        polarized=False,
-        precision=1,
-        latitude=-30.7215 * np.pi / 180.0,
-    )
-    assert np.all(~np.isnan(vis))  # check that there are no NaN values
-
-    # Run vis_cpu with UVBeam beams
-    vis = simulate_vis(
-        ants,
-        I_sky,
-        ra,
-        dec,
-        freq,
-        lsts,
-        beams=[beam, beam],
-        pixel_beams=False,
-        polarized=False,
-        precision=1,
-        latitude=-30.7215 * np.pi / 180.0,
-    )
-    assert np.all(~np.isnan(vis))  # check that there are no NaN values
-
-    # Run vis_cpu with UVBeam beams (polarized mode)
-    vis = simulate_vis(
-        ants,
-        I_sky,
-        ra,
-        dec,
-        freq,
-        lsts,
-        beams=[beam, beam],
-        pixel_beams=False,
-        polarized=True,
-        precision=1,
-        latitude=-30.7215 * np.pi / 180.0,
-    )
-    assert np.all(~np.isnan(vis))  # check that there are no NaN values
-
-    # Run vis_cpu with pixel beams (polarized mode)
-    vis = simulate_vis(
-        ants,
-        I_sky,
-        ra,
-        dec,
-        freq,
-        lsts,
-        beams=[beam, beam],
-        pixel_beams=True,
-        polarized=True,
+        polarized=polarized,
         precision=1,
         latitude=-30.7215 * np.pi / 180.0,
     )
