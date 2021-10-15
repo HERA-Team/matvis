@@ -1,6 +1,9 @@
 """Test that pixel and analytic beams are properly aligned."""
+import pytest
+
 import numpy as np
 from pyuvsim import AnalyticBeam
+from typing import List
 
 from vis_cpu import conversions, simulate_vis, vis_cpu
 
@@ -42,9 +45,9 @@ class EllipticalBeam(object):
         """Whether the beam is `power` or `efield`."""
         return self.base_beam.beam_type
 
-    def efield_to_power(self):
+    def efield_to_power(self, **kwargs):
         """Convert from efield to power beam."""
-        self.base_beam.efield_to_power()
+        self.base_beam.efield_to_power(**kwargs)
 
     @property
     def polarization_array(self):
@@ -109,45 +112,86 @@ class EllipticalBeam(object):
         return interp_data, interp_basis_vector
 
 
-def test_beam_interpolation():
-    """Test that interpolated beams and UVBeam agree on coordinates."""
-    # Point source equatorial coords (radians)
-    ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
-    dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
+@pytest.fixture(scope="module")
+def freq() -> np.ndarray:
+    """Frequencies for tests."""
+    return np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
 
-    # Antenna x,y,z positions and frequency array
-    antpos = np.array([ants[k] for k in ants.keys()])
-    freq = np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
 
-    # SED for each point source
-    fluxes = np.ones(NPTSRC)
-    I_sky = fluxes[:, np.newaxis] * (freq[np.newaxis, :] / 100.0e6) ** -2.7
-
-    # Get Gaussian beam and transform into an elliptical version
+@pytest.fixture(scope="function")
+def beam_list_unpol() -> List[EllipticalBeam]:
+    """Get Gaussian beam and transform into an elliptical version."""
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
     beam_analytic = conversions.prepare_beam(
         beam_analytic, polarized=False, use_feed="x"
     )
 
-    beam_list = [beam_analytic, beam_analytic]
+    return [beam_analytic, beam_analytic]
 
-    # Construct pixel beam from analytic beam
-    beam_pix = conversions.uvbeam_to_lm(
-        beam_analytic, freq, n_pix_lm=1000, polarized=False
+
+@pytest.fixture(scope="function")
+def beam_list_pol() -> List[EllipticalBeam]:
+    """Get Gaussian beam and transform into an elliptical version with polarization."""
+    base_beam = AnalyticBeam("gaussian", diameter=14.0)
+    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
+    beam_analytic = conversions.prepare_beam(
+        beam_analytic, polarized=True, use_feed="x"
     )
-    beam_cube = np.array([beam_pix, beam_pix])
 
-    # Point source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
+    return [beam_analytic, beam_analytic]
 
-    # Get coordinate transforms as a function of LST
+
+@pytest.fixture(scope="function")
+def beam_cube(beam_list_unpol, freq) -> np.ndarray:
+    """Construct pixel beam from analytic beam."""
+    beam_pix = conversions.uvbeam_to_lm(
+        beam_list_unpol[0], freq, n_pix_lm=1000, polarized=False
+    )
+    return np.array([beam_pix, beam_pix])
+
+
+@pytest.fixture(scope="module")
+def point_source_pos():
+    """Some simple point source positions."""
+    ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
+    dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
+
+    return ra, dec
+
+
+@pytest.fixture(scope="module")
+def sky_flux(freq):
+    """Array of sky intensity."""
+    fluxes = np.ones(NPTSRC)
+    return fluxes[:, np.newaxis] * (freq[np.newaxis, :] / 100.0e6) ** -2.7
+
+
+@pytest.fixture(scope="module")
+def crd_eq(point_source_pos):
+    """Equatorial coordinates for the point sources."""
+    ra, dec = point_source_pos
+    return conversions.point_source_crd_eq(ra, dec)
+
+
+@pytest.fixture(scope="module")
+def eq2tops():
+    """Get coordinate transforms as a function of LST."""
     hera_lat = -30.7215 * np.pi / 180.0
     lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
-    eq2tops = np.array(
-        [conversions.eci_to_enu_matrix(lst, lat=hera_lat) for lst in lsts]
-    )
+    return np.array([conversions.eci_to_enu_matrix(lst, lat=hera_lat) for lst in lsts])
 
+
+@pytest.fixture(scope="module")
+def antpos():
+    """Antenna positions in the test array."""
+    return np.array([ants[k] for k in ants.keys()])
+
+
+def test_beam_interpolation(
+    beam_list_unpol, beam_cube, crd_eq, eq2tops, sky_flux, freq, antpos
+):
+    """Test that interpolated beams and UVBeam agree on coordinates."""
     # Run vis_cpu with pixel beams and analytic beams (uses precision=2)
     # This test is useful for checking a particular line in vis_cpu() that
     # evaluates the pixel beam splines, i.e. `splines[p1][p2][i](ty, tx, ...)`
@@ -159,7 +203,7 @@ def test_beam_interpolation():
             freq[i],
             eq2tops,
             crd_eq,
-            I_sky[:, i],
+            sky_flux[:, i],
             bm_cube=beam_cube[:, i, :, :],
             precision=2,
             polarized=False,
@@ -171,8 +215,8 @@ def test_beam_interpolation():
             freq[i],
             eq2tops,
             crd_eq,
-            I_sky[:, i],
-            beam_list=beam_list,
+            sky_flux[:, i],
+            beam_list=beam_list_unpol,
             precision=2,
             polarized=False,
         )
@@ -206,3 +250,59 @@ def test_beam_interpolation_pol():
         beam_analytic, freq, n_pix_lm=200, polarized=False
     )
     assert len(beam_pix.shape) == len(beam_pix_unpol.shape) + 2
+
+
+def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, antpos):
+    """Test that when doing polarized sim, error is raised if beams aren't efield."""
+    with pytest.raises(ValueError) as e:
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, 0],
+            beam_list=beam_list_unpol,
+            precision=2,
+            polarized=True,
+        )
+
+        assert "beam type must be efield" in str(e)
+
+
+def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antpos):
+    """Test that when doing unpolarized sim, error is raised if beams aren't power."""
+    with pytest.raises(ValueError) as e:
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, 0],
+            beam_list=beam_list_pol,
+            precision=2,
+            polarized=False,
+        )
+
+        assert "beam type must be power" in str(e)
+
+
+def test_prepare_beams_wrong_feed():
+    """Test that error is raised feed not in 'xy'."""
+    base_beam = AnalyticBeam("gaussian", diameter=14.0)
+    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
+    with pytest.raises(ValueError) as e:
+        conversions.prepare_beam(beam_analytic, polarized=False, use_feed="z")
+
+        assert "use_feed must be" in str(e)
+
+
+def test_prepare_beams_pol_power():
+    """Test that error is raised if power beam passed to polarized sim."""
+    base_beam = AnalyticBeam("gaussian", diameter=14.0)
+    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
+    beam_analytic.efield_to_power()
+
+    with pytest.raises(ValueError) as e:
+        conversions.prepare_beam(beam_analytic, polarized=True, use_feed="x")
+
+        assert "Beam type must be efield" in str(e)
