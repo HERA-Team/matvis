@@ -109,8 +109,8 @@ def vis_cpu(
         If specified, evaluate primary beam values directly using UVBeam
         objects instead of using pixelized beam maps (``bm_cube`` will be
         ignored if ``beam_list`` is not ``None``). Note that if `polarized` is True,
-        these beams must be efield beams, and conversely they must be power beams
-        with a single polarization (either XX or YY).
+        these beams must be efield beams, and conversely if `polarized` is False they
+        must be power beams with a single polarization (either XX or YY).
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:

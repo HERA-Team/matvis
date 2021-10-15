@@ -291,7 +291,7 @@ def test_beam_interpolation_pol():
 
 def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, antpos):
     """Test that when doing polarized sim, error is raised if beams aren't efield."""
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(ValueError, match="beam type must be efield"):
         vis_cpu(
             antpos,
             freq[0],
@@ -303,12 +303,10 @@ def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, 
             polarized=True,
         )
 
-        assert "beam type must be efield" in str(e)
-
 
 def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antpos):
     """Test that when doing unpolarized sim, error is raised if beams aren't power."""
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(ValueError, match="beam type must be power"):
         vis_cpu(
             antpos,
             freq[0],
@@ -320,17 +318,13 @@ def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antp
             polarized=False,
         )
 
-        assert "beam type must be power" in str(e)
-
 
 def test_prepare_beams_wrong_feed():
     """Test that error is raised feed not in 'xy'."""
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(ValueError, match="use_feed must be"):
         conversions.prepare_beam(beam_analytic, polarized=False, use_feed="z")
-
-        assert "use_feed must be" in str(e)
 
 
 def test_prepare_beams_pol_power():
@@ -339,10 +333,8 @@ def test_prepare_beams_pol_power():
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
     beam_analytic.efield_to_power()
 
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(ValueError, match="Beam type must be efield"):
         conversions.prepare_beam(beam_analytic, polarized=True, use_feed="x")
-
-        assert "Beam type must be efield" in str(e)
 
 
 def test_prepare_beam_unpol_uvbeam():
@@ -376,6 +368,7 @@ def test_prepare_beam_unpol_uvbeam_pol_no_exist():
 
     beam.select(polarizations=[uvutils.polstr2num("yy"), uvutils.polstr2num("xy")])
 
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(
+        ValueError, match="You want to use x feed, but it does not exist in the UVBeam"
+    ):
         conversions.prepare_beam(beam, polarized=False, use_feed="x")
-        assert "You want to use x feed, but it does not exist in the UVBeam" in str(e)
