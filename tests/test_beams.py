@@ -2,6 +2,10 @@
 import pytest
 
 import numpy as np
+import pyuvdata.utils as uvutils
+from pathlib import Path
+from pyuvdata import UVBeam
+from pyuvdata.data import DATA_PATH
 from pyuvsim import AnalyticBeam
 from typing import List
 
@@ -12,6 +16,8 @@ NTIMES = 3
 NFREQ = 2
 NPTSRC = 4000
 ants = {0: (0, 0, 0), 1: (1, 1, 0)}
+
+cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
 
 
 class EllipticalBeam(object):
@@ -110,6 +116,37 @@ class EllipticalBeam(object):
         )
 
         return interp_data, interp_basis_vector
+
+
+def make_cst_beam(beam_type):
+    """Make the default CST testing beam."""
+    extra_keywords = {
+        "software": "CST 2016",
+        "sim_type": "E-farfield",
+        "layout": "1 antenna",
+        "port_num": 1,
+    }
+
+    beam = UVBeam()
+    beam.read_cst_beam(
+        str(cst_file),
+        beam_type=beam_type,
+        frequency=[150e6],
+        telescope_name="HERA",
+        feed_name="Dipole",
+        feed_version="1.0",
+        feed_pol=["x"],
+        model_name="Dipole - Rigging height 4.9 m",
+        model_version="1.0",
+        x_orientation="east",
+        reference_impedance=100,
+        history=(
+            "Derived from https://github.com/Nicolas-Fagnoni/Simulations."
+            "\nOnly 1 file included to keep test data volume low."
+        ),
+        extra_keywords=extra_keywords,
+    )
+    return beam
 
 
 @pytest.fixture(scope="module")
@@ -306,3 +343,39 @@ def test_prepare_beams_pol_power():
         conversions.prepare_beam(beam_analytic, polarized=True, use_feed="x")
 
         assert "Beam type must be efield" in str(e)
+
+
+def test_prepare_beam_unpol_uvbeam():
+    """Test that prepare_beam correctly handles an efield beam input to unpol sim."""
+    beam = make_cst_beam("efield")
+    new_beam = conversions.prepare_beam(beam, polarized=False, use_feed="x")
+
+    assert new_beam.beam_type == "power"
+    assert len(new_beam.polarization_array) == 1
+    assert uvutils.polnum2str(new_beam.polarization_array[0]).lower() == "xx"
+
+    assert beam.beam_type == "efield"
+
+
+def test_prepare_beam_unpol_uvbeam_npols():
+    """Test that prepare_beam correctly handles multiple pols to unpol simulation."""
+    beam = make_cst_beam("power")
+    new_beam = conversions.prepare_beam(beam, polarized=False, use_feed="x")
+
+    assert new_beam.beam_type == "power"
+    assert len(new_beam.polarization_array) == 1
+    assert uvutils.polnum2str(new_beam.polarization_array[0]).lower() == "xx"
+
+    assert len(beam.polarization_array) > 1
+
+
+def test_prepare_beam_unpol_uvbeam_pol_no_exist():
+    """Test that error is raised if desired polarization doesn't exist."""
+    beam = make_cst_beam("efield")
+    beam.efield_to_power()
+
+    beam.select(polarizations=[uvutils.polstr2num("yy"), uvutils.polstr2num("xy")])
+
+    with pytest.raises(ValueError) as e:
+        conversions.prepare_beam(beam, polarized=False, use_feed="x")
+        assert "You want to use x feed, but it does not exist in the UVBeam" in str(e)
