@@ -1,5 +1,6 @@
 """Simple example wrapper for basic usage of vis_cpu."""
 import numpy as np
+from pyuvdata.uvbeam import UVBeam
 
 from . import conversions, vis_cpu
 
@@ -17,6 +18,7 @@ def simulate_vis(
     polarized=False,
     precision=1,
     latitude=-30.7215 * np.pi / 180.0,
+    use_feed="x",
 ):
     """
     Run a basic simulation using ``vis_cpu``.
@@ -104,11 +106,16 @@ def simulate_vis(
     if pixel_beams:
         beam_pix = [
             conversions.uvbeam_to_lm(
-                beam, freqs, n_pix_lm=beam_npix, polarized=polarized
+                beam, freqs, n_pix_lm=beam_npix, polarized=polarized, use_feed=use_feed
             )
             for beam in beams
         ]
         beam_cube = np.array(beam_pix)
+    else:
+        beams = [
+            conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
+            for beam in beams
+        ]
 
     # Run vis_cpu with pixel beams
     if polarized:

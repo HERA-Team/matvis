@@ -108,7 +108,9 @@ def vis_cpu(
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
         objects instead of using pixelized beam maps (``bm_cube`` will be
-        ignored if ``beam_list`` is not ``None``).
+        ignored if ``beam_list`` is not ``None``). Note that if `polarized` is True,
+        these beams must be efield beams, and conversely if `polarized` is False they
+        must be power beams with a single polarization (either XX or YY).
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
@@ -116,13 +118,7 @@ def vis_cpu(
         - 2: float64, complex128
     polarized : bool, optional
         Whether to simulate a full polarized response in terms of nn, ne, en,
-        ee visibilities.
-
-        If False, a single Jones matrix element will be used, corresponding to
-        the (phi, e) element, i.e. the [0,0,1] component of the beam returned
-        by its ``interp()`` method.
-
-        See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
+        ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
         Default: False.
 
     Returns
@@ -182,6 +178,20 @@ def vis_cpu(
                 )
                 bm_cube = bm_cube[np.newaxis, np.newaxis]
     else:
+        if polarized and any(b.beam_type != "efield" for b in beam_list):
+            raise ValueError("beam type must be efield if using polarized=True")
+        elif not polarized and any(
+            (
+                b.beam_type != "power"
+                or getattr(b, "Npols", 1) > 1
+                or b.polarization_array[0] not in [-5, -6]
+            )
+            for b in beam_list
+        ):
+            raise ValueError(
+                "beam type must be power and have only one pol (either xx or yy) if polarized=False"
+            )
+
         assert len(beam_list) == nant, "beam_list must have length nant"
 
     # Intensity distribution (sqrt) and antenna positions. Does not support
@@ -227,6 +237,7 @@ def vis_cpu(
                                 ty, tx, grid=False
                             )
         else:
+
             # Primary beam pattern using direct interpolation of UVBeam object
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
             for i in range(nant):
@@ -237,9 +248,9 @@ def vis_cpu(
                 if polarized:
                     A_s[:, :, i] = interp_beam[:, 0, :, 0, :]  # spw=0 and freq=0
                 else:
-                    A_s[:, :, i] = interp_beam[
-                        0, 0, 1, :, :
-                    ]  # (phi, e) == 'xx' component
+                    # Here we have already asserted that the beam is a power beam and
+                    # has only one polarization, so we just evaluate that one.
+                    A_s[:, :, i] = np.sqrt(interp_beam[0, 0, 0, :, :])
 
         # Horizon cut
         A_s = np.where(tz > 0, A_s, 0)
