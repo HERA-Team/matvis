@@ -169,18 +169,16 @@ def vis_cpu(
         complex_bm_cube = np.any(np.iscomplex(bm_cube))
         if polarized:
             assert bm_cube.shape == (nax, nfeed, nant, bm_pix, bm_pix), (
-                "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) "
-                "if polarized=True. Shape wanted: {}; shape given: {}".format(
-                    (nax, nfeed, nant, bm_pix, bm_pix), bm_cube.shape
-                )
+                "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) if "
+                f"polarized=True. Shape wanted: {(nax, nfeed, nant, bm_pix, bm_pix)}; "
+                f"shape given: {bm_cube.shape}"
             )
         elif bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
             assert bm_cube.shape == (nant, bm_pix, bm_pix), (
                 "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) "
                 "or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
-                "Shape wanted: {}; shape given: {}".format(
-                    (nant, bm_pix, bm_pix), bm_cube.shape
-                )
+                f"Shape wanted: {(nant, bm_pix, bm_pix)}; "
+                f"shape given: {bm_cube.shape}"
             )
             bm_cube = bm_cube[np.newaxis, np.newaxis]
     else:
