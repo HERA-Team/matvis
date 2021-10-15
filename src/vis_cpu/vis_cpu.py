@@ -104,11 +104,14 @@ def vis_cpu(
         channel is simulated.
         Shape=(NSRCS,).
     bm_cube : array_like, optional
-        Pixelized beam maps for each antenna. Shape=(NANT, BM_PIX, BM_PIX).
+        Pixelized beam maps for each antenna. If ``polarized=False``,
+        shape=``(NANT, BM_PIX, BM_PIX)``, otherwise
+        shape=``(NAX, NFEED, NANT, BM_PIX, BM_PIX)``. Only one of ``bm_cube`` and
+        ``beam_list`` should be provided.
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
-        objects instead of using pixelized beam maps (``bm_cube`` will be
-        ignored if ``beam_list`` is not ``None``). Note that if `polarized` is True,
+        objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
+        ``beam_list`` should be provided.Note that if `polarized` is True,
         these beams must be efield beams, and conversely if `polarized` is False they
         must be power beams with a single polarization (either XX or YY).
     precision : int, optional
@@ -128,7 +131,7 @@ def vis_cpu(
         shape (NAXES, NFEED, NTIMES, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
-    assert precision in (1, 2)
+    assert precision in {1, 2}
     if precision == 1:
         real_dtype = np.float32
         complex_dtype = np.complex64
@@ -162,21 +165,18 @@ def vis_cpu(
         complex_bm_cube = np.any(np.iscomplex(bm_cube))
         if polarized:
             assert bm_cube.shape == (nax, nfeed, nant, bm_pix, bm_pix), (
-                "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) "
-                "if polarized=True. Shape wanted: {}; shape given: {}".format(
-                    (nax, nfeed, nant, bm_pix, bm_pix), bm_cube.shape
-                )
+                "bm_cube must have shape (NAXES, NFEEDS, NANTS, BM_PIX, BM_PIX) if "
+                f"polarized=True. Shape wanted: {(nax, nfeed, nant, bm_pix, bm_pix)}; "
+                f"shape given: {bm_cube.shape}"
             )
-        else:
-            if bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
-                assert bm_cube.shape == (nant, bm_pix, bm_pix), (
-                    "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) "
-                    "or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
-                    "Shape wanted: {}; shape given: {}".format(
-                        (nant, bm_pix, bm_pix), bm_cube.shape
-                    )
-                )
-                bm_cube = bm_cube[np.newaxis, np.newaxis]
+        elif bm_cube.shape != (1, 1, nant, bm_pix, bm_pix):
+            assert bm_cube.shape == (nant, bm_pix, bm_pix), (
+                "bm_cube must have shape (NANTS, BM_PIX, BM_PIX) "
+                "or (1, 1, nant, bm_pix, bm_pix) if polarized=False. "
+                f"Shape wanted: {(nant, bm_pix, bm_pix)}; "
+                f"shape given: {bm_cube.shape}"
+            )
+            bm_cube = bm_cube[np.newaxis, np.newaxis]
     else:
         if polarized and any(b.beam_type != "efield" for b in beam_list):
             raise ValueError("beam type must be efield if using polarized=True")
