@@ -441,3 +441,27 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
         np.testing.assert_allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(vis_pix, vis_pix2, rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(vis_pix3, vis_pix2, rtol=1e-5, atol=1e-5)
+
+
+def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
+    """Test passing different numbers of beams than nant."""
+    beam_pix = conversions.uvbeam_to_lm(
+        beam_list_unpol[0], freq, n_pix_lm=1000, polarized=False
+    )
+
+    antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
+
+    bm_cube = np.array([beam_pix, beam_pix, beam_pix])
+
+    # Pixel beams
+    with pytest.raises(ValueError, match="beam_idx must be provided"):
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, 0],
+            bm_cube=bm_cube[:2, 0, :, :],
+            precision=2,
+            polarized=False,
+        )
