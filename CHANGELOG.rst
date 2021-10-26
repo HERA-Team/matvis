@@ -2,6 +2,15 @@
 Changelog
 =========
 
+dev
+===
+
+Changed
+-------
+
+- Enhanced performance by allowing unique beams only to be passed (no breaking API
+  change).
+
 Version 0.2.3
 =============
 
