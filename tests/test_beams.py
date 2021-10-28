@@ -406,7 +406,7 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
             bm_cube=bm_cube[:2, i, :, :],
             precision=2,
             polarized=False,
-            beam_idx=np.array([0, 1, -2]),
+            beam_idx=np.array([0, 1, -1]),
         )
 
         vis_pix3 = vis_cpu(
