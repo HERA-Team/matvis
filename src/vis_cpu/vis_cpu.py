@@ -221,6 +221,9 @@ def vis_cpu(
         # (topocentric) cosines, with (tx, ty, tz) = (e, n, u) components
         # relative to the center of the array
         tx, ty, tz = crd_top = np.dot(eq2top, crd_eq)
+        above_horizon = tz > 0
+        tx = tx[above_horizon]
+        ty = ty[above_horizon]
 
         # Primary beam response
         if beam_list is None:
@@ -231,10 +234,12 @@ def vis_cpu(
                     for p2 in range(nfeed):
                         # The beam pixel grid has been reshaped in the order
                         # ty,tx, which implies m,l order
-                        A_s[p1, p2, i] = splines_re[p1][p2][i](ty, tx, grid=False)
+                        A_s[p1, p2, i][above_horizon] = splines_re[p1][p2][i](
+                            ty, tx, grid=False
+                        )
                         if complex_bm_cube:
-                            A_s[p1, p2, i] += 1.0j * splines_im[p1][p2][i](
-                                ty, tx, grid=False
+                            A_s[p1, p2, i][above_horizon] += 1.0j * (
+                                splines_im[p1][p2][i](ty, tx, grid=False)
                             )
         else:
 
@@ -246,14 +251,12 @@ def vis_cpu(
                 )[0]
 
                 if polarized:
-                    A_s[:, :, i] = interp_beam[:, 0, :, 0, :]  # spw=0 and freq=0
+                    # spw=0 and freq=0
+                    A_s[:, :, i, above_horizon] = interp_beam[:, 0, :, 0, :]
                 else:
                     # Here we have already asserted that the beam is a power beam and
                     # has only one polarization, so we just evaluate that one.
-                    A_s[:, :, i] = np.sqrt(interp_beam[0, 0, 0, :, :])
-
-        # Horizon cut
-        A_s = np.where(tz > 0, A_s, 0)
+                    A_s[:, :, i, above_horizon] = np.sqrt(interp_beam[0, 0, 0, :, :])
 
         # Check for invalid beam values
         if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
@@ -276,9 +279,10 @@ def vis_cpu(
         for i in range(len(antpos)):
             vis[:, :, t, i : i + 1, i:] = np.einsum(
                 "ijln,jkmn->iklm",
-                A_s[:, :, i : i + 1].conj()
-                * v[np.newaxis, np.newaxis, i : i + 1].conj(),
-                A_s[:, :, i:] * v[np.newaxis, np.newaxis, i:],
+                A_s[:, :, i : i + 1, above_horizon].conj()
+                * v[np.newaxis, np.newaxis, i : i + 1, above_horizon].conj(),
+                A_s[:, :, i:, above_horizon]
+                * v[np.newaxis, np.newaxis, i:, above_horizon],
                 optimize=True,
             )
 
