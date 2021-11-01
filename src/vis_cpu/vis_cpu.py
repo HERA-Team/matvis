@@ -182,7 +182,7 @@ def vis_cpu(
     else:
         assert beam_idx.shape == (nant,), "beam_idx must be length nant"
         assert all(
-            i < nbeam for i in beam_idx
+            0 <= i < nbeam for i in beam_idx
         ), "beam_idx contains indices greater than the number of beams"
 
     if beam_list is None:
