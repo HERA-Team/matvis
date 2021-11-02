@@ -8,6 +8,16 @@ from typing import Optional, Sequence
 
 from . import conversions
 
+# This enables us to put in profile decorators that will be no-ops if no profiling
+# library is being used.
+try:
+    profile
+except NameError:
+
+    def profile(fnc):
+        """No-op profiling decorator."""
+        return fnc
+
 
 def construct_pixel_beam_spline(bm_cube):
     """Construct bivariate spline for pixelated beams for all antennas.
@@ -60,6 +70,7 @@ def construct_pixel_beam_spline(bm_cube):
     return splines
 
 
+@profile
 def vis_cpu(
     antpos: np.ndarray,
     freq: float,
