@@ -20,7 +20,7 @@ ants = {0: (0, 0, 0), 1: (1, 1, 0)}
 cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
 
 
-class EllipticalBeam(object):
+class EllipticalBeam:
     """Add ellipticity/shearing to an existing UVBeam/AnalyticBeam object."""
 
     def __init__(self, base_beam, xstretch=1.0, ystretch=1.0, rotation=0.0):
@@ -372,3 +372,96 @@ def test_prepare_beam_unpol_uvbeam_pol_no_exist():
         ValueError, match="You want to use x feed, but it does not exist in the UVBeam"
     ):
         conversions.prepare_beam(beam, polarized=False, use_feed="x")
+
+
+def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
+    """Test passing different numbers of beams than nant."""
+    beam_pix = conversions.uvbeam_to_lm(
+        beam_list_unpol[0], freq, n_pix_lm=1000, polarized=False
+    )
+
+    antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
+
+    bm_cube = np.array([beam_pix, beam_pix, beam_pix])
+
+    for i in range(freq.size):
+        # Pixel beams
+        vis_pix = vis_cpu(
+            antpos,
+            freq[i],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, i],
+            bm_cube=bm_cube[:1, i, :, :],
+            precision=2,
+            polarized=False,
+        )
+
+        vis_pix2 = vis_cpu(
+            antpos,
+            freq[i],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, i],
+            bm_cube=bm_cube[:2, i, :, :],
+            precision=2,
+            polarized=False,
+            beam_idx=np.array([0, 1, 0]),
+        )
+
+        vis_pix3 = vis_cpu(
+            antpos,
+            freq[i],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, i],
+            bm_cube=bm_cube[:, i, :, :],
+            precision=2,
+            polarized=False,
+        )
+
+        # Analytic beams
+        vis_analytic = vis_cpu(
+            antpos,
+            freq[i],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, i],
+            beam_list=beam_list_unpol[:1],
+            precision=2,
+            polarized=False,
+        )
+
+        assert np.all(~np.isnan(vis_pix))  # check that there are no NaN values
+        assert np.all(~np.isnan(vis_pix2))  # check that there are no NaN values
+        assert np.all(~np.isnan(vis_analytic))
+
+        # Check that results are close (they should be for 1000^2 pixel-beams
+        # if the elliptical beams are both oriented the same way)
+        np.testing.assert_allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(vis_pix, vis_pix2, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(vis_pix3, vis_pix2, rtol=1e-5, atol=1e-5)
+
+
+def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
+    """Test passing different numbers of beams than nant."""
+    beam_pix = conversions.uvbeam_to_lm(
+        beam_list_unpol[0], freq, n_pix_lm=1000, polarized=False
+    )
+
+    antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
+
+    bm_cube = np.array([beam_pix, beam_pix, beam_pix])
+
+    # Pixel beams
+    with pytest.raises(ValueError, match="beam_idx must be provided"):
+        vis_cpu(
+            antpos,
+            freq[0],
+            eq2tops,
+            crd_eq,
+            sky_flux[:, 0],
+            bm_cube=bm_cube[:2, 0, :, :],
+            precision=2,
+            polarized=False,
+        )
