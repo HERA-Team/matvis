@@ -239,7 +239,7 @@ def vis_cpu(
 
     im = np.zeros(nsrcs, dtype=real_dtype) if complex_bm_cube else 0
     re = np.zeros(nsrcs, dtype=real_dtype)
-    
+
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
         # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
@@ -250,7 +250,6 @@ def vis_cpu(
         tx = tx[above_horizon]
         ty = ty[above_horizon]
 
-        
         # Primary beam response
         if beam_list is None:
             # Primary beam pattern using pixelized primary beam
@@ -265,7 +264,9 @@ def vis_cpu(
                         re[above_horizon] = splines_re[p1][p2][i](ty, tx, grid=False)
 
                         if complex_bm_cube:
-                            im[above_horizon] = 1.0j * splines_im[p1][p2][i](ty, tx, grid=False)
+                            im[above_horizon] = 1.0j * splines_im[p1][p2][i](
+                                ty, tx, grid=False
+                            )
 
                         A_s[p1, p2, beam_idx == i] = re + im
         else:
@@ -286,7 +287,9 @@ def vis_cpu(
                     # Here we have already asserted that the beam is a power beam and
                     # has only one polarization, so we just evaluate that one.
                     for ant in range(nant):
-                        A_s[:, :, beam_idx[ant], above_horizon] = np.sqrt(interp_beam[0, 0, 0, 0, :])
+                        A_s[:, :, beam_idx[ant], above_horizon] = np.sqrt(
+                            interp_beam[0, 0, 0, 0, :]
+                        )
 
         # Check for invalid beam values
         if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
