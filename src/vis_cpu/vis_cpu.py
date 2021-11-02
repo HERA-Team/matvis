@@ -269,7 +269,6 @@ def vis_cpu(
                             )
 
                         A_s[p1, p2, beam_idx == i] = re + im
-            print("CUBE: ", np.mean(A_s))
         else:
 
             # Primary beam pattern using direct interpolation of UVBeam object
@@ -287,9 +286,8 @@ def vis_cpu(
                     interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
 
                 for ant in range(nant):
-                    A_s[:, :, beam_idx[ant], above_horizon] = interp_beam
-
-            print("ANALYTIC: ", np.mean(A_s))
+                    if beam_idx[ant] == i:
+                        A_s[:, :, ant, above_horizon] = interp_beam
 
         # Check for invalid beam values
         if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
