@@ -13,7 +13,6 @@ from . import conversions
 try:
     profile
 except NameError:
-
     def profile(fnc):
         """No-op profiling decorator."""
         return fnc
@@ -236,10 +235,7 @@ def vis_cpu(
     ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    A_s = np.zeros((nax, nfeed, nant, nsrcs), dtype=complex_dtype)
     vis = np.zeros((nax, nfeed, ntimes, nant, nant), dtype=complex_dtype)
-    tau = np.zeros((nant, nsrcs), dtype=real_dtype)
-    v = np.zeros((nant, nsrcs), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Precompute splines using pixelized beams
@@ -248,8 +244,7 @@ def vis_cpu(
         if complex_bm_cube:
             splines_im = construct_pixel_beam_spline(bm_cube.imag)
 
-    im = np.zeros(nsrcs, dtype=real_dtype)
-    re = np.zeros(nsrcs, dtype=real_dtype)
+    im = 0
 
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
@@ -260,7 +255,12 @@ def vis_cpu(
         above_horizon = tz > 0
         tx = tx[above_horizon]
         ty = ty[above_horizon]
+        nsrcs_up = len(tx)
 
+        A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+        tau = np.zeros((nant, nsrcs_up), dtype=real_dtype)
+        v = np.zeros((nant, nsrcs_up), dtype=complex_dtype)
+        
         # Primary beam response
         if beam_list is None:
             # Primary beam pattern using pixelized primary beam
@@ -270,16 +270,13 @@ def vis_cpu(
                     for p2 in range(nfeed):
                         # The beam pixel grid has been reshaped in the order
                         # ty,tx, which implies m,l order
-                        re[:] = 0.0
-                        re[above_horizon] = splines_re[p1][p2][i](ty, tx, grid=False)
+                        
+                        re = splines_re[p1][p2][i](ty, tx, grid=False)
 
                         if complex_bm_cube:
-                            im[:] = 0
-                            im[above_horizon] = 1.0j * splines_im[p1][p2][i](
-                                ty, tx, grid=False
-                            )
+                            im = 1.0j * splines_im[p1][p2][i](ty, tx, grid=False)
 
-                        A_s[p1, p2, beam_idx == i] = re + im
+                        A_s[p1, p2, i] = re + im
         else:
 
             # Primary beam pattern using direct interpolation of UVBeam object
@@ -296,16 +293,14 @@ def vis_cpu(
                     # has only one polarization, so we just evaluate that one.
                     interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
 
-                for ant in range(nant):
-                    if beam_idx[ant] == i:
-                        A_s[:, :, ant, above_horizon] = interp_beam
+                    A_s[:, :, i] = interp_beam
 
         # Check for invalid beam values
         if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
             raise ValueError("Beam interpolation resulted in an invalid value")
 
         # Calculate delays, where tau = (b * s) / c
-        np.dot(antpos, crd_top, out=tau)
+        np.dot(antpos, crd_top[:, above_horizon], out=tau)
         tau /= c.value
 
         # Component of complex phase factor for one antenna
@@ -314,18 +309,16 @@ def vis_cpu(
         np.exp(1.0j * (ang_freq * tau), out=v)
 
         # Complex voltages.
-        v *= Isqrt
+        v *= Isqrt[above_horizon]
 
         # Compute visibilities using product of complex voltages (upper triangle).
         # Input arrays have shape (Nax, Nfeed, [Nants], Nsrcs
         for i in range(len(antpos)):
+            bm = beam_idx[i]
+            x = (A_s[:, :, bm : bm + 1] * v[np.newaxis, np.newaxis, i : i + 1]).conj()
+            y = A_s[:, :, beam_idx[i:]] * v[np.newaxis, np.newaxis, i:]
             vis[:, :, t, i : i + 1, i:] = np.einsum(
-                "ijln,jkmn->iklm",
-                A_s[:, :, i : i + 1, above_horizon].conj()
-                * v[np.newaxis, np.newaxis, i : i + 1, above_horizon].conj(),
-                A_s[:, :, i:, above_horizon]
-                * v[np.newaxis, np.newaxis, i:, above_horizon],
-                optimize=True,
+                "ijln,jkmn->iklm", x, y, optimize=True
             )
 
     # Return visibilities with or without multiple polarization channels
