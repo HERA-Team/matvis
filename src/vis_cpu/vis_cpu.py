@@ -237,7 +237,7 @@ def vis_cpu(
         if complex_bm_cube:
             splines_im = construct_pixel_beam_spline(bm_cube.imag)
 
-    im = np.zeros(nsrcs, dtype=real_dtype) if complex_bm_cube else 0
+    im = np.zeros(nsrcs, dtype=real_dtype)
     re = np.zeros(nsrcs, dtype=real_dtype)
 
     # Loop over time samples
@@ -260,15 +260,16 @@ def vis_cpu(
                         # The beam pixel grid has been reshaped in the order
                         # ty,tx, which implies m,l order
                         re[:] = 0.0
-                        im[:] = 0.0
                         re[above_horizon] = splines_re[p1][p2][i](ty, tx, grid=False)
 
                         if complex_bm_cube:
+                            im[:] = 0
                             im[above_horizon] = 1.0j * splines_im[p1][p2][i](
                                 ty, tx, grid=False
                             )
 
                         A_s[p1, p2, beam_idx == i] = re + im
+            print("CUBE: ", np.mean(A_s))
         else:
 
             # Primary beam pattern using direct interpolation of UVBeam object
@@ -279,17 +280,16 @@ def vis_cpu(
                 )[0]
 
                 if polarized:
-                    for ant in range(nant):
-                        A_s[:, :, beam_idx[ant], above_horizon] = interp_beam[
-                            :, 0, :, 0, :
-                        ]  # spw=0 and freq=0
+                    interp_beam = interp_beam[:, 0, :, 0, :]
                 else:
                     # Here we have already asserted that the beam is a power beam and
                     # has only one polarization, so we just evaluate that one.
-                    for ant in range(nant):
-                        A_s[:, :, beam_idx[ant], above_horizon] = np.sqrt(
-                            interp_beam[0, 0, 0, 0, :]
-                        )
+                    interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
+
+                for ant in range(nant):
+                    A_s[:, :, beam_idx[ant], above_horizon] = interp_beam
+
+            print("ANALYTIC: ", np.mean(A_s))
 
         # Check for invalid beam values
         if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
