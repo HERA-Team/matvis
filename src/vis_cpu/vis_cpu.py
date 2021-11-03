@@ -13,6 +13,7 @@ from . import conversions
 try:
     profile
 except NameError:
+
     def profile(fnc):
         """No-op profiling decorator."""
         return fnc
@@ -260,7 +261,7 @@ def vis_cpu(
         A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
         tau = np.zeros((nant, nsrcs_up), dtype=real_dtype)
         v = np.zeros((nant, nsrcs_up), dtype=complex_dtype)
-        
+
         # Primary beam response
         if beam_list is None:
             # Primary beam pattern using pixelized primary beam
@@ -270,7 +271,7 @@ def vis_cpu(
                     for p2 in range(nfeed):
                         # The beam pixel grid has been reshaped in the order
                         # ty,tx, which implies m,l order
-                        
+
                         re = splines_re[p1][p2][i](ty, tx, grid=False)
 
                         if complex_bm_cube:
@@ -317,7 +318,7 @@ def vis_cpu(
 
         for i in range(len(antpos)):
             vis[:, :, t, i : i + 1, i:] = np.einsum(
-                "ijln,jkmn->iklm", v[:, :, i:i+1].conj(), v[:, :, i:], optimize=True
+                "ijln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
             )
 
     # Return visibilities with or without multiple polarization channels
