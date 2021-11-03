@@ -294,7 +294,7 @@ def vis_cpu(
                     # has only one polarization, so we just evaluate that one.
                     interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
 
-                    A_s[:, :, i] = interp_beam
+                A_s[:, :, i] = interp_beam
 
         # Check for invalid beam values
         if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
