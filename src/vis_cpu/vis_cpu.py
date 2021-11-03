@@ -313,12 +313,11 @@ def vis_cpu(
 
         # Compute visibilities using product of complex voltages (upper triangle).
         # Input arrays have shape (Nax, Nfeed, [Nants], Nsrcs
+        v = A_s[:, :, beam_idx] * v[np.newaxis, np.newaxis, :]
+
         for i in range(len(antpos)):
-            bm = beam_idx[i]
-            x = (A_s[:, :, bm : bm + 1] * v[np.newaxis, np.newaxis, i : i + 1]).conj()
-            y = A_s[:, :, beam_idx[i:]] * v[np.newaxis, np.newaxis, i:]
             vis[:, :, t, i : i + 1, i:] = np.einsum(
-                "ijln,jkmn->iklm", x, y, optimize=True
+                "ijln,jkmn->iklm", v[:, :, i:i+1].conj(), v[:, :, i:], optimize=True
             )
 
     # Return visibilities with or without multiple polarization channels
