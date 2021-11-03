@@ -65,7 +65,7 @@ def simulate_vis(
     Returns
     -------
     vis : array_like
-        Complex array of shape (NFREQS, NAXES, NFEED, NTIMES, NANTS, NANTS)
+        Complex array of shape (NAXES, NFEED, NFREQS, NTIMES, NANTS, NANTS)
         if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
     """
     assert len(ants) == len(

@@ -1,4 +1,6 @@
 """Compare vis_cpu with pyuvsim visibilities."""
+import pytest
+
 import numpy as np
 from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
@@ -7,7 +9,7 @@ from pyradiosky import SkyModel
 from pyuvsim import AnalyticBeam, simsetup, uvsim
 from pyuvsim.telescope import BeamList
 
-from vis_cpu import conversions, simulate_vis, vis_cpu
+from vis_cpu import conversions, simulate_vis
 
 nfreq = 3
 ntime = 20
@@ -15,7 +17,8 @@ nants = 4
 nsource = 500
 
 
-def test_compare_pyuvsim():
+@pytest.mark.parametrize("polarized", (True, False))
+def test_compare_pyuvsim(polarized):
     """Compare vis_cpu and pyuvsim simulated visibilities."""
     hera_lat = -30.7215
     hera_lon = 21.4283
@@ -31,9 +34,7 @@ def test_compare_pyuvsim():
     x = np.random.random(nants) * 400.0  # Up to 400 metres
     y = np.random.random(nants) * 400.0
     z = np.random.random(nants) * 0.0
-    ants = {}
-    for i in range(nants):
-        ants[i] = (x[i], y[i], z[i])
+    ants = {i: (x[i], y[i], z[i]) for i in range(nants)}
 
     # Observing parameters in a UVData object
     uvdata = simsetup.initialize_uvdata_from_keywords(
@@ -82,10 +83,7 @@ def test_compare_pyuvsim():
     # Beam model
     beams = [AnalyticBeam("gaussian", diameter=14.0) for i in range(len(ants.keys()))]
     # beams = [AnalyticBeam('uniform') for i in range(len(ants.keys()))]
-    beam_dict = {}
-    for i in range(len(beams)):
-        beam_dict[str(i)] = i
-
+    beam_dict = {str(i): i for i in range(len(beams))}
     # Stokes for the first frequency only. Stokes for other frequencies
     # are calculated later.
     stokes = np.zeros((4, 1, ra_dec.shape[0]))
@@ -118,7 +116,7 @@ def test_compare_pyuvsim():
         lsts=lsts,
         beams=beams,
         pixel_beams=False,
-        polarized=False,
+        polarized=polarized,
         precision=2,
         latitude=hera_lat * np.pi / 180.0,
     )
@@ -142,7 +140,10 @@ def test_compare_pyuvsim():
     for i in range(nants):
         for j in range(i, nants):
             d_uvsim = uvd_uvsim.get_data((i, j, "XX")).T  # pyuvsim visibility
-            d_viscpu = vis_vc[:, :, i, j]  # vis_cpu visibility
+            if not polarized:
+                d_viscpu = vis_vc[:, :, i, j]  # vis_cpu visibility
+            else:
+                d_viscpu = vis_vc[0, 0, :, :, i, j]  # vis_cpu visibility
 
             # Keep track of maximum difference
             delta = d_uvsim - d_viscpu
