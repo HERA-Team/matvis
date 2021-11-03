@@ -10,6 +10,8 @@ Changed
 
 - Enhanced performance by allowing unique beams only to be passed (no breaking API
   change).
+- Enhanced performance of ``vis_cpu`` by only using sources above horizon, and changing
+  some array multiplication strategies (factor of ~3).
 
 Version 0.2.3
 =============
