@@ -227,6 +227,12 @@ def vis_cpu(
             "beam type must be power and have only one pol (either xx or yy) if polarized=False"
         )
 
+    # Need to make sure that the beams are peak normalized for output to make sense.
+    if beam_list is not None:
+        for beam in beam_list:
+            if beam.data_normalization != "peak":
+                beam.peak_normalize()
+
     # Intensity distribution (sqrt) and antenna positions. Does not support
     # negative sky. Factor of 0.5 accounts for splitting Stokes I between
     # polarization channels
@@ -317,8 +323,10 @@ def vis_cpu(
         v = A_s[:, :, beam_idx] * v[np.newaxis, np.newaxis, :]
 
         for i in range(len(antpos)):
+            # We want to take an outer product over feeds/antennas, contract over
+            # E-field components, and integrate over the sky.
             vis[:, :, t, i : i + 1, i:] = np.einsum(
-                "ijln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
+                "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
             )
 
     # Return visibilities with or without multiple polarization channels
