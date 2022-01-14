@@ -242,7 +242,7 @@ def vis_cpu(
     ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    vis = np.zeros((nax, nfeed, ntimes, nant, nant), dtype=complex_dtype)
+    vis = np.zeros((nfeed, nfeed, ntimes, nant, nant), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Precompute splines using pixelized beams
