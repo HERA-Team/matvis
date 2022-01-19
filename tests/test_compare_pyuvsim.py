@@ -6,8 +6,8 @@ from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
 from astropy.units import Quantity
 from pathlib import Path
-from pyuvdata import UVBeam
 from pyradiosky import SkyModel
+from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup, uvsim
 from pyuvsim.telescope import BeamList
 
@@ -18,6 +18,7 @@ ntime = 20
 nants = 4
 nsource = 500
 beam_file = Path(__file__).parent / "data/NF_HERA_Dipole_small.fits"
+
 
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
 @pytest.mark.parametrize("polarized", (True, False))
@@ -46,7 +47,12 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         if not polarized:
             uvsim_beam = beam.copy()
             beam.efield_to_power(calc_cross_pols=False, inplace=True)
-            beam.select(polarizations=["xx",], inplace=True)
+            beam.select(
+                polarizations=[
+                    "xx",
+                ],
+                inplace=True,
+            )
 
     cpu_beams = [beam for i in range(nants)]
     if polarized or use_analytic_beam:
