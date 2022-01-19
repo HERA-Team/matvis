@@ -5,6 +5,16 @@ Changelog
 dev
 ===
 
+Version 0.5.0
+=============
+
+Fixed
+-----
+
+- The visibility integral, calculated with the call to ``einsum``, has been fixed.
+  It now takes an outer product over feeds, sums over E-field components, and performs
+  the integral over the sky.
+
 Version 0.4.0
 =============
 
