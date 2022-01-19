@@ -12,14 +12,12 @@ from pyuvsim import AnalyticBeam, simsetup, uvsim
 from pyuvsim.telescope import BeamList
 
 from vis_cpu import conversions, simulate_vis
-from vis_cpu import __path__ as vis_cpu_path
 
 nfreq = 3
 ntime = 20
 nants = 4
 nsource = 500
-vis_cpu_path = Path(vis_cpu_path[0]).parent.parent
-beam_file = vis_cpu_path / "tests/data/NF_HERA_Dipole_small.fits"
+beam_file = Path(__file__).parent / "data/NF_HERA_Dipole_small.fits"
 
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
 @pytest.mark.parametrize("polarized", (True, False))
