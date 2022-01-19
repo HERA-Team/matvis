@@ -5,20 +5,25 @@ import numpy as np
 from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
 from astropy.units import Quantity
+from pathlib import Path
+from pyuvdata import UVBeam
 from pyradiosky import SkyModel
 from pyuvsim import AnalyticBeam, simsetup, uvsim
 from pyuvsim.telescope import BeamList
 
 from vis_cpu import conversions, simulate_vis
+from vis_cpu import __path__ as vis_cpu_path
 
 nfreq = 3
 ntime = 20
 nants = 4
 nsource = 500
+vis_cpu_path = Path(vis_cpu_path[0]).parent.parent
+beam_file = vis_cpu_path / "tests/data/NF_HERA_Dipole_small.fits"
 
-
+@pytest.mark.parametrize("use_analytic_beam", (True, False))
 @pytest.mark.parametrize("polarized", (True, False))
-def test_compare_pyuvsim(polarized):
+def test_compare_pyuvsim(polarized, use_analytic_beam):
     """Compare vis_cpu and pyuvsim simulated visibilities."""
     hera_lat = -30.7215
     hera_lon = 21.4283
@@ -30,6 +35,29 @@ def test_compare_pyuvsim(polarized):
 
     np.random.seed(1)
 
+    # Beam model
+    if use_analytic_beam:
+        n_freq = nfreq
+        beam = AnalyticBeam("gaussian", diameter=14.0)
+    else:
+        n_freq = 2
+        # This is a peak-normalized e-field beam file at 100 and 101 MHz,
+        # downsampled to roughly 4 square-degree resolution.
+        beam = UVBeam()
+        beam.read_beamfits(beam_file)
+        if not polarized:
+            uvsim_beam = beam.copy()
+            beam.efield_to_power(calc_cross_pols=False, inplace=True)
+            beam.select(polarizations=["xx",], inplace=True)
+
+    cpu_beams = [beam for i in range(nants)]
+    if polarized or use_analytic_beam:
+        uvsim_beams = BeamList(cpu_beams)
+    else:
+        uvsim_beams = BeamList([uvsim_beam for i in range(nants)])
+    # beams = [AnalyticBeam('uniform') for i in range(len(ants.keys()))]
+    beam_dict = {str(i): i for i in range(len(cpu_beams))}
+
     # Random antenna locations
     x = np.random.random(nants) * 400.0  # Up to 400 metres
     y = np.random.random(nants) * 400.0
@@ -38,7 +66,7 @@ def test_compare_pyuvsim(polarized):
 
     # Observing parameters in a UVData object
     uvdata = simsetup.initialize_uvdata_from_keywords(
-        Nfreqs=nfreq,
+        Nfreqs=n_freq,
         start_freq=100e6,
         channel_width=97.3e3,
         start_time=obstime.jd,
@@ -78,12 +106,7 @@ def test_compare_pyuvsim(polarized):
 
     # Calculate source fluxes for vis_cpu
     flux = ((freqs[:, np.newaxis] / freqs[0]) ** sources[:, 3].T * sources[:, 2].T).T
-    # beam_ids = list(ants.keys())
 
-    # Beam model
-    beams = [AnalyticBeam("gaussian", diameter=14.0) for i in range(len(ants.keys()))]
-    # beams = [AnalyticBeam('uniform') for i in range(len(ants.keys()))]
-    beam_dict = {str(i): i for i in range(len(beams))}
     # Stokes for the first frequency only. Stokes for other frequencies
     # are calculated later.
     stokes = np.zeros((4, 1, ra_dec.shape[0]))
@@ -114,7 +137,7 @@ def test_compare_pyuvsim(polarized):
         dec=dec_new,
         freqs=freqs,
         lsts=lsts,
-        beams=beams,
+        beams=cpu_beams,
         pixel_beams=False,
         polarized=polarized,
         precision=2,
@@ -126,7 +149,7 @@ def test_compare_pyuvsim(polarized):
     # ---------------------------------------------------------------------------
     uvd_uvsim = uvsim.run_uvdata_uvsim(
         uvdata,
-        BeamList(beams),
+        uvsim_beams,
         beam_dict=beam_dict,
         catalog=simsetup.SkyModelData(sky_model),
     )
@@ -137,6 +160,12 @@ def test_compare_pyuvsim(polarized):
     # Loop over baselines and compare
     diff_re = 0.0
     diff_im = 0.0
+    if use_analytic_beam:
+        rtol = 2e-4
+        atol = 5e-4
+    else:
+        rtol = 0.01
+        atol = 5e-4
     for i in range(nants):
         for j in range(i, nants):
             d_uvsim = uvd_uvsim.get_data((i, j, "XX")).T  # pyuvsim visibility
@@ -147,9 +176,9 @@ def test_compare_pyuvsim(polarized):
 
             # Keep track of maximum difference
             delta = d_uvsim - d_viscpu
-            if np.abs(np.max(delta.real)) > diff_re:
-                diff_re = np.abs(np.max(delta.real))
-            if np.abs(np.max(delta.imag)) > diff_im:
+            if np.max(np.abs(delta.real)) > diff_re:
+                diff_re = np.max(np.abs(delta.real))
+            if np.max(np.abs(delta.imag)) > diff_im:
                 diff_im = np.abs(np.max(delta.imag))
 
             err = f"Max diff: {diff_re:10.10e} + 1j*{diff_im:10.10e}\n"
@@ -157,6 +186,6 @@ def test_compare_pyuvsim(polarized):
             err += f"Avg. diff: {delta.mean():10.10e}\n"
             err += f"Max values: \n    uvsim={d_uvsim.max():10.10e}"
             err += f"\n    viscpu={d_viscpu.max():10.10e}"
-            assert np.allclose(d_uvsim, d_viscpu, rtol=2e-4, atol=5e-4), err
+            assert np.allclose(d_uvsim, d_viscpu, rtol=rtol, atol=atol), err
 
             # "Max. difference (re, im): {:10.10e}, {:10.10e}".format(diff_re, diff_im)

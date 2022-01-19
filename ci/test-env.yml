@@ -14,6 +14,7 @@ dependencies:
   - ipython>=7.22,<8
   - h5py>=3.2,<4
   - ffmpeg
+  - pyuvdata  # For testing when using UVBeam object
   - pip:
     - pyuvsim[sim]>=1.2,<1.4
     - pyradiosky>=0.1.1,<0.3
