@@ -236,7 +236,7 @@ def vis_cpu(
     ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    vis = np.zeros((nax, nfeed, ntimes, nant, nant), dtype=complex_dtype)
+    vis = np.zeros((nfeed, nfeed, ntimes, nant, nant), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Precompute splines using pixelized beams
@@ -317,8 +317,10 @@ def vis_cpu(
         v = A_s[:, :, beam_idx] * v[np.newaxis, np.newaxis, :]
 
         for i in range(len(antpos)):
+            # We want to take an outer product over feeds/antennas, contract over
+            # E-field components, and integrate over the sky.
             vis[:, :, t, i : i + 1, i:] = np.einsum(
-                "ijln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
+                "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
             )
 
     # Return visibilities with or without multiple polarization channels

@@ -45,6 +45,8 @@ class EllipticalBeam:
         self.xstretch = xstretch
         self.ystretch = ystretch
         self.rotation = rotation
+        self.peak_normalize = base_beam.peak_normalize
+        self.data_normalization = base_beam.data_normalization
 
     @property
     def beam_type(self) -> str:
