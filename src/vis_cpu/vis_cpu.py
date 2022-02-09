@@ -282,9 +282,10 @@ def vis_cpu(
 
             # Primary beam pattern using direct interpolation of UVBeam object
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-            for i in range(nbeam):
+            for i, bm in enumerate(beam_list):
+                kw = {'reuse_spline': True} if isinstance(bm, UVBeam) else {}
                 interp_beam = beam_list[i].interp(
-                    az_array=az, za_array=za, freq_array=np.atleast_1d(freq)
+                    az_array=az, za_array=za, freq_array=np.atleast_1d(freq), **kw
                 )[0]
 
                 if polarized:
@@ -324,7 +325,4 @@ def vis_cpu(
             )
 
     # Return visibilities with or without multiple polarization channels
-    if polarized:
-        return vis
-    else:
-        return vis[0, 0]
+    return vis if polarized else vis[0, 0]
