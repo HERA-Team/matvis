@@ -101,7 +101,7 @@ class EllipticalBeam:
             Ys = (X * np.sin(a) + Y * np.cos(a)) / self.ystretch
 
             # Updated polar coordinates
-            theta_s = np.sqrt(Xs ** 2.0 + Ys ** 2.0)
+            theta_s = np.sqrt(Xs**2.0 + Ys**2.0)
             phi_s = np.arccos(Xs / theta_s)
             phi_s[Ys < 0.0] *= -1.0
 
