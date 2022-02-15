@@ -393,28 +393,33 @@ def uvbeam_to_lm(
     else:
         return bm.reshape((len(freqs), n_pix_lm, n_pix_lm))
 
+
 def bm_pix_to_lm(bm_pix: int) -> np.ndarray:
     """Return a sampling in projected coordinates.
-    
+
     This gives an array sampled from -1 to 1, with ``bm_pix`` points in it.
     ``bm_pix`` must be an odd number of points since we ensure that zenith is
     always sampled (i.e. l=0). We furthermore always put two points very close to
     zenith (at 1e-18) to ensure that we can "interpolate away" from zenith properly.
-    
+
     Since we interpolate in real/imag, the phase flip at zenith will always mean that
     there is a point with magnitude of zero between zenith and one of the points on the
-    circle closest to zenith. By making this circle very small (1e-18) we reduce the 
-    chance that this artifact has any effect. 
+    circle closest to zenith. By making this circle very small (1e-18) we reduce the
+    chance that this artifact has any effect.
     """
     if not bm_pix % 2:
         raise ValueError("Must use odd bm_pix so that you sample zenith!")
 
-    lm = np.linspace(-1, 1, bm_pix - 2)    
+    lm = np.linspace(-1, 1, bm_pix - 2)
 
     # The smallest value of lm should always be zero, however numerically it doesn't
     # always quite work out, so we force it to be exactly zero.
-    lm[np.argmin(np.abs(lm))] = 0.0 
-    lm = np.insert(lm,  bm_pix//2 - 1, -1e-18,)
-    lm  = np.insert(lm, bm_pix//2 + 1, 1e-18)
+    lm[np.argmin(np.abs(lm))] = 0.0
+    lm = np.insert(
+        lm,
+        bm_pix // 2 - 1,
+        -1e-18,
+    )
+    lm = np.insert(lm, bm_pix // 2 + 1, 1e-18)
 
     return lm
