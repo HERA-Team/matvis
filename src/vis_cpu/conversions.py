@@ -58,7 +58,7 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
         "uvbeam",
     ], "orientation must be either 'astropy' or 'uvbeam'"
 
-    lsqr = enu_n ** 2.0 + enu_e ** 2.0
+    lsqr = enu_n**2.0 + enu_e**2.0
     mask = lsqr < 1
     zeta = np.zeros_like(lsqr)
     zeta[mask] = np.sqrt(1 - lsqr[mask])
