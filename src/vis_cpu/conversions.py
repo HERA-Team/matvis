@@ -410,6 +410,9 @@ def bm_pix_to_lm(bm_pix: int) -> np.ndarray:
     if not bm_pix % 2:
         raise ValueError("Must use odd bm_pix so that you sample zenith!")
 
+    if bm_pix < 5:
+        raise ValueError("can't use bm_pix less than 5!")
+
     lm = np.linspace(-1, 1, bm_pix - 2)
 
     # The smallest value of lm should always be zero, however numerically it doesn't

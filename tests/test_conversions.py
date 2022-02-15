@@ -182,3 +182,21 @@ def test_equatorial_to_eci_coords():
         _ra, _dec = conversions.equatorial_to_eci_coords(
             ra, dec, obstime, (-30.7, 21.4, 1073.0), unit="rad", frame="icrs"
         )
+
+
+def test_bm_pix():
+    """Test the bm_pix_to_lm function."""
+    with pytest.raises(ValueError, match="can't use bm_pix less than 5!"):
+        conversions.bm_pix_to_lm(3)
+
+    with pytest.raises(
+        ValueError, match="Must use odd bm_pix so that you sample zenith!"
+    ):
+        conversions.bm_pix_to_lm(10)
+
+    for n in [101, 201, 153, 17]:
+        lm = conversions.bm_pix_to_lm(n)
+        assert 0.0 in lm.tolist()
+        assert np.all(np.diff(lm)) > 0.0
+        assert 1e-18 in lm.tolist()
+        assert -1e-18 in lm.tolist()

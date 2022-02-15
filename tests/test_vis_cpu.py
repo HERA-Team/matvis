@@ -180,7 +180,7 @@ def test_construct_pixel_beam_spline():
     beams = [beam, beam, beam]  # 3 ants
 
     beam_pix = [
-        conversions.uvbeam_to_lm(bm, freqs, n_pix_lm=20, polarized=False)
+        conversions.uvbeam_to_lm(bm, freqs, n_pix_lm=21, polarized=False)
         for bm in beams
     ]
     beam_cube = np.array(beam_pix)
