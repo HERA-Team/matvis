@@ -154,7 +154,7 @@ def numpy3d_to_array(np_array):
 
 
 NTHREADS = 1024  # make 512 for smaller GPUs
-MAX_MEMORY = 2 ** 29  # floats (4B each)
+MAX_MEMORY = 2**29  # floats (4B each)
 MIN_CHUNK = 8
 
 
