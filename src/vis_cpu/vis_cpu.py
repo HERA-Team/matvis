@@ -4,7 +4,7 @@ import numpy as np
 from astropy.constants import c
 from pyuvdata import UVBeam
 from scipy.interpolate import RectBivariateSpline
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Literal
 
 from . import conversions
 
@@ -47,9 +47,8 @@ def construct_pixel_beam_spline(bm_cube):
     nax, nfeed, nbeam, bm_pix, _ = bm_cube.shape
 
     # x and y coordinates of beam
-    bm_pix_x = np.linspace(-1, 1, bm_pix)
-    bm_pix_y = np.linspace(-1, 1, bm_pix)
-
+    lm = conversions.bm_pix_to_lm(bm_pix)
+    
     # Construct splines for each polarization (pol. vector axis + feed) and
     # antenna. The `splines` list has shape (Naxes, Nfeeds, Nants).
     splines = []
@@ -62,7 +61,7 @@ def construct_pixel_beam_spline(bm_cube):
             for i in range(nbeam):
                 # Linear interpolation of primary beam pattern.
                 spl = RectBivariateSpline(
-                    bm_pix_y, bm_pix_x, bm_cube[p1, p2, i], kx=1, ky=1
+                    lm, lm, bm_cube[p1, p2, i], kx=1, ky=1
                 )
                 spl_feeds.append(spl)
             spl_axes.append(spl_feeds)
@@ -117,7 +116,8 @@ def vis_cpu(
         shape=``(NBEAMS, BM_PIX, BM_PIX)``, otherwise
         shape=``(NAX, NFEED, NBEAMS, BM_PIX, BM_PIX)``. Only one of ``bm_cube`` and
         ``beam_list`` should be provided. If NBEAMS != NANT, then `beam_idx` must be
-        provided also.
+        provided also. Note that the projected coordinates corresponding to the bm_cube
+        MUST be equivalent to those returned by :func:`~conversions.bm_pix_to_lm`.
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
         objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
@@ -283,8 +283,9 @@ def vis_cpu(
             # Primary beam pattern using direct interpolation of UVBeam object
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
             for i, bm in enumerate(beam_list):
-                kw = {'reuse_spline': True} if isinstance(bm, UVBeam) else {}
-                interp_beam = beam_list[i].interp(
+                kw = {'reuse_spline': True, 'check_azza_domain': False} if isinstance(bm, UVBeam) else {}
+                
+                interp_beam = bm.interp(
                     az_array=az, za_array=za, freq_array=np.atleast_1d(freq), **kw
                 )[0]
 
