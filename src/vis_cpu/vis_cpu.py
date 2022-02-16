@@ -4,7 +4,7 @@ import numpy as np
 from astropy.constants import c
 from pyuvdata import UVBeam
 from scipy.interpolate import RectBivariateSpline
-from typing import Literal, Optional, Sequence
+from typing import Optional, Sequence
 
 from . import conversions
 
