@@ -185,7 +185,7 @@ def beam_list_pol() -> List[EllipticalBeam]:
 def beam_cube(beam_list_unpol, freq) -> np.ndarray:
     """Construct pixel beam from analytic beam."""
     beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1000, polarized=False
+        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
     )
     return np.array([beam_pix, beam_pix])
 
@@ -279,14 +279,14 @@ def test_beam_interpolation_pol():
 
     # Construct pixel beam from analytic beam
     beam_pix = conversions.uvbeam_to_lm(
-        beam_analytic, freq, n_pix_lm=20, polarized=True
+        beam_analytic, freq, n_pix_lm=21, polarized=True
     )
     assert np.all(~np.isnan(beam_pix))
     assert np.all(~np.isinf(beam_pix))
 
     # Check that unpolarized beam pixelization has 2 fewer dimensions
     beam_pix_unpol = conversions.uvbeam_to_lm(
-        beam_analytic, freq, n_pix_lm=200, polarized=False
+        beam_analytic, freq, n_pix_lm=201, polarized=False
     )
     assert len(beam_pix.shape) == len(beam_pix_unpol.shape) + 2
 
@@ -379,7 +379,7 @@ def test_prepare_beam_unpol_uvbeam_pol_no_exist():
 def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     """Test passing different numbers of beams than nant."""
     beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1000, polarized=False
+        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
     )
 
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
@@ -448,7 +448,7 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
 def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     """Test passing different numbers of beams than nant."""
     beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1000, polarized=False
+        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
     )
 
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])

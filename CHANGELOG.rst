@@ -2,10 +2,16 @@
 Changelog
 =========
 
-dev
-===
+Version 0.4.3
+=============
 
-Version 0.5.0
+Changed
+-------
+
+- Call ``UVBeam.interp`` with ``reuse_spline=True`` and ``check_azza_domain=False`` for
+  significantly faster performance when using ``beam_list``.
+
+Version 0.4.2
 =============
 
 Fixed
