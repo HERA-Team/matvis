@@ -296,7 +296,9 @@ def vis_cpu(
                     else {}
                 )
 
-                interp_beam = bm.interp(az_array=az, za_array=za, **kw)[0]
+                interp_beam = bm.interp(
+                    az_array=az, za_array=za, freq_array=np.atleast_1d(freq), **kw
+                )[0]
 
                 if polarized:
                     interp_beam = interp_beam[:, 0, :, 0, :]
