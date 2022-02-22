@@ -198,7 +198,7 @@ def vis_cpu(
         # make sure we interpolate to the right frequency first.
         beam_list = [
             b.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
-            if freq not in b.freq_array
+            if (isinstance(freq, UVBeam) and freq not in b.freq_array)
             else b
             for b in beam_list
         ]
