@@ -194,6 +194,15 @@ def vis_cpu(
             0 <= i < nbeam for i in beam_idx
         ), "beam_idx contains indices greater than the number of beams"
 
+    if beam_list is not None:
+        # make sure we interpolate to the right frequency first.
+        beam_list = [
+            b.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
+            if freq not in b.freq_array
+            else b
+            for b in beam_list
+        ]
+
     if beam_list is None:
         bm_pix = bm_cube.shape[-1]
         complex_bm_cube = np.any(np.iscomplex(bm_cube))

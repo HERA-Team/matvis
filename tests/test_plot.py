@@ -23,7 +23,7 @@ def test_source_az_za_beam():
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
     # Beam model
-    beam = AnalyticBeam(type="gaussian", diameter=14.0)
+    beam = AnalyticBeam("gaussian", diameter=14.0)
 
     # Calculate source locations and positions
     az, za, beamval = plot._source_az_za_beam(
@@ -47,7 +47,7 @@ def test_animate_source_map():
     dec = np.deg2rad(dec)
 
     # Beam model
-    beam = AnalyticBeam(type="gaussian", diameter=14.0)
+    beam = AnalyticBeam("gaussian", diameter=14.0)
 
     # Generate animation
     anim = plot.animate_source_map(
