@@ -197,10 +197,10 @@ def vis_cpu(
     if beam_list is not None:
         # make sure we interpolate to the right frequency first.
         beam_list = [
-            b.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
-            if (isinstance(freq, UVBeam) and freq not in b.freq_array)
-            else b
-            for b in beam_list
+            bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
+            if isinstance(bm, UVBeam)
+            else bm
+            for bm in beam_list
         ]
 
     if beam_list is None:
@@ -296,9 +296,7 @@ def vis_cpu(
                     else {}
                 )
 
-                interp_beam = bm.interp(
-                    az_array=az, za_array=za, freq_array=np.atleast_1d(freq), **kw
-                )[0]
+                interp_beam = bm.interp(az_array=az, za_array=za, **kw)[0]
 
                 if polarized:
                     interp_beam = interp_beam[:, 0, :, 0, :]
