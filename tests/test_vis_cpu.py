@@ -41,7 +41,7 @@ def test_vis_cpu():
     )
 
     # Create beam models
-    beam = AnalyticBeam(type="gaussian", diameter=14.0)
+    beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_pix = conversions.uvbeam_to_lm(beam, freq, n_pix_lm=63, polarized=False)
     beam_cube = np.array([beam_pix, beam_pix])
 
@@ -151,7 +151,7 @@ def test_simulate_vis(pixel_beams, polarized):
     lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
 
     # Create beam models
-    beam = AnalyticBeam(type="gaussian", diameter=14.0)
+    beam = AnalyticBeam("gaussian", diameter=14.0)
 
     # Run vis_cpu with pixel beams
     vis = simulate_vis(
@@ -176,7 +176,7 @@ def test_construct_pixel_beam_spline():
     freqs = np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
 
     # Create pixel beam
-    beam = AnalyticBeam(type="gaussian", diameter=14.0)
+    beam = AnalyticBeam("gaussian", diameter=14.0)
     beams = [beam, beam, beam]  # 3 ants
 
     beam_pix = [

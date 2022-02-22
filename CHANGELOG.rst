@@ -2,6 +2,15 @@
 Changelog
 =========
 
+dev-version
+===========
+
+Changed
+-------
+
+- Faster performance if using ``beam_list`` and the frequency is not in the ``freq_array``.
+  (interpolation done before the loop).
+
 Version 0.4.3
 =============
 
