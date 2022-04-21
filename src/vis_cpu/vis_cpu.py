@@ -1,6 +1,7 @@
 """CPU-based implementation of the visibility simulator."""
 
 import numpy as np
+import warnings
 from astropy.constants import c
 from pyuvdata import UVBeam
 from scipy.interpolate import RectBivariateSpline
@@ -116,6 +117,7 @@ def vis_cpu(
         ``beam_list`` should be provided. If NBEAMS != NANT, then `beam_idx` must be
         provided also. Note that the projected coordinates corresponding to the bm_cube
         MUST be equivalent to those returned by :func:`~conversions.bm_pix_to_lm`.
+        Note that using bm_cube (in the rectangular l,m grid) is NOT A GOOD IDEA.
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
         objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
@@ -161,6 +163,15 @@ def vis_cpu(
         raise RuntimeError("One of bm_cube/beam_list must be specified")
     if bm_cube is not None and beam_list is not None:
         raise RuntimeError("Cannot specify both bm_cube and beam_list")
+    if bm_cube is not None:
+        warnings.warn(
+            """
+            Using bm_cube is very inaccurate, regardless of resolution, due to the
+            rectangular grid that is adopted. Please consider using the beam_list
+            instead. Note that in the future, the bm_cube option may be removed, or
+            changed to a different coordinate grid.
+            """
+        )
 
     nant, ncrd = antpos.shape
     assert ncrd == 3, "antpos must have shape (NANTS, 3)."
