@@ -1,9 +1,11 @@
 """GPU implementation of the simulator."""
+import logging
 import numpy as np
 from astropy.constants import c as speed_of_light
 from jinja2 import Template
 from pathlib import Path
-from typing import Optional
+from pyuvdata import UVBeam
+from typing import Callable, Optional, Sequence
 
 try:
     import pycuda.autoinit
@@ -21,6 +23,8 @@ except ImportError:
     HAVE_CUDA = False
 
 from .vis_cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
+
+logger = logging.getLogger(__name__)
 
 ONE_OVER_C = 1.0 / speed_of_light.value
 
@@ -64,18 +68,19 @@ def _numpy3d_to_array(np_array):
     return device_array
 
 
-NTHREADS = 1024  # make 512 for smaller GPUs
+NTHREADS = 512  # make 512 for smaller GPUs
 MAX_MEMORY = 2**29  # floats (4B each)
-MIN_CHUNK = 8
+MIN_CHUNK = 1
 
 
 def vis_gpu(
+    *,
     antpos: np.ndarray,
     freq: float,
     eq2tops: np.ndarray,
     crd_eq: np.ndarray,
     I_sky: np.ndarray,
-    beam_list: np.ndarray,
+    beam_list: Optional[Sequence[UVBeam | Callable]],
     polarized: bool = False,
     beam_idx: Optional[np.ndarray] = None,
     nthreads: int = NTHREADS,
@@ -89,7 +94,8 @@ def vis_gpu(
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
     )
-    nsrc = len(crd_eq)
+
+    nsrc = len(I_sky)
 
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64
@@ -101,13 +107,13 @@ def vis_gpu(
         cublas_real_mm = cublasDgemm
 
     # apply scalars so 1j*tau*freq is the correct exponent
-    freq = 2 * freq * np.pi
+    ang_freq = 2 * freq * np.pi
 
     # ensure data types
     antpos = antpos.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
     crd_eq = crd_eq.astype(real_dtype)
-    Isqrt = np.sqrt(I_sky).astype(real_dtype)
+    Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
 
     chunk = max(
         min(nsrc, MIN_CHUNK),
@@ -147,6 +153,7 @@ def vis_gpu(
         "BLOCK_PX": block[0],
         "DTYPE": DTYPE,
         "CDTYPE": CDTYPE,
+        "f": "f" if precision == 1 else "",
     }
 
     # Choose to use single or double precision CUDA code
@@ -166,17 +173,14 @@ def vis_gpu(
     # bm_texref.set_array(numpy3d_to_array(beams))
     antpos_gpu = gpuarray.to_gpu(antpos)  # never changes, set to -2*pi*antpos/c
     Isqrt_gpu = gpuarray.empty(shape=(npixc,), dtype=real_dtype)
+
     # will be set on GPU by bm_interp
-    A_gpu = gpuarray.empty(shape=(nax, nfeed, nant, npixc), dtype=complex_dtype)
     crd_eq_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
     # sent from CPU each time
     eq2top_gpu = gpuarray.empty(shape=(3, 3), dtype=real_dtype)
     # will be set on GPU
     crdtop_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
     # will be set on GPU
-    tau_gpu = gpuarray.empty(shape=(nant, npixc), dtype=real_dtype)
-    # will be set on GPU
-    v_gpu = gpuarray.empty(shape=(nax, nfeed, nant, npixc), dtype=complex_dtype)
     vis_gpus = [
         gpuarray.empty(shape=(nfeed, nfeed, nant, nant), dtype=complex_dtype)
         for _ in range(chunk)
@@ -199,6 +203,8 @@ def vis_gpu(
         "end",
     )
     vis = np.empty((ntimes, nfeed, nfeed, nant, nant), dtype=complex_dtype)
+
+    logging.info("Running With %s chunks: ", chunk)
 
     for t in range(ntimes):
         eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
@@ -234,33 +240,47 @@ def vis_gpu(
                     npixc,
                 )
                 events[cc]["eq2top"].record(stream)
+
+                tx, ty, tz = crdtop_gpu.get()
+                above_horizon = tz > 0
+                tx = tx[above_horizon]
+                ty = ty[above_horizon]
+                nsrcs_up = len(tx)
+                crdtop_lim_gpu = gpuarray.to_gpu(
+                    crdtop_gpu.get()[:, above_horizon].copy()
+                )  # empty(shape=(3, nsrcs_up), dtype=real_dtype)
+
+                if nsrcs_up < 1:
+                    continue
+
+                tau_gpu = gpuarray.empty(shape=(nant, nsrcs_up), dtype=real_dtype)
+
                 ## compute tau = dot(antpos,crdtop) / speed_of_light
                 cublas_real_mm(
                     h,
                     "n",
                     "n",
-                    npixc,
+                    nsrcs_up,
                     nant,
                     3,
                     ONE_OVER_C,
-                    crdtop_gpu.gpudata,
-                    npixc,
+                    crdtop_lim_gpu.gpudata,
+                    nsrcs_up,
                     antpos_gpu.gpudata,
                     3,
                     0.0,
                     tau_gpu.gpudata,
-                    npixc,
+                    nsrcs_up,
                 )
                 events[cc]["tau"].record(stream)
 
                 ## interpolate bm_tex at specified topocentric coords, store interpolation in A
                 ## threads are parallelized across pixel axis
                 ## Need to do this in polar coordinates or BAD THINGS HAPPEN
-                tx, ty, tz = crdtop_gpu.get()
-                above_horizon = tz > 0
-                tx = tx[above_horizon]
-                ty = ty[above_horizon]
-                nsrcs_up = len(tx)
+
+                A_gpu = gpuarray.empty(
+                    shape=(nax, nfeed, nant, nsrcs_up), dtype=complex_dtype
+                )
 
                 A_s = _evaluate_beam_cpu(
                     beam_list,
@@ -271,20 +291,26 @@ def vis_gpu(
                     nax,
                     nfeed,
                     freq,
-                    nsrcs_up,
+                    np.uint(nsrcs_up),
                     complex_dtype,
-                ).astype(complex_dtype)
+                )
 
                 # bm_interp(crdtop_gpu, A_gpu, grid=grid, block=block, stream=stream)
                 # events[cc]["interpolate"].record(stream)
+
+                v_gpu = gpuarray.empty(
+                    shape=(nax, nfeed, nant, nsrcs_up), dtype=complex_dtype
+                )
+                Isqrt_lim_gpu = gpuarray.to_gpu(Isqrt_gpu.get()[above_horizon].copy())
 
                 # compute v = A * sqrtI * exp(1j*tau*freq)
                 A_gpu.set(A_s)
                 meas_eq(
                     A_gpu,
-                    Isqrt_gpu,
+                    Isqrt_lim_gpu,
                     tau_gpu,
-                    real_dtype(freq),
+                    real_dtype(ang_freq),
+                    np.uint(nsrcs_up),
                     v_gpu,
                     grid=grid,
                     block=block,
@@ -297,6 +323,7 @@ def vis_gpu(
                 # E-field components, and integrate over the sky.
                 vis_inner_product(
                     v_gpu.gpudata,
+                    np.uint(nsrcs_up),
                     vis_gpus[cc].gpudata,
                     grid=prod_grid,
                     block=block,
@@ -320,7 +347,7 @@ def vis_gpu(
 
     # teardown GPU configuration
     cublasDestroy(h)
-    return vis.squeeze()
+    return vis if polarized else vis[:, 0, 0, :, :]
 
 
 vis_gpu.__doc__ += vis_cpu.__doc__

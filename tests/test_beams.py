@@ -254,11 +254,11 @@ def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, 
     """Test that when doing polarized sim, error is raised if beams aren't efield."""
     with pytest.raises(ValueError, match="beam type must be efield"):
         vis_cpu(
-            antpos,
-            freq[0],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, 0],
+            antpos=antpos,
+            freq=freq[0],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, 0],
             beam_list=beam_list_unpol,
             precision=2,
             polarized=True,
@@ -269,11 +269,11 @@ def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antp
     """Test that when doing unpolarized sim, error is raised if beams aren't power."""
     with pytest.raises(ValueError, match="beam type must be power"):
         vis_cpu(
-            antpos,
-            freq[0],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, 0],
+            antpos=antpos,
+            freq=freq[0],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, 0],
             beam_list=beam_list_pol,
             precision=2,
             polarized=False,
@@ -342,11 +342,11 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     for i in range(freq.size):
         # Analytic beams
         vis_analytic = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
+            antpos=antpos,
+            freq=freq[i],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, i],
             beam_list=beam_list_unpol[:1],
             precision=2,
             polarized=False,
@@ -362,11 +362,11 @@ def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops)
     # Pixel beams
     with pytest.raises(ValueError, match="beam_idx must be provided"):
         vis_cpu(
-            antpos,
-            freq[0],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, 0],
+            antpos=antpos,
+            freq=freq[0],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, 0],
             beam_list=beam_list_unpol,
             precision=2,
             polarized=False,

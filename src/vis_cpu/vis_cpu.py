@@ -181,6 +181,7 @@ def _validate_inputs(precision, polarized, antpos, eq2tops, crd_eq, I_sky):
 
 @profile
 def vis_cpu(
+    *,
     antpos: np.ndarray,
     freq: float,
     eq2tops: np.ndarray,
@@ -330,6 +331,5 @@ def vis_cpu(
             vis[t, :, :, i : i + 1, i:] = np.einsum(
                 "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
             )
-
     # Return visibilities with or without multiple polarization channels
-    return vis.squeeze()
+    return vis if polarized else vis[:, 0, 0, :, :]

@@ -111,11 +111,11 @@ def simulate_vis(
     # Loop over frequencies and call vis_cpu/gpu
     for i, freq in enumerate(freqs):
         vis[i] = fnc(
-            antpos,
-            freq,
-            eq2tops,
-            crd_eq,
-            fluxes[:, i],
+            antpos=antpos,
+            freq=freq,
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=fluxes[:, i],
             beam_list=beams,
             precision=precision,
             polarized=polarized,

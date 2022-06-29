@@ -23,10 +23,9 @@
 __shared__ {{ DTYPE }} sh_buf[{{ BLOCK_PX }}*5];
 
 // Compute A*I*exp(ij*tau*freq) for all antennas, storing output in v
-__global__ void MeasEq({{ CDTYPE }} *A, {{ DTYPE }} *sqrtI, {{ DTYPE }} *tau, {{ DTYPE }} freq, {{ CDTYPE }} *v)
+__global__ void MeasEq({{ CDTYPE }} *A, {{ DTYPE }} *sqrtI, {{ DTYPE }} *tau, {{ DTYPE }} freq, uint npix, {{ CDTYPE }} *v)
 {
     const uint nant = {{ NANT }};
-    const uint npix = {{ NPIX }};
     const uint nax  = {{ NAX }};
     const uint nfeed= {{ NFEED }};
 
@@ -47,15 +46,15 @@ __global__ void MeasEq({{ CDTYPE }} *A, {{ DTYPE }} *sqrtI, {{ DTYPE }} *tau, {{
     amp.x = A[row*npix + pix].x * sh_buf[tx];
     amp.y = A[row*npix + pix].y * sh_buf[tx];
 
-    phs = tau[(row % npols)*npix + pix] * freq;
-    v[row*npix + pix] = cuCmulf(amp, make_{{ CDTYPE }}(cos(phs), sin(phs)));
+    phs = tau[(row % nant)*npix + pix] * freq;
+
+    v[row*npix + pix] = cuCmul{{ f }}(amp, make_{{ CDTYPE }}(cos(phs), sin(phs)));
     __syncthreads(); // make sure everyone used mem before kicking out
 }
 
-__global__ void VisInnerProduct({{ CDTYPE }} *v, {{ CDTYPE }} *vis)
+__global__ void VisInnerProduct({{ CDTYPE }} *v, uint npix, {{ CDTYPE }} *vis)
 {
     const uint nant = {{ NANT }};
-    const uint npix = {{ NPIX }};
     const uint nax  = {{ NAX }};
     const uint nfeed= {{ NFEED }};
 
@@ -76,19 +75,20 @@ __global__ void VisInnerProduct({{ CDTYPE }} *v, {{ CDTYPE }} *vis)
     uint jant  = col % nant;
 
     {{ CDTYPE }} product_val = make_{{ CDTYPE }}(0.0, 0.0);
+    {{ CDTYPE }} this_el;
+
     uint width = nfeed * nant;
     uint full_width = width * npix;
+    uint iv, jv;
     for (int iax=0; iax<nax; iax++){
         for(int ipix=0; ipix<npix; ipix++) {
-            product_val = cuCaddf(
-                product_val,
-                cuCmulf(
-                    cuConjf(v[iax*full_width + ifeed*(nant*npix) + iant*npix + ipix]),
-                    v[iax*full_width + jfeed*(nant*npix) + jant*npix + ipix]
-                )
-            );
+            iv = iax*full_width + ifeed*(nant*npix) + iant*npix + ipix;
+            jv = iax*full_width + jfeed*(nant*npix) + jant*npix + ipix;
+            this_el = cuCmul{{ f }}(cuConj{{ f }}(v[iv]),v[jv]);
+            product_val = cuCadd{{ f }}(product_val, this_el);
         }
     }
-    vis[row*width+col] = product_val;
+    uint el = ifeed*nfeed*nant*nant + jfeed*nant*nant + iant *nant + jant;
+    vis[el] = product_val;
     __syncthreads();
 }
