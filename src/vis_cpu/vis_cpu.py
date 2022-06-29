@@ -4,7 +4,7 @@ import numpy as np
 from astropy.constants import c
 from pyuvdata import UVBeam
 from scipy.interpolate import RectBivariateSpline
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Callable
 
 from . import conversions
 
@@ -68,14 +68,11 @@ def construct_pixel_beam_spline(bm_cube):
 
 
 def _wrangle_beams(
-    bm_cube, beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True
+    beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True
 ):
     """Perform all the operations and checks on the beams."""
     # Get the number of unique beams
-    if bm_cube is not None:
-        nbeam = bm_cube.shape[2 if polarized else 0]
-    else:
-        nbeam = len(beam_list)
+    nbeam = len(beam_list)
 
     # Check the beam indices
     if beam_idx is None:
@@ -93,7 +90,7 @@ def _wrangle_beams(
             0 <= i < nbeam for i in beam_idx
         ), "beam_idx contains indices greater than the number of beams"
 
-    if beam_list is not None and interp:
+    if interp:
         # make sure we interpolate to the right frequency first.
         beam_list = [
             bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
@@ -101,25 +98,8 @@ def _wrangle_beams(
             else bm
             for bm in beam_list
         ]
-
-    if beam_list is None:
-        bm_pix = bm_cube.shape[-1]
-        complex_bm_cube = np.any(np.iscomplex(bm_cube))
-        if polarized:
-            assert bm_cube.shape == (nax, nfeed, nbeam, bm_pix, bm_pix), (
-                "bm_cube must have shape (NAXES, NFEEDS, NBEAMS, BM_PIX, BM_PIX) if "
-                f"polarized=True. Shape wanted: {(nax, nfeed, nant, bm_pix, bm_pix)}; "
-                f"shape given: {bm_cube.shape}"
-            )
-        elif bm_cube.shape != (1, 1, nbeam, bm_pix, bm_pix):
-            assert bm_cube.shape == (nbeam, bm_pix, bm_pix), (
-                "bm_cube must have shape (NBEAMS, BM_PIX, BM_PIX) "
-                "or (1, 1, nbeam, bm_pix, bm_pix) if polarized=False. "
-                f"Shape wanted: {(nbeam, bm_pix, bm_pix)}; "
-                f"shape given: {bm_cube.shape}"
-            )
-            bm_cube = bm_cube[np.newaxis, np.newaxis]
-    elif polarized and any(b.beam_type != "efield" for b in beam_list):
+    
+    if polarized and any(b.beam_type != "efield" for b in beam_list):
         raise ValueError("beam type must be efield if using polarized=True")
     elif not polarized and any(
         (
@@ -133,16 +113,13 @@ def _wrangle_beams(
             "beam type must be power and have only one pol (either xx or yy) if polarized=False"
         )
 
-    return complex_bm_cube, (bm_cube if beam_list is None else beam_list), nbeam
+    return beam_list, nbeam, beam_idx
 
 
 def _evaluate_beam_cpu(
     beam_list,
     tx,
     ty,
-    complex_bm_cube,
-    splines_re,
-    splines_im,
     polarized,
     nbeam,
     nax,
@@ -152,52 +129,55 @@ def _evaluate_beam_cpu(
     complex_dtype,
 ):
     A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
-    im = 0
-    # Primary beam response
-    if beam_list is None:
-        # Primary beam pattern using pixelized primary beam
-        for i in range(nbeam):
-            # Extract requested polarizations
-            for p1 in range(nax):
-                for p2 in range(nfeed):
-                    # The beam pixel grid has been reshaped in the order
-                    # ty,tx, which implies m,l order
+    
+    # Primary beam pattern using direct interpolation of UVBeam object
+    az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+    for i, bm in enumerate(beam_list):
+        kw = (
+            {"reuse_spline": True, "check_azza_domain": False}
+            if isinstance(bm, UVBeam)
+            else {}
+        )
 
-                    re = splines_re[p1][p2][i](ty, tx, grid=False)
+        interp_beam = bm.interp(
+            az_array=az, za_array=za, freq_array=np.atleast_1d(freq), **kw
+        )[0]
 
-                    if complex_bm_cube:
-                        im = 1.0j * splines_im[p1][p2][i](ty, tx, grid=False)
+        if polarized:
+            interp_beam = interp_beam[:, 0, :, 0, :]
+        else:
+            # Here we have already asserted that the beam is a power beam and
+            # has only one polarization, so we just evaluate that one.
+            interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
 
-                    A_s[p1, p2, i] = re + im
-    else:
-
-        # Primary beam pattern using direct interpolation of UVBeam object
-        az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-        for i, bm in enumerate(beam_list):
-            kw = (
-                {"reuse_spline": True, "check_azza_domain": False}
-                if isinstance(bm, UVBeam)
-                else {}
-            )
-
-            interp_beam = bm.interp(
-                az_array=az, za_array=za, freq_array=np.atleast_1d(freq), **kw
-            )[0]
-
-            if polarized:
-                interp_beam = interp_beam[:, 0, :, 0, :]
-            else:
-                # Here we have already asserted that the beam is a power beam and
-                # has only one polarization, so we just evaluate that one.
-                interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
-
-            A_s[:, :, i] = interp_beam
+        A_s[:, :, i] = interp_beam
 
         # Check for invalid beam values
         if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
             raise ValueError("Beam interpolation resulted in an invalid value")
 
-        return A_s
+    return A_s
+
+def _validate_inputs(precision, polarized, antpos, eq2tops, crd_eq, I_sky):
+    assert precision in {1, 2}
+    
+    # Specify number of polarizations (axes/feeds)
+    if polarized:
+        nax = nfeed = 2
+    else:
+        nax = nfeed = 1
+
+    nant, ncrd = antpos.shape
+    assert ncrd == 3, "antpos must have shape (NANTS, 3)."
+    ntimes, ncrd1, ncrd2 = eq2tops.shape
+    assert ncrd1 == 3 and ncrd2 == 3, "eq2tops must have shape (NTIMES, 3, 3)."
+    ncrd, nsrcs = crd_eq.shape
+    assert ncrd == 3, "crd_eq must have shape (3, NSRCS)."
+    assert (
+        I_sky.ndim == 1 and I_sky.shape[0] == nsrcs
+    ), "I_sky must have shape (NSRCS,)."
+
+    return nax, nfeed, nant, ntimes
 
 
 @profile
@@ -207,8 +187,7 @@ def vis_cpu(
     eq2tops: np.ndarray,
     crd_eq: np.ndarray,
     I_sky: np.ndarray,
-    bm_cube: Optional[np.ndarray] = None,
-    beam_list: Optional[Sequence[UVBeam]] = None,
+    beam_list: Optional[Sequence[UVBeam | Callable]],
     precision: int = 1,
     polarized: bool = False,
     beam_idx: Optional[np.ndarray] = None,
@@ -276,7 +255,10 @@ def vis_cpu(
         shape (NAXES, NFEED, NTIMES, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
-    assert precision in {1, 2}
+    nax, nfeed, nant, ntimes = _validate_inputs(
+        precision, polarized, antpos, eq2tops, crd_eq, I_sky
+    )
+
     if precision == 1:
         real_dtype = np.float32
         complex_dtype = np.complex64
@@ -284,35 +266,9 @@ def vis_cpu(
         real_dtype = np.float64
         complex_dtype = np.complex128
 
-    # Specify number of polarizations (axes/feeds)
-    if polarized:
-        nax = nfeed = 2
-    else:
-        nax = nfeed = 1
-
-    if bm_cube is None and beam_list is None:
-        raise RuntimeError("One of bm_cube/beam_list must be specified")
-    if bm_cube is not None and beam_list is not None:
-        raise RuntimeError("Cannot specify both bm_cube and beam_list")
-
-    nant, ncrd = antpos.shape
-    assert ncrd == 3, "antpos must have shape (NANTS, 3)."
-    ntimes, ncrd1, ncrd2 = eq2tops.shape
-    assert ncrd1 == 3 and ncrd2 == 3, "eq2tops must have shape (NTIMES, 3, 3)."
-    ncrd, nsrcs = crd_eq.shape
-    assert ncrd == 3, "crd_eq must have shape (3, NSRCS)."
-    assert (
-        I_sky.ndim == 1 and I_sky.shape[0] == nsrcs
-    ), "I_sky must have shape (NSRCS,)."
-
-    complex_bm_cube, outbm, nbeam = _wrangle_beams(
-        bm_cube, beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True
+    beam_list, nbeam, beam_idx = _wrangle_beams(
+        beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True
     )
-
-    if beam_list is None:
-        bm_cube = outbm
-    else:
-        beam_list = outbm
 
     # Intensity distribution (sqrt) and antenna positions. Does not support
     # negative sky. Factor of 0.5 accounts for splitting Stokes I between
@@ -325,12 +281,6 @@ def vis_cpu(
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
     vis = np.zeros((nfeed, nfeed, ntimes, nant, nant), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
-
-    # Precompute splines using pixelized beams
-    if beam_list is None:
-        splines_re = construct_pixel_beam_spline(bm_cube.real)
-        if complex_bm_cube:
-            splines_im = construct_pixel_beam_spline(bm_cube.imag)
 
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
@@ -350,9 +300,6 @@ def vis_cpu(
             beam_list,
             tx,
             ty,
-            complex_bm_cube,
-            splines_re,
-            splines_im,
             polarized,
             nbeam,
             nax,
@@ -377,13 +324,14 @@ def vis_cpu(
         # Compute visibilities using product of complex voltages (upper triangle).
         # Input arrays have shape (Nax, Nfeed, [Nants], Nsrcs
         v = A_s[:, :, beam_idx] * v[np.newaxis, np.newaxis, :]
-
+        
         for i in range(len(antpos)):
             # We want to take an outer product over feeds/antennas, contract over
             # E-field components, and integrate over the sky.
             vis[:, :, t, i : i + 1, i:] = np.einsum(
                 "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
             )
+
 
     # Return visibilities with or without multiple polarization channels
     return vis if polarized else vis[0, 0]

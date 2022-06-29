@@ -3,7 +3,7 @@ import numpy as np
 from pyuvdata.uvbeam import UVBeam
 
 from . import conversions, vis_cpu
-
+from . import vis_gpu
 
 def simulate_vis(
     ants,
@@ -19,6 +19,7 @@ def simulate_vis(
     precision=1,
     latitude=-30.7215 * np.pi / 180.0,
     use_feed="x",
+    use_gpu: bool=False,
 ):
     """
     Run a basic simulation using ``vis_cpu``.
@@ -68,6 +69,8 @@ def simulate_vis(
         Complex array of shape (NAXES, NFEED, NFREQS, NTIMES, NANTS, NANTS)
         if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
     """
+    fnc = vis_gpu if use_gpu else vis_cpu
+
     assert len(ants) == len(
         beams
     ), "The `beams` list must have as many entries as the ``ants`` dict."
@@ -78,10 +81,7 @@ def simulate_vis(
     ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
 
     # Determine precision
-    if precision == 1:
-        complex_dtype = np.complex64
-    else:
-        complex_dtype = np.complex128
+    complex_dtype = np.complex64 if precision == 1 else np.complex128
 
     # Get polarization information from beams
     if polarized:
@@ -134,7 +134,7 @@ def simulate_vis(
             bm = beam_cube[:, :, :, i, :, :] if polarized else beam_cube[:, i, :, :]
 
             # Run vis_cpu
-            v = vis_cpu(
+            v = fnc(
                 antpos,
                 freqs[i],
                 eq2tops,
@@ -144,12 +144,8 @@ def simulate_vis(
                 precision=precision,
                 polarized=polarized,
             )
-            if polarized:
-                vis[:, :, i] = v  # v.shape: (nax, nfeed, ntimes, nant, nant)
-            else:
-                vis[i] = v  # v.shape: (ntimes, nant, nant)
         else:
-            v = vis_cpu(
+            v = fnc(
                 antpos,
                 freqs[i],
                 eq2tops,
@@ -159,9 +155,8 @@ def simulate_vis(
                 precision=precision,
                 polarized=polarized,
             )
-            if polarized:
-                vis[:, :, i] = v  # v.shape: (nax, nfeed, ntimes, nant, nant)
-            else:
-                vis[i] = v  # v.shape: (ntimes, nant, nant)
-
+        if polarized:
+            vis[:, :, i] = v  # v.shape: (nax, nfeed, ntimes, nant, nant)
+        else:
+            vis[i] = v  # v.shape: (ntimes, nant, nant)
     return vis

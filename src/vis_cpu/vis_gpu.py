@@ -5,6 +5,8 @@ from typing import Optional
 
 try:
     from pycuda import compiler, driver, gpuarray
+    import pycuda.autoinit
+
     from skcuda.cublas import (
         cublasCgemm,
         cublasCreate,
@@ -19,7 +21,7 @@ try:
 except ImportError:
     HAVE_CUDA = False
 
-from .vis_cpu import vis_cpu
+from .vis_cpu import _wrangle_beams, _evaluate_beam_cpu, vis_cpu, _validate_inputs
 
 ONE_OVER_C = 1.0 / speed_of_light.value
 
@@ -39,6 +41,34 @@ GPU_TEMPLATE = """
 #include <pycuda-helpers.hpp>
 #include <stdio.h>
 
+// Shared memory for storing per-antenna results to be reused among all ants
+// for "BLOCK_PX" pixels, avoiding a rush on global memory.
+__shared__ %(DTYPE)s sh_buf[%(BLOCK_PX)s*5];
+
+%(INTERP_FUNC)s
+
+// Compute A*I*exp(ij*tau*freq) for all antennas, storing output in v
+__global__ void MeasEq(%(DTYPE)s *A, %(DTYPE)s *I, %(DTYPE)s *tau, %(DTYPE)s freq, %(CDTYPE)s *v)
+{
+    const uint nant = %(NANT)s;
+    const uint npix = %(NPIX)s;
+    const uint tx = threadIdx.x; // switched to make first dim px
+    const uint ty = threadIdx.y; // switched to make second dim ant
+    const uint row = blockIdx.y * blockDim.y + threadIdx.y; // second thread dim is ant
+    const uint pix = blockIdx.x * blockDim.x + threadIdx.x; // first thread dim is px
+    %(DTYPE)s amp, phs;
+    if (row >= nant || pix >= npix) return;
+    if (ty == 0)
+        sh_buf[tx] = I[pix];
+    __syncthreads(); // make sure all memory is loaded before computing
+    amp = A[row*npix + pix] * sh_buf[tx];
+    phs = tau[row*npix + pix] * freq;
+    v[row*npix + pix] = make_%(CDTYPE)s(amp * cos(phs), amp * sin(phs));
+    __syncthreads(); // make sure everyone used mem before kicking out
+}
+"""
+
+interp_func = """
 // Linearly interpolate between [v0,v1] for t=[0,1]
 // v = v0 * (1-t) + v1 * t = t*v1 + (-t*v0 + v0)
 // Runs on GPU only
@@ -53,10 +83,6 @@ inline %(DTYPE)s lerp(%(DTYPE)s v0, %(DTYPE)s v1, %(DTYPE)s t) {
 // on the border are centered at [-1,1] respectively.  Note that this
 // matrix is transposed relative to the host-side matrix used to set it.
 texture<fp_tex_%(DTYPE)s, cudaTextureType3D, cudaReadModeElementType> bm_tex;
-
-// Shared memory for storing per-antenna results to be reused among all ants
-// for "BLOCK_PX" pixels, avoiding a rush on global memory.
-__shared__ %(DTYPE)s sh_buf[%(BLOCK_PX)s*5];
 
 // Interpolate bm_tex[x,y] at top=(x,y,z) coords and store answer in "A"
 __global__ void InterpolateBeam(%(DTYPE)s *top, %(DTYPE)s *A)
@@ -102,28 +128,7 @@ __global__ void InterpolateBeam(%(DTYPE)s *top, %(DTYPE)s *A)
     }
     __syncthreads(); // make sure everyone used mem before kicking out
 }
-
-// Compute A*I*exp(ij*tau*freq) for all antennas, storing output in v
-__global__ void MeasEq(%(DTYPE)s *A, %(DTYPE)s *I, %(DTYPE)s *tau, %(DTYPE)s freq, %(CDTYPE)s *v)
-{
-    const uint nant = %(NANT)s;
-    const uint npix = %(NPIX)s;
-    const uint tx = threadIdx.x; // switched to make first dim px
-    const uint ty = threadIdx.y; // switched to make second dim ant
-    const uint row = blockIdx.y * blockDim.y + threadIdx.y; // second thread dim is ant
-    const uint pix = blockIdx.x * blockDim.x + threadIdx.x; // first thread dim is px
-    %(DTYPE)s amp, phs;
-    if (row >= nant || pix >= npix) return;
-    if (ty == 0)
-        sh_buf[tx] = I[pix];
-    __syncthreads(); // make sure all memory is loaded before computing
-    amp = A[row*npix + pix] * sh_buf[tx];
-    phs = tau[row*npix + pix] * freq;
-    v[row*npix + pix] = make_%(CDTYPE)s(amp * cos(phs), amp * sin(phs));
-    __syncthreads(); // make sure everyone used mem before kicking out
-}
 """
-
 
 def numpy3d_to_array(np_array):
     """Copy a 3D (d,h,w) numpy array into a 3D pycuda array.
@@ -134,8 +139,6 @@ def numpy3d_to_array(np_array):
     """
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
-
-    import pycuda.autoinit
 
     d, h, w = np_array.shape
     descr = driver.ArrayDescriptor3D()
@@ -185,7 +188,11 @@ def vis_gpu(
     if polarized:
         raise NotImplementedError("Cannot do polarization on GPU yet.")
 
-    assert precision in (1, 2)
+    nax, nfeed, nant, ntimes = _validate_inputs(
+        precision, polarized, antpos, eq2tops, crd_eq, I_sky
+    )
+    nsrc = len(crd_eq)
+
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64
         DTYPE, CDTYPE = "float", "cuFloatComplex"
@@ -199,41 +206,31 @@ def vis_gpu(
 
     # apply scalars so 1j*tau*freq is the correct exponent
     freq = 2 * freq * np.pi
-    # ensure shapes
-    nant = antpos.shape[0]
-    assert antpos.shape == (nant, 3)
-    npix = crd_eq.shape[1]
-    assert crd_eq.shape == (3, npix)
-    assert I_sky.shape == (npix,)
-    # beam_px = beams.shape[1]
-    # assert beams.shape == (nant, beam_px, beam_px)
-    ntimes = eq2tops.shape[0]
-    assert eq2tops.shape == (ntimes, 3, 3)
-
+    
     # ensure data types
     antpos = antpos.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
     crd_eq = crd_eq.astype(real_dtype)
     Isqrt = np.sqrt(I_sky).astype(real_dtype)
-    # beams = beams.astype(real_dtype)  # XXX complex?
+    
     chunk = max(
-        min(npix, MIN_CHUNK),
-        2 ** int(np.ceil(np.log2(float(nant * npix) / max_memory / 2))),
+        min(nsrc, MIN_CHUNK),
+        2 ** int(np.ceil(np.log2(float(nant * nsrc) / max_memory / 2))),
     )
-    npixc = npix // chunk
+    npixc = nsrc // chunk
 
     # blocks of threads are mapped to (pixels,ants,freqs)
     block = (max(1, nthreads // nant), min(nthreads, nant), 1)
     grid = (int(np.ceil(npixc / float(block[0]))), int(np.ceil(nant / float(block[1]))))
 
-    complex_bm_cube, beam_list, nbeam = vis_cpu._wrangle_beams(
-        bm_cube=None,
+    beam_list, nbeam, beam_idx = _wrangle_beams(
+        beam_idx=beam_idx,
         beam_list=beam_list,
         polarized=polarized,
         nant=nant,
         freq=freq,
-        nax=1,  # update if we can do polarization
-        nfeed=1,  # update if we can do polarization
+        nax=1,        # update if we can do polarization
+        nfeed=1,      # update if we can do polarization
         interp=True,  # update later if we can.
     )
 
@@ -241,7 +238,7 @@ def vis_gpu(
     gpu_code = GPU_TEMPLATE % {
         "NANT": nant,
         "NPIX": npixc,
-#        "BEAM_PX": beam_px,
+        "INTERP_FUNC": '',      # put in `interp_func` later
         "BLOCK_PX": block[0],
         "DTYPE": DTYPE,
         "CDTYPE": CDTYPE,
@@ -250,12 +247,12 @@ def vis_gpu(
     gpu_module = compiler.SourceModule(gpu_code)
     # bm_interp = gpu_module.get_function("InterpolateBeam")
     meas_eq = gpu_module.get_function("MeasEq")
-    bm_texref = gpu_module.get_texref("bm_tex")
+    # bm_texref = gpu_module.get_texref("bm_tex")
     h = cublasCreate()  # handle for managing cublas
 
     # define GPU buffers and transfer initial values
     # never changes, transpose happens in copy so cuda bm_tex is (BEAM_PX,BEAM_PX,NANT)
-    bm_texref.set_array(numpy3d_to_array(beams))
+    # bm_texref.set_array(numpy3d_to_array(beams))
     antpos_gpu = gpuarray.to_gpu(antpos)  # never changes, set to -2*pi*antpos/c
     Isqrt_gpu = gpuarray.empty(shape=(npixc,), dtype=real_dtype)
     # will be set on GPU by bm_interp
@@ -350,21 +347,18 @@ def vis_gpu(
                 ty = ty[above_horizon]
                 nsrcs_up = len(tx)
 
-                A_s = vis_cpu._evaluate_beam_cpu(
+                A_s = _evaluate_beam_cpu(
                     beam_list,
                     tx,
                     ty,
-                    complex_bm_cube,
-                    None,
-                    None,
                     polarized,
                     nbeam,
-                    1,
-                    1,
+                    nax,
+                    nfeed,
                     freq,
                     nsrcs_up,
                     complex_dtype,
-                )
+                ).squeeze().astype(real_dtype)  # because we don't want the ax/feed dimensions
 
                 # bm_interp(crdtop_gpu, A_gpu, grid=grid, block=block, stream=stream)
                 # events[cc]["interpolate"].record(stream)
@@ -401,6 +395,7 @@ def vis_gpu(
                     nant,
                 )
                 events[cc]["vis"].record(stream)
+            
             if c < chunk:
                 # This is the first thing that happens in the loop over chunks.
 
