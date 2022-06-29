@@ -142,7 +142,6 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         freqs=freqs,
         lsts=lsts,
         beams=cpu_beams,
-        pixel_beams=False,
         polarized=polarized,
         precision=2,
         latitude=hera_lat * np.pi / 180.0,
@@ -176,7 +175,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
             if not polarized:
                 d_viscpu = vis_vc[:, :, i, j]  # vis_cpu visibility
             else:
-                d_viscpu = vis_vc[0, 0, :, :, i, j]  # vis_cpu visibility
+                d_viscpu = vis_vc[:, :, 0, 0, i, j]  # vis_cpu visibility
 
             # Keep track of maximum difference
             delta = d_uvsim - d_viscpu

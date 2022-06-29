@@ -15,10 +15,10 @@ ants = {0: (0.0, 0.0, 0.0), 1: (20.0, 20.0, 0.0)}
 
 
 @pytest.mark.parametrize(
-    "pixel_beams,polarized",
-    [(False, False)],
+    "polarized",
+    [True, False],
 )
-def test_simulate_vis(pixel_beams, polarized):
+def test_simulate_vis(polarized):
     """Test basic operation of simple wrapper around vis_cpu, `simulate_vis`."""
     # Point source equatorial coords (radians)
     ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
@@ -46,8 +46,6 @@ def test_simulate_vis(pixel_beams, polarized):
         freq,
         lsts,
         beams=[beam, beam],
-        pixel_beams=pixel_beams,
-        beam_npix=63,
         polarized=polarized,
         precision=1,
         latitude=-30.7215 * np.pi / 180.0,

@@ -251,7 +251,7 @@ def vis_cpu(
     -------
     vis : array_like
         Simulated visibilities. If `polarized = True`, the output will have
-        shape (NAXES, NFEED, NTIMES, NANTS, NANTS), otherwise it will have
+        shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
     nax, nfeed, nant, ntimes = _validate_inputs(
@@ -278,7 +278,7 @@ def vis_cpu(
     ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    vis = np.zeros((nfeed, nfeed, ntimes, nant, nant), dtype=complex_dtype)
+    vis = np.zeros((ntimes, nfeed, nfeed, nant, nant), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Loop over time samples
@@ -327,9 +327,9 @@ def vis_cpu(
         for i in range(len(antpos)):
             # We want to take an outer product over feeds/antennas, contract over
             # E-field components, and integrate over the sky.
-            vis[:, :, t, i : i + 1, i:] = np.einsum(
+            vis[t, :, :, i : i + 1, i:] = np.einsum(
                 "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
             )
 
     # Return visibilities with or without multiple polarization channels
-    return vis if polarized else vis[0, 0]
+    return vis.squeeze()

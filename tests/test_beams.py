@@ -227,47 +227,6 @@ def antpos():
     return np.array([ants[k] for k in ants.keys()])
 
 
-def test_beam_interpolation(
-    beam_list_unpol, beam_cube, crd_eq, eq2tops, sky_flux, freq, antpos
-):
-    """Test that interpolated beams and UVBeam agree on coordinates."""
-    # Run vis_cpu with pixel beams and analytic beams (uses precision=2)
-    # This test is useful for checking a particular line in vis_cpu() that
-    # evaluates the pixel beam splines, i.e. `splines[p1][p2][i](ty, tx, ...)`
-    # This test should fail if the order of the arguments (ty, tx) is wrong
-    for i in range(freq.size):
-        # Pixel beams
-        vis_pix = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=beam_cube[:, i, :, :],
-            precision=2,
-            polarized=False,
-        )
-
-        # Analytic beams
-        vis_analytic = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            beam_list=beam_list_unpol,
-            precision=2,
-            polarized=False,
-        )
-
-        assert np.all(~np.isnan(vis_pix))  # check that there are no NaN values
-        assert np.all(~np.isnan(vis_analytic))
-
-        # Check that results are close (they should be for 1000^2 pixel-beams
-        # if the elliptical beams are both oriented the same way)
-        np.testing.assert_allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
-
-
 def test_beam_interpolation_pol():
     """Test beam interpolation for polarized beams."""
     # Frequency array
@@ -378,50 +337,9 @@ def test_prepare_beam_unpol_uvbeam_pol_no_exist():
 
 def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     """Test passing different numbers of beams than nant."""
-    beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
-    )
-
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
 
-    bm_cube = np.array([beam_pix, beam_pix, beam_pix])
-
     for i in range(freq.size):
-        # Pixel beams
-        vis_pix = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=bm_cube[:1, i, :, :],
-            precision=2,
-            polarized=False,
-        )
-
-        vis_pix2 = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=bm_cube[:2, i, :, :],
-            precision=2,
-            polarized=False,
-            beam_idx=np.array([0, 1, 0]),
-        )
-
-        vis_pix3 = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=bm_cube[:, i, :, :],
-            precision=2,
-            polarized=False,
-        )
-
         # Analytic beams
         vis_analytic = vis_cpu(
             antpos,
@@ -434,26 +352,12 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
             polarized=False,
         )
 
-        assert np.all(~np.isnan(vis_pix))  # check that there are no NaN values
-        assert np.all(~np.isnan(vis_pix2))  # check that there are no NaN values
         assert np.all(~np.isnan(vis_analytic))
-
-        # Check that results are close (they should be for 1000^2 pixel-beams
-        # if the elliptical beams are both oriented the same way)
-        np.testing.assert_allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
-        np.testing.assert_allclose(vis_pix, vis_pix2, rtol=1e-5, atol=1e-5)
-        np.testing.assert_allclose(vis_pix3, vis_pix2, rtol=1e-5, atol=1e-5)
 
 
 def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     """Test passing different numbers of beams than nant."""
-    beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
-    )
-
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
-
-    bm_cube = np.array([beam_pix, beam_pix, beam_pix])
 
     # Pixel beams
     with pytest.raises(ValueError, match="beam_idx must be provided"):
@@ -463,7 +367,7 @@ def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops)
             eq2tops,
             crd_eq,
             sky_flux[:, 0],
-            bm_cube=bm_cube[:2, 0, :, :],
+            beam_list=beam_list_unpol,
             precision=2,
             polarized=False,
         )
