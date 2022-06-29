@@ -4,7 +4,7 @@ import numpy as np
 from astropy.constants import c
 from pyuvdata import UVBeam
 from scipy.interpolate import RectBivariateSpline
-from typing import Optional, Sequence, Callable
+from typing import Callable, Optional, Sequence
 
 from . import conversions
 
@@ -67,9 +67,7 @@ def construct_pixel_beam_spline(bm_cube):
     return splines
 
 
-def _wrangle_beams(
-    beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True
-):
+def _wrangle_beams(beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True):
     """Perform all the operations and checks on the beams."""
     # Get the number of unique beams
     nbeam = len(beam_list)
@@ -98,7 +96,7 @@ def _wrangle_beams(
             else bm
             for bm in beam_list
         ]
-    
+
     if polarized and any(b.beam_type != "efield" for b in beam_list):
         raise ValueError("beam type must be efield if using polarized=True")
     elif not polarized and any(
@@ -129,7 +127,7 @@ def _evaluate_beam_cpu(
     complex_dtype,
 ):
     A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
-    
+
     # Primary beam pattern using direct interpolation of UVBeam object
     az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
     for i, bm in enumerate(beam_list):
@@ -158,9 +156,10 @@ def _evaluate_beam_cpu(
 
     return A_s
 
+
 def _validate_inputs(precision, polarized, antpos, eq2tops, crd_eq, I_sky):
     assert precision in {1, 2}
-    
+
     # Specify number of polarizations (axes/feeds)
     if polarized:
         nax = nfeed = 2
@@ -324,14 +323,13 @@ def vis_cpu(
         # Compute visibilities using product of complex voltages (upper triangle).
         # Input arrays have shape (Nax, Nfeed, [Nants], Nsrcs
         v = A_s[:, :, beam_idx] * v[np.newaxis, np.newaxis, :]
-        
+
         for i in range(len(antpos)):
             # We want to take an outer product over feeds/antennas, contract over
             # E-field components, and integrate over the sky.
             vis[:, :, t, i : i + 1, i:] = np.einsum(
                 "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
             )
-
 
     # Return visibilities with or without multiple polarization channels
     return vis if polarized else vis[0, 0]

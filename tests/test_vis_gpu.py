@@ -1,6 +1,9 @@
+"""Tests of vis_gpu."""
 import pytest
+
 import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
+
 from vis_cpu import simulate_vis
 
 np.random.seed(0)
@@ -9,6 +12,7 @@ NFREQ = 5
 NPTSRC = 20
 
 ants = {0: (0.0, 0.0, 0.0), 1: (20.0, 20.0, 0.0)}
+
 
 @pytest.mark.parametrize(
     "pixel_beams,polarized",
@@ -47,6 +51,6 @@ def test_simulate_vis(pixel_beams, polarized):
         polarized=polarized,
         precision=1,
         latitude=-30.7215 * np.pi / 180.0,
-        use_gpu=True
+        use_gpu=True,
     )
     assert np.all(~np.isnan(vis))  # check that there are no NaN values

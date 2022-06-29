@@ -4,9 +4,8 @@ from astropy.constants import c as speed_of_light
 from typing import Optional
 
 try:
-    from pycuda import compiler, driver, gpuarray
     import pycuda.autoinit
-
+    from pycuda import compiler, driver, gpuarray
     from skcuda.cublas import (
         cublasCgemm,
         cublasCreate,
@@ -21,7 +20,7 @@ try:
 except ImportError:
     HAVE_CUDA = False
 
-from .vis_cpu import _wrangle_beams, _evaluate_beam_cpu, vis_cpu, _validate_inputs
+from .vis_cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
 
 ONE_OVER_C = 1.0 / speed_of_light.value
 
@@ -130,6 +129,7 @@ __global__ void InterpolateBeam(%(DTYPE)s *top, %(DTYPE)s *A)
 }
 """
 
+
 def numpy3d_to_array(np_array):
     """Copy a 3D (d,h,w) numpy array into a 3D pycuda array.
 
@@ -206,13 +206,13 @@ def vis_gpu(
 
     # apply scalars so 1j*tau*freq is the correct exponent
     freq = 2 * freq * np.pi
-    
+
     # ensure data types
     antpos = antpos.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
     crd_eq = crd_eq.astype(real_dtype)
     Isqrt = np.sqrt(I_sky).astype(real_dtype)
-    
+
     chunk = max(
         min(nsrc, MIN_CHUNK),
         2 ** int(np.ceil(np.log2(float(nant * nsrc) / max_memory / 2))),
@@ -229,8 +229,8 @@ def vis_gpu(
         polarized=polarized,
         nant=nant,
         freq=freq,
-        nax=1,        # update if we can do polarization
-        nfeed=1,      # update if we can do polarization
+        nax=1,  # update if we can do polarization
+        nfeed=1,  # update if we can do polarization
         interp=True,  # update later if we can.
     )
 
@@ -238,7 +238,7 @@ def vis_gpu(
     gpu_code = GPU_TEMPLATE % {
         "NANT": nant,
         "NPIX": npixc,
-        "INTERP_FUNC": '',      # put in `interp_func` later
+        "INTERP_FUNC": "",  # put in `interp_func` later
         "BLOCK_PX": block[0],
         "DTYPE": DTYPE,
         "CDTYPE": CDTYPE,
@@ -347,18 +347,22 @@ def vis_gpu(
                 ty = ty[above_horizon]
                 nsrcs_up = len(tx)
 
-                A_s = _evaluate_beam_cpu(
-                    beam_list,
-                    tx,
-                    ty,
-                    polarized,
-                    nbeam,
-                    nax,
-                    nfeed,
-                    freq,
-                    nsrcs_up,
-                    complex_dtype,
-                ).squeeze().astype(real_dtype)  # because we don't want the ax/feed dimensions
+                A_s = (
+                    _evaluate_beam_cpu(
+                        beam_list,
+                        tx,
+                        ty,
+                        polarized,
+                        nbeam,
+                        nax,
+                        nfeed,
+                        freq,
+                        nsrcs_up,
+                        complex_dtype,
+                    )
+                    .squeeze()
+                    .astype(real_dtype)
+                )  # because we don't want the ax/feed dimensions
 
                 # bm_interp(crdtop_gpu, A_gpu, grid=grid, block=block, stream=stream)
                 # events[cc]["interpolate"].record(stream)
@@ -395,7 +399,7 @@ def vis_gpu(
                     nant,
                 )
                 events[cc]["vis"].record(stream)
-            
+
             if c < chunk:
                 # This is the first thing that happens in the loop over chunks.
 

@@ -2,8 +2,8 @@
 import numpy as np
 from pyuvdata.uvbeam import UVBeam
 
-from . import conversions, vis_cpu
-from . import vis_gpu
+from . import conversions, vis_cpu, vis_gpu
+
 
 def simulate_vis(
     ants,
@@ -19,7 +19,7 @@ def simulate_vis(
     precision=1,
     latitude=-30.7215 * np.pi / 180.0,
     use_feed="x",
-    use_gpu: bool=False,
+    use_gpu: bool = False,
 ):
     """
     Run a basic simulation using ``vis_cpu``.
