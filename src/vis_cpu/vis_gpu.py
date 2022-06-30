@@ -24,6 +24,17 @@ except ImportError:
 
 from .vis_cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
 
+# This enables us to put in profile decorators that will be no-ops if no profiling
+# library is being used.
+try:
+    profile
+except NameError:
+
+    def profile(fnc):
+        """No-op profiling decorator."""
+        return fnc
+
+
 logger = logging.getLogger(__name__)
 
 ONE_OVER_C = 1.0 / speed_of_light.value
@@ -73,6 +84,7 @@ MAX_MEMORY = 2**29  # floats (4B each)
 MIN_CHUNK = 1
 
 
+@profile
 def vis_gpu(
     *,
     antpos: np.ndarray,
@@ -220,10 +232,10 @@ def vis_gpu(
             if 0 <= cc < chunk:
                 stream = streams[cc]
                 cublasSetStream(h, stream.handle)
-                ## compute crdtop = dot(eq2top,crd_eq)
+
                 # cublas arrays are in Fortran order, so P=M*N is actually
                 # peformed as P.T = N.T * M.T
-                cublas_real_mm(
+                cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
                     h,
                     "n",
                     "n",
@@ -255,8 +267,7 @@ def vis_gpu(
 
                 tau_gpu = gpuarray.empty(shape=(nant, nsrcs_up), dtype=real_dtype)
 
-                ## compute tau = dot(antpos,crdtop) / speed_of_light
-                cublas_real_mm(
+                cublas_real_mm(  # compute tau = dot(antpos,crdtop) / speed_of_light
                     h,
                     "n",
                     "n",

@@ -310,8 +310,7 @@ def vis_cpu(
         )
 
         # Calculate delays, where tau = (b * s) / c
-        np.dot(antpos, crd_top[:, above_horizon], out=tau)
-        tau /= c.value
+        np.dot(antpos / c.value, crd_top[:, above_horizon], out=tau)
 
         # Component of complex phase factor for one antenna
         # (actually, b = (antpos1 - antpos2) * crd_top / c; need dot product
