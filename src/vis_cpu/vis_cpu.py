@@ -19,55 +19,7 @@ except NameError:
         return fnc
 
 
-def construct_pixel_beam_spline(bm_cube):
-    """Construct bivariate spline for pixelated beams for all antennas.
-
-    Uses the ``scipy.interpolate.RectBivariateSpline`` function.
-
-    Parameters
-    ----------
-    bm_cube : array_like
-        Pixelized beam maps for each antenna (must be real-valued).
-        Shape: (NANT, BEAM_PIX, BEAM_PIX) if unpolarized, or
-        (NANT, NAXES, NFEEDS, BEAM_PIX, BEAM_PIX) if polarized.
-
-    Returns
-    -------
-    splines : list of fn
-        List of interpolation functions, one for each antenna, in order.
-    """
-    # Raise error if complex
-    if np.any(np.iscomplex(bm_cube)):
-        raise TypeError(
-            "bm_cube cannot be complex. Interpolate real and "
-            "imaginary components separately."
-        )
-
-    # Polarized beam
-    nax, nfeed, nbeam, bm_pix, _ = bm_cube.shape
-
-    # x and y coordinates of beam
-    lm = conversions.bm_pix_to_lm(bm_pix)
-
-    # Construct splines for each polarization (pol. vector axis + feed) and
-    # antenna. The `splines` list has shape (Naxes, Nfeeds, Nants).
-    splines = []
-    for p1 in range(nax):
-        spl_axes = []
-        for p2 in range(nfeed):
-            spl_feeds = []
-
-            # Loop over beams/antennas
-            for i in range(nbeam):
-                # Linear interpolation of primary beam pattern.
-                spl = RectBivariateSpline(lm, lm, bm_cube[p1, p2, i], kx=1, ky=1)
-                spl_feeds.append(spl)
-            spl_axes.append(spl_feeds)
-        splines.append(spl_axes)
-    return splines
-
-
-def _wrangle_beams(beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True):
+def _wrangle_beams(beam_idx, beam_list, polarized, nant, freq, interp=True):
     """Perform all the operations and checks on the beams."""
     # Get the number of unique beams
     nbeam = len(beam_list)
@@ -276,7 +228,7 @@ def vis_cpu(
         complex_dtype = np.complex128
 
     beam_list, nbeam, beam_idx = _wrangle_beams(
-        beam_idx, beam_list, polarized, nant, freq, nax, nfeed, interp=True
+        beam_idx, beam_list, polarized, nant, freq, interp=True
     )
 
     # Intensity distribution (sqrt) and antenna positions. Does not support

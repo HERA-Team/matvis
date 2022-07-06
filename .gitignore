@@ -49,3 +49,5 @@ MANIFEST
 # Per-project virtualenvs
 .venv*/
 .vscode/
+scripts/*.pkl
+scripts/*.txt

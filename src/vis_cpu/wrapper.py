@@ -18,6 +18,7 @@ def simulate_vis(
     use_feed="x",
     use_gpu: bool = False,
     beam_spline_opts: dict | None = None,
+    beam_idx: np.ndarray | None = None,
 ):
     """
     Run a basic simulation using ``vis_cpu``.
@@ -118,5 +119,6 @@ def simulate_vis(
             precision=precision,
             polarized=polarized,
             beam_spline_opts=beam_spline_opts,
+            beam_idx=beam_idx,
         )
     return vis

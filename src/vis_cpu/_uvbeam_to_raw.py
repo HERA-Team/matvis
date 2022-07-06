@@ -130,7 +130,9 @@ def uvbeam_to_azza_grid(
         new_az = np.linspace(0, 2 * np.pi, naz)
         new_za = np.arange(0, np.pi / 2 + dza, dza)
 
-        out = uvbeam.interp(new_az, new_za, az_za_grid=True, **interp_kwargs)[0]
+        out = uvbeam.interp(
+            new_az, new_za, az_za_grid=True, check_azza_domain=False, **interp_kwargs
+        )[0]
         out = out.reshape(out.shape[:-1] + (len(new_za), naz))
 
         # Returned data has shape (Nax, Nfeeds, Nza, Naz)

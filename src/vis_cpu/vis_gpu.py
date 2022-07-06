@@ -171,8 +171,6 @@ def vis_gpu(
         polarized=polarized,
         nant=nant,
         freq=freq,
-        nax=1,  # update if we can do polarization
-        nfeed=1,  # update if we can do polarization
         interp=True,  # update later if we can.
     )
 
@@ -386,42 +384,27 @@ def vis_gpu(
                 ## interpolate bm_tex at specified topocentric coords, store interpolation in A
                 ## threads are parallelized across pixel axis
                 ## Need to do this in polar coordinates or BAD THINGS HAPPEN
-
-                if use_uvbeam:
-                    az, za = conversions.enu_to_az_za(
-                        enu_e=tx, enu_n=ty, orientation="uvbeam"
-                    )
-
-                    A_gpu = gpu_beam_interpolation(
-                        beam_data_gpu,
-                        daz,
-                        dza,
-                        az,
-                        za,
-                        gpu_func=beam_interp,
-                        nthreads=nthreads,
-                        stream=stream,
-                        return_on_cpu=False,
-                    )
-                    events[cc]["interpolation"].record(stream)
-                else:
-                    A_gpu = gpuarray.empty(
-                        shape=(nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype
-                    )
-
-                    A_s = _evaluate_beam_cpu(
-                        beam_list,
-                        tx,
-                        ty,
-                        polarized,
-                        nbeam,
-                        nax,
-                        nfeed,
-                        freq,
-                        np.uint(nsrcs_up),
-                        complex_dtype,
-                    )
-                    A_gpu.set(A_s)
+                A_gpu = do_beam_interpolation(
+                    freq,
+                    beam_list,
+                    polarized,
+                    nthreads,
+                    nax,
+                    nfeed,
+                    complex_dtype,
+                    nbeam,
+                    use_uvbeam,
+                    daz,
+                    dza,
+                    beam_interp,
+                    beam_data_gpu,
+                    events,
+                    cc,
+                    stream,
+                    tx,
+                    ty,
+                    nsrcs_up,
+                )
 
                 v_gpu = gpuarray.empty(
                     shape=(nax, nfeed, nant, nsrcs_up), dtype=complex_dtype
@@ -483,6 +466,62 @@ def vis_gpu(
     # teardown GPU configuration
     cublasDestroy(h)
     return vis if polarized else vis[:, 0, 0, :, :]
+
+
+def do_beam_interpolation(
+    freq,
+    beam_list,
+    polarized,
+    nthreads,
+    nax,
+    nfeed,
+    complex_dtype,
+    nbeam,
+    use_uvbeam,
+    daz,
+    dza,
+    beam_interp,
+    beam_data_gpu,
+    events,
+    cc,
+    stream,
+    tx,
+    ty,
+    nsrcs_up,
+):
+    """Perform the beam interpolation, choosing between CPU and GPU as necessary."""
+    if use_uvbeam:  # perform interpolation on GPU
+        az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+
+        A_gpu = gpu_beam_interpolation(
+            beam_data_gpu,
+            daz,
+            dza,
+            az,
+            za,
+            gpu_func=beam_interp,
+            nthreads=nthreads,
+            stream=stream,
+            return_on_cpu=False,
+        )
+        events[cc]["interpolation"].record(stream)
+    else:
+        A_gpu = gpuarray.empty(shape=(nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+
+        A_s = _evaluate_beam_cpu(
+            beam_list,
+            tx,
+            ty,
+            polarized,
+            nbeam,
+            nax,
+            nfeed,
+            freq,
+            np.uint(nsrcs_up),
+            complex_dtype,
+        )
+        A_gpu.set(A_s)
+    return A_gpu
 
 
 def gpu_beam_interpolation(
