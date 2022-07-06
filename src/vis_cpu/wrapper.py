@@ -17,6 +17,7 @@ def simulate_vis(
     latitude=-30.7215 * np.pi / 180.0,
     use_feed="x",
     use_gpu: bool = False,
+    beam_spline_opts: dict | None = None,
 ):
     """
     Run a basic simulation using ``vis_cpu``.
@@ -59,6 +60,8 @@ def simulate_vis(
     latitude : float, optional
         The latitude of the center of the array, in radians. The default is the
         HERA latitude = -30.7215 * pi / 180.
+    beam_spline_opts : dict, optional
+        Options to be passed to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
 
     Returns
     -------
@@ -67,10 +70,6 @@ def simulate_vis(
         if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
     """
     fnc = vis_gpu if use_gpu else vis_cpu
-
-    assert len(ants) == len(
-        beams
-    ), "The `beams` list must have as many entries as the ``ants`` dict."
 
     assert fluxes.shape == (
         ra.size,
@@ -100,7 +99,6 @@ def simulate_vis(
         for beam in beams
     ]
 
-    # Run vis_cpu with pixel beams
     if polarized:
         vis = np.zeros(
             (freqs.size, lsts.size, nfeeds, nfeeds, nants, nants), dtype=complex_dtype
@@ -119,5 +117,6 @@ def simulate_vis(
             beam_list=beams,
             precision=precision,
             polarized=polarized,
+            beam_spline_opts=beam_spline_opts,
         )
     return vis

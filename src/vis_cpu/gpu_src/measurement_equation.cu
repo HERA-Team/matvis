@@ -23,32 +23,44 @@
 __shared__ {{ DTYPE }} sh_buf[{{ BLOCK_PX }}*5];
 
 // Compute A*I*exp(ij*tau*freq) for all antennas, storing output in v
-__global__ void MeasEq({{ CDTYPE }} *A, {{ DTYPE }} *sqrtI, {{ DTYPE }} *tau, {{ DTYPE }} freq, uint npix, {{ CDTYPE }} *v)
-{
-    const uint nant = {{ NANT }};
+__global__ void MeasEq(
+    {{ CDTYPE }} *A, {{ DTYPE }} *sqrtI, {{ DTYPE }} *tau,
+    {{ DTYPE }} freq, uint nsrc, uint *beam_idx, {{ CDTYPE }} *v
+){
+    const uint nbeam = {{ NBEAM }};
     const uint nax  = {{ NAX }};
     const uint nfeed= {{ NFEED }};
+    const uint nant = {{ NANT }};
 
     uint npols = nax*nfeed;
 
-    const uint tx = threadIdx.x; // switched to make first dim px
-    const uint ty = threadIdx.y; // switched to make second dim ant
-    const uint row = blockIdx.y * blockDim.y + threadIdx.y; // second thread dim is ant
-    const uint pix = blockIdx.x * blockDim.x + threadIdx.x; // first thread dim is px
+    const uint tx = threadIdx.x; // First dim is src
+    const uint ty = threadIdx.y; // Second dim is ant
+
+    const uint src  =  blockIdx.x * blockDim.x + threadIdx.x;  // first thread dim is src on sky
+    const uint ant = blockIdx.y * blockDim.y + threadIdx.y;    // second thread dim is ant
+    const uint pol  = blockIdx.z * blockDim.z + threadIdx.z;   // third thread dim is pol (nax*nfeed)
+
+    uint beam = beam_idx[ant];
+
     {{ CDTYPE }} amp;
     {{ DTYPE }} phs;
-    if (row >= nant*nax*nfeed || pix >= npix) return;
+    if (ant >= nant || pol >= npols || src >= nsrc) return;
     if (ty == 0)
-        sh_buf[tx] = sqrtI[pix];
+        sh_buf[tx] = sqrtI[src];
     __syncthreads(); // make sure all memory is loaded before computing
 
     // Create both real/imag parts of the "amplitude"
-    amp.x = A[row*npix + pix].x * sh_buf[tx];
-    amp.y = A[row*npix + pix].y * sh_buf[tx];
+    uint tau_indx = ant*nsrc + src;
+    uint Aindx = pol*nbeam*nsrc + beam*nsrc + src;
+    amp.x = A[Aindx].x * sh_buf[tx];
+    amp.y = A[Aindx].y * sh_buf[tx];
 
-    phs = tau[(row % nant)*npix + pix] * freq;
+    phs = tau[tau_indx] * freq;
 
-    v[row*npix + pix] = cuCmul{{ f }}(amp, make_{{ CDTYPE }}(cos(phs), sin(phs)));
+    // printf("pol=%d ant=%d src=%d beam=%d Aidx=%d vidx=%d\n", pol, ant, src, beam, Aindx,pol*nant*nsrc + ant*nsrc + src);
+
+    v[pol*nant*nsrc + ant*nsrc + src] = cuCmul{{ f }}(amp, make_{{ CDTYPE }}(cos(phs), sin(phs)));
     __syncthreads(); // make sure everyone used mem before kicking out
 }
 

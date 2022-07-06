@@ -12,9 +12,9 @@ from pyuvsim.telescope import BeamList
 from vis_cpu import HAVE_GPU, conversions
 
 nfreq = 1
-ntime = 20
-nants = 4
-nsource = 250
+ntime = 1  # 20
+nants = 4  # 4
+nsource = 10  # 250
 beam_file = Path(__file__).parent / "data/NF_HERA_Dipole_small.fits"
 
 
@@ -43,21 +43,27 @@ def get_standard_sim_params(use_analytic_beam: bool, polarized: bool):
         if not polarized:
             uvsim_beam = beam.copy()
             beam.efield_to_power(calc_cross_pols=False, inplace=True)
-            beam.select(
-                polarizations=[
-                    "xx",
-                ],
-                inplace=True,
-            )
+            beam.select(polarizations=["xx"], inplace=True)
 
-    cpu_beams = [beam] * nants
+        # Now, the beam we have on file doesn't actually properly wrap around in azimuth.
+        # This is fine -- the uvbeam.interp() handles the interpolation well. However, when
+        # comparing to the GPU interpolation, which first has to interpolate to a regular
+        # grid that ends right at 2pi, it's better to compare like for like, so we
+        # interpolate to such a grid here.
+        beam = beam.interp(
+            az_array=np.linspace(0, 2 * np.pi, 181),
+            za_array=np.linspace(0, np.pi / 2, 46),
+            az_za_grid=True,
+            new_object=True,
+        )
+
     if polarized or use_analytic_beam:
-        uvsim_beams = BeamList(cpu_beams)
+        uvsim_beams = BeamList([beam] * nants)
     else:
         uvsim_beams = BeamList([uvsim_beam] * nants)
 
     # beams = [AnalyticBeam('uniform') for i in range(len(ants.keys()))]
-    beam_dict = {str(i): i for i in range(len(cpu_beams))}
+    beam_dict = {str(i): i for i in range(nants)}
 
     # Random antenna locations
     x = np.random.random(nants) * 400.0  # Up to 400 metres
@@ -135,7 +141,7 @@ def get_standard_sim_params(use_analytic_beam: bool, polarized: bool):
         dec_new,
         freqs,
         lsts,
-        cpu_beams,
+        [beam],
         uvsim_beams,
         beam_dict,
         hera_lat,

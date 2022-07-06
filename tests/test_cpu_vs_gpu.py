@@ -8,9 +8,9 @@ from vis_cpu import simulate_vis
 from . import get_standard_sim_params, nants
 
 
-@pytest.mark.parametrize("use_analytic_beam", (True, False))
 @pytest.mark.parametrize("polarized", (True, False))
-def test_compare_pyuvsim(polarized, use_analytic_beam):
+@pytest.mark.parametrize("use_analytic_beam", (True, False))
+def test_cpu_vs_gpu(polarized, use_analytic_beam):
     """Compare vis_cpu and pyuvsim simulated visibilities."""
     (
         sky_model,
@@ -41,6 +41,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         precision=2,
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=False,
+        beam_spline_opts={"kx": 1, "ky": 1},
     )
 
     # ---------------------------------------------------------------------------
@@ -83,6 +84,6 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
             err = f"Max diff: {diff_re:10.10e} + 1j*{diff_im:10.10e}\n"
             err += f"Baseline: ({i},{j})\n"
             err += f"Avg. diff: {delta.mean():10.10e}\n"
-            err += f"Max values: \n    uvsim={d_visgpu.max():10.10e}"
+            err += f"Max values: \n    visgpu={d_visgpu.max():10.10e}"
             err += f"\n    viscpu={d_viscpu.max():10.10e}"
             assert np.allclose(d_visgpu, d_viscpu, rtol=rtol, atol=atol), err

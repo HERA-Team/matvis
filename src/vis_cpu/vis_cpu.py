@@ -125,6 +125,7 @@ def _evaluate_beam_cpu(
     freq,
     nsrcs_up,
     complex_dtype,
+    spline_opts=None,
 ):
     A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
 
@@ -132,13 +133,20 @@ def _evaluate_beam_cpu(
     az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
     for i, bm in enumerate(beam_list):
         kw = (
-            {"reuse_spline": True, "check_azza_domain": False}
+            {
+                "reuse_spline": True,
+                "check_azza_domain": False,
+                "spline_opts": spline_opts,
+            }
             if isinstance(bm, UVBeam)
             else {}
         )
 
         interp_beam = bm.interp(
-            az_array=az, za_array=za, freq_array=np.atleast_1d(freq), **kw
+            az_array=az,
+            za_array=za,
+            freq_array=np.atleast_1d(freq),
+            **kw,
         )[0]
 
         if polarized:
@@ -191,6 +199,7 @@ def vis_cpu(
     precision: int = 1,
     polarized: bool = False,
     beam_idx: Optional[np.ndarray] = None,
+    beam_spline_opts: dict | None = None,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -307,6 +316,7 @@ def vis_cpu(
             freq,
             nsrcs_up,
             complex_dtype,
+            spline_opts=beam_spline_opts,
         )
 
         # Calculate delays, where tau = (b * s) / c
