@@ -1,3 +1,5 @@
+#!/bin/env python
+
 """Profile the code with a simple scalable sky model.
 
 Running the script will write a summary of the timings of various main blocks of code.
