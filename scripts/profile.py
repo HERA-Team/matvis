@@ -55,8 +55,11 @@ main = click.Group()
     "--gpu/--cpu",
     default=False,
 )
+@click.option("-o", "--outdir", default=".")
 @click.option("--double-precision/--single-precision", default=True)
-def run(analytic_beam, nfreq, ntimes, nants, nbeams, nsource, gpu, double_precision):
+def run(
+    analytic_beam, nfreq, ntimes, nants, nbeams, nsource, gpu, double_precision, outdir
+):
     """Run the script."""
     (
         ants,
@@ -91,10 +94,12 @@ def run(analytic_beam, nfreq, ntimes, nants, nbeams, nsource, gpu, double_precis
         beam_idx=beam_idx,
     )
 
-    str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_g{gpu}_pr{2 if double_precision else 1}"
-    profiler.dump_stats(f"stats-{str_id}.pkl")
+    outdir = Path(outdir).expanduser().absolute()
 
-    with open(f"full-stats-{str_id}.txt", "w") as fl:
+    str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}"
+    profiler.dump_stats(f"{outdir}/stats-{str_id}.pkl")
+
+    with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
         profiler.print_stats(stream=fl, stripzeros=True)
 
     thing_stats = get_summary_stats(profiler, gpu)
@@ -104,7 +109,7 @@ def run(analytic_beam, nfreq, ntimes, nants, nbeams, nsource, gpu, double_precis
             f"{thing:>19}: {hits:>4} hits, {time:.2f} seconds, {time_per_hit:.2f} sec/hit, {percent:3.2f}%, {nlines} lines"
         )
 
-    with open(f"summary-stats-{str_id}.pkl", "wb") as fl:
+    with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
         pickle.dump(thing_stats, fl)
 
 
