@@ -305,8 +305,8 @@ def get_standard_sim_params(
     dec0 = -30.72 * np.pi / 180
 
     if nsource > 1:
-        ra = np.random.uniform(low=0.0, high=2 * np.pi, size=nsource)
-        dec = np.arccos(1 - 2 * np.random.uniform(size=nsource)) - np.pi / 2
+        ra = np.random.uniform(low=0.0, high=2 * np.pi, size=nsource - 1)
+        dec = np.arccos(1 - 2 * np.random.uniform(size=nsource - 1)) - np.pi / 2
         ra = np.concatenate(([ra0], ra))
         dec = np.concatenate(([dec0], dec))
     else:
