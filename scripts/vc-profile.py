@@ -75,6 +75,9 @@ def run(
     verbose,
 ):
     """Run the script."""
+    if not HAVE_GPU and gpu:
+        raise RuntimeError("Cannot run GPU version without GPU dependencies installed!")
+
     (
         ants,
         flux,
