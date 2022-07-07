@@ -228,6 +228,8 @@ def vis_gpu(
             raw_beam_data.extend(
                 uvbeam_to_azza_grid(b, naz=int(naz), dza=dza)[0] for b in beam_list[1:]
             )
+    else:
+        daz, dza = None, None
 
     # Setup the GPU code and arrays
     meas_eq_code = MeasEqTemplate.render(**cuda_params)
@@ -246,6 +248,8 @@ def vis_gpu(
         )
         beam_interp_module = compiler.SourceModule(beam_interp_code)
         beam_interp = beam_interp_module.get_function("InterpolateBeamAltAz")
+    else:
+        beam_interp = None
 
     meas_eq_module = compiler.SourceModule(meas_eq_code)
     meas_eq = meas_eq_module.get_function("MeasEq")
@@ -278,6 +282,8 @@ def vis_gpu(
         beam_data_gpu = gpuarray.to_gpu(
             np.array(raw_beam_data, dtype=complex_dtype if polarized else real_dtype)
         )
+    else:
+        beam_data_gpu = None
 
     # will be set on GPU by bm_interp
     crd_eq_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)

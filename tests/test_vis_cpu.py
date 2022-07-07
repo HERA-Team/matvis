@@ -2,11 +2,9 @@
 import pytest
 
 import numpy as np
-from astropy.units import sday
 from pyuvsim.analyticbeam import AnalyticBeam
 
-from vis_cpu import conversions, simulate_vis, vis_cpu
-from vis_cpu.vis_cpu import construct_pixel_beam_spline
+from vis_cpu import simulate_vis
 
 np.random.seed(0)
 NTIMES = 10
@@ -53,31 +51,3 @@ def test_simulate_vis(polarized):
         latitude=-30.7215 * np.pi / 180.0,
     )
     assert np.all(~np.isnan(vis))  # check that there are no NaN values
-
-
-def test_construct_pixel_beam_spline():
-    """Test pixel beam interpolation."""
-    freqs = np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
-
-    # Create pixel beam
-    beam = AnalyticBeam("gaussian", diameter=14.0)
-    beams = [beam, beam, beam]  # 3 ants
-
-    beam_pix = [
-        conversions.uvbeam_to_lm(bm, freqs, n_pix_lm=21, polarized=False)
-        for bm in beams
-    ]
-    beam_cube = np.array(beam_pix)
-
-    # Complex values should raise an error
-    with pytest.raises(TypeError):
-        construct_pixel_beam_spline(beam_cube[:, 0] + 1e-5j)  # only 1 freq
-
-    # Mock-up a polarized beam
-    bm_cube_pol = beam_cube[np.newaxis, np.newaxis, :, 0, :, :]
-    beam_splines_pol = construct_pixel_beam_spline(bm_cube_pol)
-
-    # Check for expected no. of dimensions
-    assert len(beam_splines_pol) == 1
-    assert len(beam_splines_pol[0]) == 1
-    assert len(beam_splines_pol[0][0]) == len(beams)

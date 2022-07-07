@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 from pyuvdata import UVBeam
 
+from vis_cpu import DATA_PATH
 from vis_cpu._uvbeam_to_raw import uvbeam_to_azza_grid
 from vis_cpu.vis_gpu import gpu_beam_interpolation
 
@@ -61,7 +62,7 @@ def test_non_identity_linear():
 @pytest.mark.parametrize("polarized", [True, False])
 def test_identity_beamfile(polarized):
     """Test interpolation of a complicated beam file, at nodal points."""
-    beam_file = Path(__file__).parent / "data/NF_HERA_Dipole_small.fits"
+    beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
     beam = UVBeam()
     beam.read_beamfits(beam_file)
     beam = beam.interp(freq_array=np.array([1e8]), new_object=True, run_check=False)
@@ -113,7 +114,7 @@ def test_identity_beamfile(polarized):
 @pytest.mark.parametrize("polarized", [True, False])
 def test_non_identity_beamfile(polarized):
     """Test a complex beam file at non-nodal points."""
-    beam_file = Path(__file__).parent / "data/NF_HERA_Dipole_small.fits"
+    beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
     beam = UVBeam()
     beam.read_beamfits(beam_file)
     beam = beam.interp(freq_array=np.array([1e8]), new_object=True, run_check=False)

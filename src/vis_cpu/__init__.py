@@ -2,6 +2,8 @@
 """A fast visibility simulator based on per-antenna calculations."""
 from pkg_resources import DistributionNotFound, get_distribution
 
+from pathlib import Path
+
 try:
     # Change here if project is renamed and does not equal the package name
     dist_name = __name__
@@ -16,3 +18,7 @@ from .vis_cpu import vis_cpu
 from .vis_gpu import HAVE_CUDA as HAVE_GPU
 from .vis_gpu import vis_gpu
 from .wrapper import simulate_vis
+
+DATA_PATH = Path(__file__).parent / "data"
+
+del Path

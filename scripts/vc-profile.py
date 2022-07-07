@@ -19,9 +19,9 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 
-from vis_cpu import HAVE_GPU, conversions, simulate_vis, vis_cpu, vis_gpu
+from vis_cpu import DATA_PATH, HAVE_GPU, conversions, simulate_vis, vis_cpu, vis_gpu
 
-beam_file = Path(__file__).parent.parent / "tests" / "data/NF_HERA_Dipole_small.fits"
+beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
 
 profiler = LineProfiler()

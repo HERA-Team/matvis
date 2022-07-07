@@ -1,4 +1,4 @@
-exclude: '^docs/conf.py|^tests/data/'
+exclude: '^docs/conf.py|^src/vis_cpu/data/'
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
