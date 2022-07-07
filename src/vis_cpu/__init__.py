@@ -13,10 +13,19 @@ except DistributionNotFound:  # pragma: no cover
 finally:
     del get_distribution, DistributionNotFound
 
+try:
+    import pycuda
+
+    HAVE_GPU = True
+except ImportError:
+    HAVE_GPU = False
+
+
 from . import plot
 from .vis_cpu import vis_cpu
-from .vis_gpu import HAVE_CUDA as HAVE_GPU
-from .vis_gpu import vis_gpu
+
+if HAVE_GPU:
+    from .vis_gpu import vis_gpu
 from .wrapper import simulate_vis
 
 DATA_PATH = Path(__file__).parent / "data"
