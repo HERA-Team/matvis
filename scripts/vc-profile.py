@@ -87,6 +87,18 @@ def run(
         beam_idx,
     ) = get_standard_sim_params(analytic_beam, nfreq, ntimes, nants, nsource, nbeams)
 
+    print("---------------------------------")
+    print("Running vc-profile with:")
+    print(f"  NANTS:            {nants:>7}")
+    print(f"  NTIMES:           {ntimes:>7}")
+    print(f"  NFREQ:            {nfreq:>7}")
+    print(f"  NBEAMS:           {nbeams:>7}")
+    print(f"  NSOURCE:          {nsource:>7}")
+    print(f"  GPU:              {gpu:>7}")
+    print(f"  DOUBLE-PRECISION: {double_precision:>7}")
+    print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
+    print("---------------------------------")
+
     if gpu:
         profiler.add_function(vis_gpu)
     else:
@@ -121,10 +133,13 @@ def run(
 
     thing_stats = get_summary_stats(profiler, gpu)
 
+    print()
+    print("------------- Summary of timings -------------")
     for thing, (hits, time, time_per_hit, percent, nlines) in thing_stats.items():
         print(
             f"{thing:>19}: {hits:>4} hits, {time:.2f} seconds, {time_per_hit:.2f} sec/hit, {percent:3.2f}%, {nlines} lines"
         )
+    print("----------------------------------------------")
 
     with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
         pickle.dump(thing_stats, fl)
