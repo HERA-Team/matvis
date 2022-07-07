@@ -296,8 +296,20 @@ def get_standard_sim_params(
     )
     lsts = np.unique(uvdata.lst_array)
 
-    ra = np.random.uniform(low=0.0, high=2 * np.pi, size=nsource)
-    dec = np.arccos(1 - 2 * np.random.uniform(size=nsource)) - np.pi / 2
+    # The first source always near zenith (makes sure there's always at least one
+    # source above the horizon at the first time).
+    ra0 = 125.7 * np.pi / 180
+    dec0 = -30.72 * np.pi / 180
+
+    if nsource > 1:
+        ra = np.random.uniform(low=0.0, high=2 * np.pi, size=nsource)
+        dec = np.arccos(1 - 2 * np.random.uniform(size=nsource)) - np.pi / 2
+        ra = np.concatenate(([ra0], ra))
+        dec = np.concatenate(([dec0], dec))
+    else:
+        ra = np.array([ra0])
+        dec = np.array([dec0])
+
     flux0 = np.random.random(nsource) * 4
     spec_indx = np.random.normal(0.8, scale=0.05, size=nsource)
 
