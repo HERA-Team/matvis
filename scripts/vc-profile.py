@@ -57,10 +57,22 @@ main = click.Group()
     "--gpu/--cpu",
     default=False,
 )
+@click.option(
+    "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
+)
 @click.option("-o", "--outdir", default=".")
 @click.option("--double-precision/--single-precision", default=True)
 def run(
-    analytic_beam, nfreq, ntimes, nants, nbeams, nsource, gpu, double_precision, outdir
+    analytic_beam,
+    nfreq,
+    ntimes,
+    nants,
+    nbeams,
+    nsource,
+    gpu,
+    double_precision,
+    outdir,
+    verbose,
 ):
     """Run the script."""
     (
@@ -103,6 +115,9 @@ def run(
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
         profiler.print_stats(stream=fl, stripzeros=True)
+
+    if verbose:
+        profiler.print_stats()
 
     thing_stats = get_summary_stats(profiler, gpu)
 
