@@ -1,7 +1,10 @@
 """Simple example wrapper for basic usage of vis_cpu."""
 import numpy as np
 
-from . import conversions, vis_cpu, vis_gpu
+from . import HAVE_GPU, conversions, vis_cpu
+
+if HAVE_GPU:
+    from . import vis_gpu
 
 
 def simulate_vis(
@@ -70,6 +73,9 @@ def simulate_vis(
         Complex array of shape (NFREQS, NTIMES, NFEED, NFEED, NANTS, NANTS)
         if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
     """
+    if use_gpu and not HAVE_GPU:
+        raise ValueError("You cannot use GPU without installing GPU-dependencies!")
+
     fnc = vis_gpu if use_gpu else vis_cpu
 
     assert fluxes.shape == (
