@@ -269,7 +269,7 @@ def vis_gpu(
     # the same beam).
     if use_uvbeam:
         beam_data_gpu = gpuarray.to_gpu(
-            np.array(raw_beam_data, dtype=complex_dtype if polarized else real_dtype)
+            np.array(raw_beam_data, dtype=complex_dtype if polarized else real_dtype),
         )
     else:
         beam_data_gpu = None
@@ -344,13 +344,14 @@ def vis_gpu(
                 )
                 events[cc]["eq2top"].record(stream)
 
-                tx, ty, tz = crdtop_gpu.get()
+                tx, ty, tz = crdtop_gpu.get_async(stream=stream)
                 above_horizon = tz > 0
                 tx = tx[above_horizon]
                 ty = ty[above_horizon]
                 nsrcs_up = len(tx)
-                crdtop_lim_gpu = gpuarray.to_gpu(
-                    crdtop_gpu.get()[:, above_horizon].copy()
+                crdtop_lim_gpu = gpuarray.to_gpu_async(
+                    crdtop_gpu.get_async(stream=stream)[:, above_horizon].copy(),
+                    stream=stream,
                 )
 
                 if nsrcs_up < 1:
@@ -404,7 +405,9 @@ def vis_gpu(
                 v_gpu = gpuarray.empty(
                     shape=(nax, nfeed, nant, nsrcs_up), dtype=complex_dtype
                 )
-                Isqrt_lim_gpu = gpuarray.to_gpu(Isqrt_gpu.get()[above_horizon].copy())
+                Isqrt_lim_gpu = gpuarray.to_gpu_async(
+                    Isqrt_gpu.get()[above_horizon].copy(), stream=stream
+                )
 
                 # blocks of threads are mapped to (pixels,ants,freqs)
 
@@ -440,6 +443,7 @@ def vis_gpu(
                     vis_gpus[cc].gpudata,
                     grid=prod_grid,
                     block=prod_block,
+                    stream=stream,
                 )
 
                 events[cc]["vis"].record(stream)
@@ -581,7 +585,7 @@ def gpu_beam_interpolation(
     za = za.astype(rtype, copy=False)
 
     if not isinstance(beam, gpuarray.GPUArray):
-        beam = gpuarray.to_gpu(beam)
+        beam = gpuarray.to_gpu_async(beam, stream=stream)
 
     nbeam, nax, nfeed, nza, naz = beam.shape
     nsrc = len(az)
@@ -613,8 +617,8 @@ def gpu_beam_interpolation(
         int(np.ceil(nax * nfeed / float(block[2]))),
     )
 
-    az_gpu = gpuarray.to_gpu(az)
-    za_gpu = gpuarray.to_gpu(za)
+    az_gpu = gpuarray.to_gpu_async(az, stream=stream)
+    za_gpu = gpuarray.to_gpu_async(za, stream=stream)
     nsrc_uint = np.uint(nsrc)
 
     def fnc(beam_in, beam_out):
@@ -644,7 +648,7 @@ def gpu_beam_interpolation(
         beam_at_src = beam_at_src.astype(ctype)
 
     if return_on_cpu:
-        return beam_at_src.get()
+        return beam_at_src.get_async(stream=stream)
     else:
         return beam_at_src
 
