@@ -29,17 +29,6 @@ try:
 
     HAVE_CUDA = True
 
-    device = driver.Device(0)
-    attrs = device.get_attributes()
-
-    attrs = {str(k): v for k, v in attrs.items()}
-    string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
-    logger.debug(
-        f"""
-        Your GPU has the following attributes:
-        \t{string}
-        """
-    )
 except ImportError:
     HAVE_CUDA = False
 

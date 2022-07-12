@@ -1,10 +1,13 @@
 """Simple example wrapper for basic usage of vis_cpu."""
+import logging
 import numpy as np
 
 from . import HAVE_GPU, conversions, vis_cpu
 
 if HAVE_GPU:
     from . import vis_gpu
+
+logger = logging.getLogger(__name__)
 
 
 def simulate_vis(
@@ -75,6 +78,20 @@ def simulate_vis(
     """
     if use_gpu and not HAVE_GPU:
         raise ValueError("You cannot use GPU without installing GPU-dependencies!")
+
+    if use_gpu:
+        from pycuda import driver
+
+        device = driver.Device(0)
+        attrs = device.get_attributes()
+        attrs = {str(k): v for k, v in attrs.items()}
+        string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
+        logger.debug(
+            f"""
+            Your GPU has the following attributes:
+            \t{string}
+            """
+        )
 
     fnc = vis_gpu if use_gpu else vis_cpu
 

@@ -9,6 +9,7 @@ It will also save these results in pickle format to a file annotated with the in
 import click
 import inspect
 import linecache
+import logging
 import numpy as np
 import os
 import pickle
@@ -23,6 +24,7 @@ from vis_cpu import DATA_PATH, HAVE_GPU, conversions, simulate_vis, vis_cpu, vis
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
+logger = logging.getLogger("vis_cpu")
 
 profiler = LineProfiler()
 
@@ -60,6 +62,12 @@ main = click.Group()
 @click.option(
     "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
 )
+@click.option(
+    "-l",
+    "--log-level",
+    default="INFO",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+)
 @click.option("-o", "--outdir", default=".")
 @click.option("--double-precision/--single-precision", default=True)
 def run(
@@ -73,10 +81,13 @@ def run(
     double_precision,
     outdir,
     verbose,
+    log_level,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
         raise RuntimeError("Cannot run GPU version without GPU dependencies installed!")
+
+    logger.setLevel(log_level.upper())
 
     (
         ants,
