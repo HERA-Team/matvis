@@ -244,7 +244,7 @@ def vis_gpu(
     meas_eq = meas_eq_module.get_function("MeasEq")
     vis_inner_product = meas_eq_module.get_function("VisInnerProduct")
 
-    logging.debug(
+    logger.debug(
         f"""
         Measurement Equation Kernel Properties:
             SHARED: {meas_eq.shared_size_bytes}
@@ -307,7 +307,7 @@ def vis_gpu(
 
     vis = np.empty((ntimes, nfeed, nfeed, nant, nant), dtype=complex_dtype)
 
-    logging.debug("Running With %s chunks: ", chunk)
+    logger.debug("Running With %s chunks: ", chunk)
 
     for t in range(ntimes):
         eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
