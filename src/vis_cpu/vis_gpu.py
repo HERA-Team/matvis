@@ -329,7 +329,7 @@ def vis_gpu(
             ccc = c - 2
             if 0 <= ccc < chunk:
                 stream = streams[ccc]
-                vis_gpus[ccc].get_async(ary=vis_cpus[ccc], stream=stream)
+                vis_gpus[ccc].get(ary=vis_cpus[ccc], stream=stream)
                 events[ccc]["end"].record(stream)
             if 0 <= cc < chunk:
                 stream = streams[cc]
