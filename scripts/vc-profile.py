@@ -91,6 +91,11 @@ def run(
 
     logger.setLevel(log_level.upper())
 
+    if gpu:
+        from pycuda import driver
+
+        driver.start_profiler()
+
     (
         ants,
         flux,
@@ -135,6 +140,9 @@ def run(
         use_gpu=gpu,
         beam_idx=beam_idx,
     )
+
+    if gpu:
+        driver.stop_profiler()
 
     outdir = Path(outdir).expanduser().absolute()
 
