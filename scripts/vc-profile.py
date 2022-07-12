@@ -24,8 +24,9 @@ from vis_cpu import DATA_PATH, HAVE_GPU, conversions, simulate_vis, vis_cpu, vis
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vis_cpu")
-logger.basicConfig(level=logging.INFO)
+
 
 profiler = LineProfiler()
 
