@@ -86,10 +86,6 @@ def _numpy3d_to_array(np_array):
     return device_array
 
 
-NTHREADS = 1024  # make 512 for smaller GPUs
-MAX_MEMORY = 2**29  # floats (4B each)
-MIN_CHUNK = 1
-
 TYPE_MAP = {
     np.float32: "float",
     np.float64: "double",
@@ -110,8 +106,9 @@ def vis_gpu(
     beam_list: Optional[Sequence[UVBeam | Callable]],
     polarized: bool = False,
     beam_idx: Optional[np.ndarray] = None,
-    nthreads: int = NTHREADS,
-    max_memory: int = MAX_MEMORY,
+    nthreads: int = 1024,
+    max_memory: int = 2**29,
+    min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
 ) -> np.ndarray:
@@ -149,7 +146,7 @@ def vis_gpu(
     Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
 
     chunk = max(
-        min(nsrc, MIN_CHUNK),
+        min(nsrc, min_chunks),
         2 ** int(np.ceil(np.log2(float(nant * nsrc) / max_memory / 2))),
     )
     npixc = nsrc // chunk
