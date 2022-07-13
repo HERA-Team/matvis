@@ -87,6 +87,7 @@ def run(
     outdir,
     verbose,
     log_level,
+    gpu_nthreads,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -142,6 +143,7 @@ def run(
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=gpu,
         beam_idx=beam_idx,
+        nthreads=gpu_nthreads,
     )
 
     if gpu:
