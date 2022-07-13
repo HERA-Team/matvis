@@ -47,7 +47,7 @@ main = click.Group()
     default=1,
 )
 @click.option(
-    "-a",
+    "-b",
     "--nbeams",
     default=1,
 )
@@ -60,6 +60,9 @@ main = click.Group()
     "-g/-c",
     "--gpu/--cpu",
     default=False,
+)
+@click.option(
+    "-n", "--gpu-nthreads", default=1024, help="Number of threads to use for GPU"
 )
 @click.option(
     "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
