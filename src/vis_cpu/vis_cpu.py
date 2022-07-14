@@ -1,5 +1,6 @@
 """CPU-based implementation of the visibility simulator."""
 
+import logging
 import numpy as np
 from astropy.constants import c
 from pyuvdata import UVBeam
@@ -17,6 +18,9 @@ except NameError:
     def profile(fnc):
         """No-op profiling decorator."""
         return fnc
+
+
+logger = logging.getLogger(__name__)
 
 
 def _wrangle_beams(beam_idx, beam_list, polarized, nant, freq, interp=True):
@@ -240,7 +244,7 @@ def vis_cpu(
     ang_freq = 2.0 * np.pi * freq
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    vis = np.zeros((ntimes, nfeed, nfeed, nant, nant), dtype=complex_dtype)
+    vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Loop over time samples
@@ -271,8 +275,18 @@ def vis_cpu(
             spline_opts=beam_spline_opts,
         )
 
+        logger.debug(
+            "CPU: Beam: %s", A_s.flatten() if A_s.size < 40 else A_s.flatten()[:40]
+        )
+
         # Calculate delays, where tau = (b * s) / c
         np.dot(antpos / c.value, crd_top[:, above_horizon], out=tau)
+
+        logger.debug(
+            "CPU: tau: %s %s",
+            tau.flatten() if tau.size < 40 else tau.flatten()[:40],
+            tau.shape,
+        )
 
         # Component of complex phase factor for one antenna
         # (actually, b = (antpos1 - antpos2) * crd_top / c; need dot product
@@ -282,15 +296,34 @@ def vis_cpu(
         # Complex voltages.
         v *= Isqrt[above_horizon]
 
-        # Compute visibilities using product of complex voltages (upper triangle).
-        # Input arrays have shape (Nax, Nfeed, [Nants], Nsrcs
-        v = A_s[:, :, beam_idx] * v[np.newaxis, np.newaxis, :]
+        # A_s has shape (Nax, Nfeed, Nbeams, Nsources)
+        # v has shape (Nants, Nsources) and is sqrt(I)*exp(1j tau*nu)
+        # Here we expand A_s to all ants (from its beams), then broadcast to v, so we
+        # end up with shape (Nax, Nfeed, Nants, Nsources)
+        A_s = A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
+        v = A_s[:, beam_idx] * v[np.newaxis, :, np.newaxis, :]  # ^ but Nbeam -> Nant
+        v = v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
 
-        for i in range(len(antpos)):
-            # We want to take an outer product over feeds/antennas, contract over
-            # E-field components, and integrate over the sky.
-            vis[t, :, :, i : i + 1, i:] = np.einsum(
-                "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
-            )
+        logger.debug(
+            "CPU: vant: %s %s",
+            v.flatten() if v.size < 40 else v.flatten()[:40],
+            v.shape,
+        )
+
+        # Compute visibilities using product of complex voltages (upper triangle).
+        # for i in range(len(antpos)):
+        vis[t] = v.conj().dot(v.T)
+        # We want to take an outer product over feeds/antennas, contract over
+        # E-field components, and integrate over the sky.
+        # vis[t, :, :, i : i + 1, i:] = np.einsum(
+        #     "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
+        # )
+
+        logger.info(
+            "CPU: vis: %s", vis.flatten() if vis.size < 40 else vis.flatten()[:40]
+        )
+
+    vis.shape = (ntimes, nfeed, nant, nfeed, nant)
+
     # Return visibilities with or without multiple polarization channels
-    return vis if polarized else vis[:, 0, 0, :, :]
+    return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]

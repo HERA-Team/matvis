@@ -20,11 +20,13 @@ try:
     from pycuda import cumath as cm
     from pycuda import driver, gpuarray
     from skcuda.cublas import (
+        cublasCgemm,
         cublasCreate,
         cublasDestroy,
         cublasDgemm,
         cublasSetStream,
         cublasSgemm,
+        cublasZgemm,
     )
 
     HAVE_CUDA = True
@@ -130,9 +132,11 @@ def vis_gpu(
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64
         cublas_real_mm = cublasSgemm
+        cublas_complex_mm = cublasCgemm
     else:
         real_dtype, complex_dtype = np.float64, np.complex128
         cublas_real_mm = cublasDgemm
+        cublas_complex_mm = cublasZgemm
 
     DTYPE, CDTYPE = TYPE_MAP[real_dtype], TYPE_MAP[complex_dtype]
 
@@ -163,21 +167,21 @@ def vis_gpu(
     # Ways to block up threads for sending to GPU calculations. "Meas" is for the
     # measurement equation function, and "prod" is for the inner-product calculation.
     meas_block = (
-        max(1, nthreads // nant // (nax * nfeed)),
-        min(nthreads, nant),
-        min(nthreads, nax * nfeed),
+        max(1, nthreads // (nant * nax * nfeed)),
+        min(nthreads, nant * nax),
+        min(nthreads, nfeed),
     )
     prod_block = (max(1, nthreads // nant), min(nthreads, nant), 1)
-    prod_grid = (
-        int(np.ceil(nant * nfeed / float(prod_block[0]))),
-        int(np.ceil(nant * nfeed / float(prod_block[1]))),
-    )
+    # prod_grid = (
+    #     int(np.ceil(nant * nfeed / float(prod_block[0]))),
+    #     int(np.ceil(nant * nfeed / float(prod_block[1]))),
+    # )
 
-    logger.debug(
+    logger.info(
         f"Using {np.prod(meas_block)} threads in total for measurement equation."
     )
-    logger.debug(f"Using a shared-memory buffer of size {5*meas_block[0]}.")
-    logger.debug(f"Using {np.prod(prod_block)} threads in total for inner product.")
+    logger.info(f"Using a shared-memory buffer of size {5*meas_block[0]}.")
+    logger.info(f"Using {np.prod(prod_block)} threads in total for inner product.")
 
     use_uvbeam = isinstance(beam_list[0], UVBeam)
     if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
@@ -239,9 +243,9 @@ def vis_gpu(
 
     meas_eq_module = compiler.SourceModule(meas_eq_code)
     meas_eq = meas_eq_module.get_function("MeasEq")
-    vis_inner_product = meas_eq_module.get_function("VisInnerProduct")
+    # vis_inner_product = meas_eq_module.get_function("VisInnerProduct")
 
-    logger.debug(
+    logger.info(
         f"""
         Measurement Equation Kernel Properties:
             SHARED: {meas_eq.shared_size_bytes}
@@ -279,13 +283,13 @@ def vis_gpu(
     crdtop_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
     # will be set on GPU
     vis_gpus = [
-        gpuarray.empty(shape=(nfeed, nfeed, nant, nant), dtype=complex_dtype)
+        gpuarray.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
         for _ in range(chunk)
     ]
 
     # output CPU buffers for downloading answers
     vis_cpus = [
-        np.empty(shape=(nfeed, nfeed, nant, nant), dtype=complex_dtype)
+        np.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
         for _ in range(chunk)
     ]
     streams = [driver.Stream() for _ in range(chunk)]
@@ -302,9 +306,9 @@ def vis_gpu(
     if use_uvbeam:
         event_order.insert(4, "interpolation")
 
-    vis = np.empty((ntimes, nfeed, nfeed, nant, nant), dtype=complex_dtype)
+    vis = np.empty((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
 
-    logger.debug("Running With %s chunks: ", chunk)
+    logger.info("Running With %s chunks: ", chunk)
 
     for t in range(ntimes):
         eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
@@ -400,7 +404,7 @@ def vis_gpu(
                 )
 
                 v_gpu = gpuarray.empty(
-                    shape=(nax, nfeed, nant, nsrcs_up), dtype=complex_dtype
+                    shape=(nfeed * nant, nax * nsrcs_up), dtype=complex_dtype
                 )
                 Isqrt_lim_gpu = gpuarray.to_gpu_async(
                     Isqrt_gpu.get()[above_horizon].copy(), stream=stream
@@ -410,11 +414,18 @@ def vis_gpu(
 
                 grid = (
                     int(np.ceil(nsrcs_up / float(meas_block[0]))),
-                    int(np.ceil(nant / float(meas_block[1]))),
-                    int(np.ceil(nax * nfeed / float(meas_block[2]))),
+                    int(np.ceil(nax * nant / float(meas_block[1]))),
+                    int(np.ceil(nfeed / float(meas_block[2]))),
                 )
 
-                logger.debug(f"Measurement Eq. Grid Size: {grid}")
+                logger.info(f"Measurement Eq. Grid Size: {grid}")
+
+                logger.debug(
+                    "GPU: Beam: %s",
+                    A_gpu.get().flatten()
+                    if A_gpu.size < 40
+                    else A_gpu.get().flatten()[:40],
+                )
 
                 # compute v = A * sqrtI * exp(1j*tau*freq)
                 meas_eq(
@@ -431,17 +442,58 @@ def vis_gpu(
                 )
                 events[cc]["meas_eq"].record(stream)
 
+                if logger.getEffectiveLevel() <= logging.DEBUG:
+                    # For comparison to cpu
+                    vv = (
+                        v_gpu.get()
+                        .reshape((nfeed, nant, nax, nsrcs_up))
+                        .transpose((2, 0, 1, 3))
+                    )
+                    logger.debug(
+                        "GPU: vant: %s",
+                        vv.flatten()[:40] if vv.size < 40 else vv.flatten()[:40],
+                    )
+
                 # compute vis = dot(v, v.T)
                 # We want to take an outer product over feeds/antennas, contract over
                 # E-field components, and integrate over the sky.
-                vis_inner_product(
+                # Remember cublas is in fortran order...
+                # v_gpu is (nfeed * nant, nax * nsrcs_up)
+                cublas_complex_mm(
+                    h,
+                    "c",  # conjugate transpose for first (remember fortran order)
+                    "n",  # no transpose for second.
+                    nfeed * nant,
+                    nfeed * nant,
+                    nax * nsrcs_up,
+                    1.0,
                     v_gpu.gpudata,
-                    np.uint(nsrcs_up),
+                    nax * nsrcs_up,
+                    v_gpu.gpudata,
+                    nax * nsrcs_up,
+                    0.0,
                     vis_gpus[cc].gpudata,
-                    grid=prod_grid,
-                    block=prod_block,
-                    stream=stream,
+                    nfeed * nant,
                 )
+
+                if logger.getEffectiveLevel() <= logging.DEBUG:
+                    # to get the same shape as CPU
+                    vv = vis_gpus[cc].get()
+                    logger.debug(
+                        "GPU: vis: %s",
+                        vv.flatten() if vv.size < 40 else vv.flatten()[:40],
+                    )
+
+                    logger.debug("GPU: vant orig: %s", v_gpu.get())
+                    logger.debug("GPU: vis orig: %s", vis_gpus[cc].get())
+                # vis_inner_product(
+                #     v_gpu.gpudata,
+                #     np.uint(nsrcs_up),
+                #     vis_gpus[cc].gpudata,
+                #     grid=prod_grid,
+                #     block=prod_block,
+                #     stream=stream,
+                # )
 
                 events[cc]["vis"].record(stream)
 
@@ -461,7 +513,8 @@ def vis_gpu(
 
     # teardown GPU configuration
     cublasDestroy(h)
-    return vis if polarized else vis[:, 0, 0, :, :]
+    vis = vis.conj().reshape((ntimes, nfeed, nant, nfeed, nant))
+    return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
 
 
 def do_beam_interpolation(
@@ -582,7 +635,10 @@ def gpu_beam_interpolation(
     za = za.astype(rtype, copy=False)
 
     if not isinstance(beam, gpuarray.GPUArray):
-        beam = gpuarray.to_gpu_async(beam, stream=stream)
+        if stream is not None:
+            beam = gpuarray.to_gpu_async(beam, stream=stream)
+        else:
+            beam = gpuarray.to_gpu(beam)
 
     nbeam, nax, nfeed, nza, naz = beam.shape
     nsrc = len(az)

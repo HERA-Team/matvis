@@ -26,6 +26,8 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam):
         hera_lat,
         uvdata,
     ) = get_standard_sim_params(use_analytic_beam, polarized)
+    print("Polarized=", polarized, "Analytic Beam =", use_analytic_beam)
+
     # ---------------------------------------------------------------------------
     # (1) Run vis_cpu
     # ---------------------------------------------------------------------------
@@ -64,26 +66,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam):
     # ---------------------------------------------------------------------------
     # Compare
     # ---------------------------------------------------------------------------
-    # Loop over baselines and compare
-    diff_re = 0.0
-    diff_im = 0.0
     rtol = 2e-4 if use_analytic_beam else 0.01
     atol = 5e-4
-    for i in range(nants):
-        for j in range(i, nants):
-            d_visgpu = vis_vg[:, :, 0, 0, i, j] if polarized else vis_vg[:, :, i, j]
-            d_viscpu = vis_vc[:, :, 0, 0, i, j] if polarized else vis_vc[:, :, i, j]
-
-            # Keep track of maximum difference
-            delta = d_visgpu - d_viscpu
-            if np.max(np.abs(delta.real)) > diff_re:
-                diff_re = np.max(np.abs(delta.real))
-            if np.max(np.abs(delta.imag)) > diff_im:
-                diff_im = np.abs(np.max(delta.imag))
-
-            err = f"Max diff: {diff_re:10.10e} + 1j*{diff_im:10.10e}\n"
-            err += f"Baseline: ({i},{j})\n"
-            err += f"Avg. diff: {delta.mean():10.10e}\n"
-            err += f"Max values: \n    visgpu={d_visgpu.max():10.10e}"
-            err += f"\n    viscpu={d_viscpu.max():10.10e}"
-            assert np.allclose(d_visgpu, d_viscpu, rtol=rtol, atol=atol), err
+    np.testing.assert_allclose(vis_vg.real, vis_vc.real, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(vis_vg.imag, vis_vc.imag, rtol=rtol, atol=atol)

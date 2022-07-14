@@ -32,35 +32,35 @@ __global__ void MeasEq(
     const uint nfeed= {{ NFEED }};
     const uint nant = {{ NANT }};
 
-    uint npols = nax*nfeed;
-
     const uint tx = threadIdx.x; // First dim is src
     const uint ty = threadIdx.y; // Second dim is ant
 
     const uint src  =  blockIdx.x * blockDim.x + threadIdx.x;  // first thread dim is src on sky
-    const uint ant = blockIdx.y * blockDim.y + threadIdx.y;    // second thread dim is ant
-    const uint pol  = blockIdx.z * blockDim.z + threadIdx.z;   // third thread dim is pol (nax*nfeed)
+    const uint antax = blockIdx.y * blockDim.y + threadIdx.y;    // second thread dim is nax*nant
+    const uint feed  = blockIdx.z * blockDim.z + threadIdx.z;   // third thread dim is nfeed
 
+    uint ant = antax / nax;
+    uint ax = antax % nax;
     uint beam = beam_idx[ant];
 
     {{ CDTYPE }} amp;
     {{ DTYPE }} phs;
-    if (ant >= nant || pol >= npols || src >= nsrc) return;
+    if (ant >= nant || ax >= nax || feed >= nfeed || src >= nsrc) return;
     if (ty == 0)
         sh_buf[tx] = sqrtI[src];
     __syncthreads(); // make sure all memory is loaded before computing
 
     // Create both real/imag parts of the "amplitude"
     uint tau_indx = ant*nsrc + src;
-    uint Aindx = pol*nbeam*nsrc + beam*nsrc + src;
+    uint Aindx = ax*(nfeed*nbeam*nsrc) + feed*nbeam*nsrc + beam*nsrc + src;
     amp.x = A[Aindx].x * sh_buf[tx];
     amp.y = A[Aindx].y * sh_buf[tx];
 
     phs = tau[tau_indx] * freq;
 
-    // printf("pol=%d ant=%d src=%d beam=%d Aidx=%d vidx=%d\n", pol, ant, src, beam, Aindx,pol*nant*nsrc + ant*nsrc + src);
+    uint vidx = feed*(nant*nax*nsrc) + ant*nax*nsrc + ax*nsrc + src;
+    v[vidx] = cuCmul{{ f }}(amp, make_{{ CDTYPE }}(cos(phs), sin(phs)));
 
-    v[pol*nant*nsrc + ant*nsrc + src] = cuCmul{{ f }}(amp, make_{{ CDTYPE }}(cos(phs), sin(phs)));
     __syncthreads(); // make sure everyone used mem before kicking out
 }
 

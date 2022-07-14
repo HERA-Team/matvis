@@ -9,12 +9,12 @@ from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 from pyuvsim.telescope import BeamList
 
-from vis_cpu import DATA_PATH, HAVE_GPU, conversions
+from vis_cpu import DATA_PATH, conversions
 
 nfreq = 1
-ntime = 1  # 20
-nants = 4  # 4
-nsource = 10  # 250
+ntime = 5  # 20
+nants = 3  # 4
+nsource = 15  # 250
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
 
