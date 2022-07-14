@@ -195,7 +195,7 @@ def get_summary_stats(profiler, gpu):
         "beam_interp": ("do_beam_interpolation(",),
         "get_tau": ("# compute tau",),
         "get_antenna_vis": ("meas_eq(",),
-        "get_baseline_vis": ("vis_inner_product(",),
+        "get_baseline_vis": ("cublas_complex_mm",),
     }
 
     ids = vis_gpu_lines if gpu else vis_cpu_lines
