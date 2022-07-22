@@ -5,6 +5,7 @@ import logging
 import numpy as np
 from astropy.constants import c
 from pyuvdata import UVBeam
+from re import I
 from scipy.interpolate import RectBivariateSpline
 from typing import Callable, Optional, Sequence
 
@@ -258,8 +259,8 @@ def vis_cpu(
         tx = tx[above_horizon]
         ty = ty[above_horizon]
         nsrcs_up = len(tx)
+        isqrt = Isqrt[above_horizon]
 
-        tau = np.zeros((nant, nsrcs_up), dtype=real_dtype)
         v = np.zeros((nant, nsrcs_up), dtype=complex_dtype)
 
         A_s = _evaluate_beam_cpu(
@@ -274,14 +275,16 @@ def vis_cpu(
             nsrcs_up,
             complex_dtype,
             spline_opts=beam_spline_opts,
-        )
+        ).transpose(
+            (1, 2, 0, 3)
+        )  # Now (Nfeed, Nbeam, Nax, Nsrc)
 
         logger.debug(
             "CPU: Beam: %s", A_s.flatten() if A_s.size < 40 else A_s.flatten()[:40]
         )
 
         # Calculate delays, where tau = (b * s) / c
-        np.dot(antpos / c.value, crd_top[:, above_horizon], out=tau)
+        tau = np.dot(antpos / c.value, crd_top[:, above_horizon])
 
         logger.debug(
             "CPU: tau: %s %s",
@@ -289,22 +292,9 @@ def vis_cpu(
             tau.shape,
         )
 
-        # Component of complex phase factor for one antenna
-        # (actually, b = (antpos1 - antpos2) * crd_top / c; need dot product
-        # below to build full phase factor for a given baseline)
-        np.exp(1.0j * (ang_freq * tau), out=v)
-
-        # Complex voltages.
-        v *= Isqrt[above_horizon]
-
-        # A_s has shape (Nax, Nfeed, Nbeams, Nsources)
-        # v has shape (Nants, Nsources) and is sqrt(I)*exp(1j tau*nu)
-        # Here we expand A_s to all ants (from its beams), then broadcast to v, so we
-        # end up with shape (Nax, Nfeed, Nants, Nsources)
-        A_s = A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
-        v = A_s[:, beam_idx] * v[np.newaxis, :, np.newaxis, :]  # ^ but Nbeam -> Nant
-        v = v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
-
+        v = get_antenna_vis(
+            A_s, ang_freq, tau, isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
+        )
         logger.debug(
             "CPU: vant: %s %s",
             v.flatten() if v.size < 40 else v.flatten()[:40],
@@ -312,13 +302,7 @@ def vis_cpu(
         )
 
         # Compute visibilities using product of complex voltages (upper triangle).
-        # for i in range(len(antpos)):
         vis[t] = v.conj().dot(v.T)
-        # We want to take an outer product over feeds/antennas, contract over
-        # E-field components, and integrate over the sky.
-        # vis[t, :, :, i : i + 1, i:] = np.einsum(
-        #     "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
-        # )
 
         logger.debug(
             "CPU: vis: %s", vis.flatten() if vis.size < 40 else vis.flatten()[:40]
@@ -328,3 +312,20 @@ def vis_cpu(
 
     # Return visibilities with or without multiple polarization channels
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+
+
+def get_antenna_vis(
+    A_s, ang_freq, tau, Isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
+) -> np.ndarray:
+    """Compute the antenna-wise visibility integrand."""
+    # Component of complex phase factor for one antenna
+    # (actually, b = (antpos1 - antpos2) * crd_top / c; need dot product
+    # below to build full phase factor for a given baseline)
+    v = np.exp(1.0j * (ang_freq * tau)) * Isqrt
+
+    # A_s has shape (Nax, Nfeed, Nbeams, Nsources)
+    # v has shape (Nants, Nsources) and is sqrt(I)*exp(1j tau*nu)
+    # Here we expand A_s to all ants (from its beams), then broadcast to v, so we
+    # end up with shape (Nax, Nfeed, Nants, Nsources)
+    v = A_s[:, beam_idx] * v[np.newaxis, :, np.newaxis, :]  # ^ but Nbeam -> Nant
+    return v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
