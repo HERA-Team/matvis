@@ -320,7 +320,7 @@ def vis_cpu(
         #     "jiln,jkmn->iklm", v[:, :, i : i + 1].conj(), v[:, :, i:], optimize=True
         # )
 
-        logger.info(
+        logger.debug(
             "CPU: vis: %s", vis.flatten() if vis.size < 40 else vis.flatten()[:40]
         )
 
