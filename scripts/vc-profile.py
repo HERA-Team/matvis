@@ -178,6 +178,14 @@ def run(
         pickle.dump(thing_stats, fl)
 
 
+def get_summary_stats_from_pkl(fname: str | Path, gpu: bool):
+    """Get a summary of timings from a pickled line_profiler file."""
+    with open(fname, "rb") as fl:
+        profiler = pickle.load(fl)
+
+    return get_summary_stats(profiler, gpu)
+
+
 def get_summary_stats(profiler, gpu):
     """Convert a line-by-line set of stats into a summary of major components."""
     lstats = profiler.get_stats()
