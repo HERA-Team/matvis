@@ -198,8 +198,8 @@ def get_summary_stats(lstats, gpu):
         "eq2top": ("np.dot(eq2top",),
         "beam_interp": ("_evaluate_beam_cpu(",),
         "get_tau": ("np.dot(antpos",),
-        "get_antenna_vis": ("ang_freq * tau", "v = A_s"),
-        "get_baseline_vis": ("vis[t, :",),
+        "get_antenna_vis": ("ang_freq * tau", "v = v.reshape"),
+        "get_baseline_vis": ("vis[t] = ",),
     }
 
     vis_gpu_lines = {
