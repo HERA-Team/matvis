@@ -1,4 +1,6 @@
 """GPU implementation of the simulator."""
+from __future__ import annotations
+
 import logging
 import numpy as np
 import warnings
@@ -105,9 +107,9 @@ def vis_gpu(
     eq2tops: np.ndarray,
     crd_eq: np.ndarray,
     I_sky: np.ndarray,
-    beam_list: Optional[Sequence[UVBeam | Callable]],
+    beam_list: Sequence[UVBeam | Callable] | None,
     polarized: bool = False,
-    beam_idx: Optional[np.ndarray] = None,
+    beam_idx: np.ndarray | None = None,
     nthreads: int = 1024,
     max_memory: int = 2**29,
     min_chunks: int = 1,

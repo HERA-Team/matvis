@@ -5,6 +5,8 @@ simply with `beam.interp()`. Since this is purely for speed (obviously not for
 convenience), this module makes many assumptions and restrictions on the UVBeam objects
 that it can handle.
 """
+from __future__ import annotations
+
 import numpy as np
 import warnings
 from pyuvdata.uvbeam import UVBeam
@@ -13,7 +15,7 @@ from typing import Tuple
 
 def uvbeam_to_azza_grid(
     uvbeam: UVBeam, naz: int | None = None, dza: float | None = None, **interp_kwargs
-) -> Tuple[np.ndarray, float, float]:
+) -> tuple[np.ndarray, float, float]:
     """Extract raw data from the UVBeam object and prime it for interpolation.
 
     Parameters
