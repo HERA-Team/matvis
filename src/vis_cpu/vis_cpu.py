@@ -1,4 +1,5 @@
 """CPU-based implementation of the visibility simulator."""
+from __future__ import annotations
 
 import logging
 import numpy as np
@@ -151,10 +152,10 @@ def vis_cpu(
     eq2tops: np.ndarray,
     crd_eq: np.ndarray,
     I_sky: np.ndarray,
-    beam_list: Optional[Sequence[UVBeam | Callable]],
+    beam_list: Sequence[UVBeam | Callable] | None,
     precision: int = 1,
     polarized: bool = False,
-    beam_idx: Optional[np.ndarray] = None,
+    beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
 ):
     """
