@@ -36,7 +36,7 @@ VIS_CPU_STEPS = {
     "beam_interp": ("_evaluate_beam_cpu(",),
     "get_tau": ("np.dot(antpos",),
     "get_antenna_vis": ("v = get_antenna_vis(",),
-    "get_baseline_vis": ("vis[t, :",),
+    "get_baseline_vis": ("vis[t] =",),
 }
 
 VIS_GPU_STEPS = {
