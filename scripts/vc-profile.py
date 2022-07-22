@@ -126,8 +126,12 @@ def run(
 
     if gpu:
         profiler.add_function(vis_gpu)
+        kw = {
+            "nthreads": gpu_nthreads,
+        }
     else:
         profiler.add_function(vis_cpu)
+        kw = {}
 
     profiler.runcall(
         simulate_vis,
@@ -143,7 +147,7 @@ def run(
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=gpu,
         beam_idx=beam_idx,
-        nthreads=gpu_nthreads,
+        **kw,
     )
 
     if gpu:
