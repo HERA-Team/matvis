@@ -6,6 +6,8 @@ Running the script will write a summary of the timings of various main blocks of
 It will also save these results in pickle format to a file annotated with the inputs
 (eg. nants, ntimes, nsources, nfreqs).
 """
+from __future__ import annotations
+
 import click
 import inspect
 import linecache
