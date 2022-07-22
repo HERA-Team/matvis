@@ -13,7 +13,7 @@ from pyuvdata.uvbeam import UVBeam
 try:
     from typing import Literal
 except ImportError:
-    from typing_extensions import Literal
+    from typing import Literal
 
 
 def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):

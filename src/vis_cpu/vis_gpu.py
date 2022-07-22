@@ -51,10 +51,10 @@ ONE_OVER_C = 1.0 / speed_of_light.value
 
 templates = Path(__file__).parent / "gpu_src"
 
-with open(templates / "measurement_equation.cu", "r") as fl:
+with open(templates / "measurement_equation.cu") as fl:
     MeasEqTemplate = Template(fl.read())
 
-with open(templates / "beam_interpolation.cu", "r") as fl:
+with open(templates / "beam_interpolation.cu") as fl:
     BeamInterpTemplate = Template(fl.read())
 
 
