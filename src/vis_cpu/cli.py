@@ -35,7 +35,7 @@ VIS_CPU_STEPS = {
     "eq2top": ("np.dot(eq2top",),
     "beam_interp": ("_evaluate_beam_cpu(",),
     "get_tau": ("np.dot(antpos",),
-    "get_antenna_vis": ("v =get_antenna_vis(",),
+    "get_antenna_vis": ("v = get_antenna_vis(",),
     "get_baseline_vis": ("vis[t, :",),
 }
 
