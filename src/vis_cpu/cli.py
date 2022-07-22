@@ -184,7 +184,7 @@ def profile(
 
     line_stats, total_time = get_line_based_stats(profiler.get_stats())
     thing_stats = get_summary_stats(
-        line_stats, total_time, VIS_GPU_STEPS if gpu else VIS_GPU_STEPS
+        line_stats, total_time, VIS_GPU_STEPS if gpu else VIS_CPU_STEPS
     )
 
     print()
