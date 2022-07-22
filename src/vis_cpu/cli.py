@@ -75,7 +75,7 @@ main = click.Group()
 )
 @click.option("-o", "--outdir", default=".")
 @click.option("--double-precision/--single-precision", default=True)
-def run(
+def profile(
     analytic_beam,
     nfreq,
     ntimes,
@@ -376,7 +376,3 @@ def get_standard_sim_params(
         hera_lat,
         beam_idx,
     )
-
-
-if __name__ == "__main__":
-    run()
