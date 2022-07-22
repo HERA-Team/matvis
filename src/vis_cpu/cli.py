@@ -30,6 +30,23 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vis_cpu")
 
 
+# These specify which line(s) in the code correspond to which algorithmic step.
+VIS_CPU_STEPS = {
+    "eq2top": ("np.dot(eq2top",),
+    "beam_interp": ("_evaluate_beam_cpu(",),
+    "get_tau": ("np.dot(antpos",),
+    "get_antenna_vis": ("ang_freq * tau", "v = A_s"),
+    "get_baseline_vis": ("vis[t, :",),
+}
+
+VIS_GPU_STEPS = {
+    "eq2top": ("# compute crdtop",),
+    "beam_interp": ("do_beam_interpolation(",),
+    "get_tau": ("# compute tau",),
+    "get_antenna_vis": ("meas_eq(",),
+    "get_baseline_vis": ("vis_inner_product(",),
+}
+
 profiler = LineProfiler()
 
 main = click.Group()
@@ -158,7 +175,6 @@ def profile(
     outdir = Path(outdir).expanduser().absolute()
 
     str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}"
-    profiler.dump_stats(f"{outdir}/stats-{str_id}.pkl")
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
         profiler.print_stats(stream=fl, stripzeros=True)
@@ -166,7 +182,10 @@ def profile(
     if verbose:
         profiler.print_stats()
 
-    thing_stats = get_summary_stats(profiler.get_stats(), gpu)
+    line_stats, total_time = get_line_based_stats(profiler.get_stats())
+    thing_stats = get_summary_stats(
+        line_stats, total_time, VIS_GPU_STEPS if gpu else VIS_GPU_STEPS
+    )
 
     print()
     print("------------- Summary of timings -------------")
@@ -180,43 +199,21 @@ def profile(
         pickle.dump(thing_stats, fl)
 
 
-def get_summary_stats_from_pkl(fname: str | Path, gpu: bool):
-    """Get a summary of timings from a pickled line_profiler file."""
-    with open(fname, "rb") as fl:
-        stats = pickle.load(fl)
-
-    return get_summary_stats(stats, gpu)
-
-
-def get_summary_stats(lstats, gpu):
-    """Convert a line-by-line set of stats into a summary of major components."""
+def get_line_based_stats(lstats) -> tuple[dict, float]:
+    """Convert the line-number based stats into line-based stats."""
     (fn, lineno, name), timings = sorted(lstats.timings.items())[0]
     d, total_time = get_stats_and_lines(fn, lineno, timings)
+    return d, total_time
 
+
+def get_summary_stats(line_data, total_time, ids):
+    """Convert a line-by-line set of stats into a summary of major components."""
     # specify contents of lines where important things happen
-    vis_cpu_lines = {
-        "eq2top": ("np.dot(eq2top",),
-        "beam_interp": ("_evaluate_beam_cpu(",),
-        "get_tau": ("np.dot(antpos",),
-        "get_antenna_vis": ("ang_freq * tau", "v = v.reshape"),
-        "get_baseline_vis": ("vis[t] = ",),
-    }
-
-    vis_gpu_lines = {
-        "eq2top": ("# compute crdtop",),
-        "beam_interp": ("do_beam_interpolation(",),
-        "get_tau": ("# compute tau",),
-        "get_antenna_vis": ("meas_eq(",),
-        "get_baseline_vis": ("cublas_complex_mm",),
-    }
-
-    ids = vis_gpu_lines if gpu else vis_cpu_lines
-
-    thing_stats = {"total": (1, total_time, total_time / 1, 100, len(d))}
+    thing_stats = {"total": (1, total_time, total_time / 1, 100, len(line_data))}
     for thing, lines in ids.items():
         init_line = None
         assoc_lines = []
-        for dd in d:
+        for dd in line_data:
             if lines[0] in dd:
                 init_line = dd
                 assoc_lines.append(init_line)
@@ -231,15 +228,16 @@ def get_summary_stats(lstats, gpu):
 
         if not assoc_lines:
             raise RuntimeError(
-                f"Could not find any lines for {thing} satisfying '{lines}'. Possible lines: {' | '.join(list(d.keys()))}"
+                f"Could not find any lines for {thing} satisfying '{lines}'. "
+                f"Possible lines: {' | '.join(list(line_data.keys()))}"
             )
 
         # save (hits, time, time/hits, percent, nlines)
         thing_stats[thing] = (
-            d[assoc_lines[0]][0],
-            sum(d[ln][1] for ln in assoc_lines),
-            sum(d[ln][2] for ln in assoc_lines),
-            sum(d[ln][3] for ln in assoc_lines),
+            line_data[assoc_lines[0]][0],
+            sum(line_data[ln][1] for ln in assoc_lines),
+            sum(line_data[ln][2] for ln in assoc_lines),
+            sum(line_data[ln][3] for ln in assoc_lines),
             len(assoc_lines),
         )
 
