@@ -278,31 +278,20 @@ def vis_cpu(
         ).transpose(
             (1, 2, 0, 3)
         )  # Now (Nfeed, Nbeam, Nax, Nsrc)
-
-        logger.debug(
-            f"CPU: Beam: {A_s.flatten() if A_s.size < 40 else A_s.flatten()[:40]}"
-        )
+        log_array("beam", A_s)
 
         # Calculate delays, where tau = (b * s) / c
         tau = np.dot(antpos / c.value, crd_top[:, above_horizon])
-
-        logger.debug(
-            f"CPU: tau: {tau.flatten() if tau.size < 40 else tau.flatten()[:40]} {tau.shape}",
-        )
+        log_array("tau", tau)
 
         v = get_antenna_vis(
             A_s, ang_freq, tau, isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
         )
-        logger.debug(
-            f"CPU: vant: {v.flatten() if v.size < 40 else v.flatten()[:40]} {v.shape}"
-        )
+        log_array("vant", v)
 
         # Compute visibilities using product of complex voltages (upper triangle).
         vis[t] = v.conj().dot(v.T)
-
-        logger.debug(
-            f"CPU: vis: {vis.flatten() if vis.size < 40 else vis.flatten()[:40]}"
-        )
+        log_array("vis", vis[t])
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
@@ -325,3 +314,11 @@ def get_antenna_vis(
     # end up with shape (Nax, Nfeed, Nants, Nsources)
     v = A_s[:, beam_idx] * v[np.newaxis, :, np.newaxis, :]  # ^ but Nbeam -> Nant
     return v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
+
+
+def log_array(name, x):
+    """Debug logging of the value of an array."""
+    if logger.getEffectiveLevel() <= logging.DEBUG:
+        logger.debug(
+            f"CPU: {name}: {x.flatten() if x.size < 40 else x.flatten()[:40]} {x.shape}"
+        )
