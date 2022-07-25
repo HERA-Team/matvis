@@ -280,32 +280,28 @@ def vis_cpu(
         )  # Now (Nfeed, Nbeam, Nax, Nsrc)
 
         logger.debug(
-            "CPU: Beam: %s", A_s.flatten() if A_s.size < 40 else A_s.flatten()[:40]
+            f"CPU: Beam: {A_s.flatten() if A_s.size < 40 else A_s.flatten()[:40]}"
         )
 
         # Calculate delays, where tau = (b * s) / c
         tau = np.dot(antpos / c.value, crd_top[:, above_horizon])
 
         logger.debug(
-            "CPU: tau: %s %s",
-            tau.flatten() if tau.size < 40 else tau.flatten()[:40],
-            tau.shape,
+            f"CPU: tau: {tau.flatten() if tau.size < 40 else tau.flatten()[:40]} {tau.shape}",
         )
 
         v = get_antenna_vis(
             A_s, ang_freq, tau, isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
         )
         logger.debug(
-            "CPU: vant: %s %s",
-            v.flatten() if v.size < 40 else v.flatten()[:40],
-            v.shape,
+            f"CPU: vant: {v.flatten() if v.size < 40 else v.flatten()[:40]} {v.shape}"
         )
 
         # Compute visibilities using product of complex voltages (upper triangle).
         vis[t] = v.conj().dot(v.T)
 
         logger.debug(
-            "CPU: vis: %s", vis.flatten() if vis.size < 40 else vis.flatten()[:40]
+            f"CPU: vis: {vis.flatten() if vis.size < 40 else vis.flatten()[:40]}"
         )
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
