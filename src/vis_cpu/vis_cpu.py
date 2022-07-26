@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+import warnings
 from astropy.constants import c
 from pyuvdata import UVBeam
 from re import I
@@ -195,6 +196,7 @@ def vis_cpu(
         ``beam_list`` should be provided. If NBEAMS != NANT, then `beam_idx` must be
         provided also. Note that the projected coordinates corresponding to the bm_cube
         MUST be equivalent to those returned by :func:`~conversions.bm_pix_to_lm`.
+        Note that using bm_cube (in the rectangular l,m grid) is NOT A GOOD IDEA.
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
         objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
