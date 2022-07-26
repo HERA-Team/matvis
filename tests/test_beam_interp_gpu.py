@@ -1,6 +1,8 @@
 """Test the GPU beam interpolation routine."""
 import pytest
 
+pytest.importorskip("pycuda")
+
 import numpy as np
 from pathlib import Path
 from pyuvdata import UVBeam

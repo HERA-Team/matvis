@@ -1,6 +1,8 @@
 """Compare vis_cpu with pyuvsim visibilities."""
 import pytest
 
+pytest.importorskip("pycuda")
+
 import numpy as np
 
 from vis_cpu import simulate_vis
