@@ -12,7 +12,7 @@ from . import get_standard_sim_params, nants
 
 @pytest.mark.parametrize("polarized", (True, False))
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
-# @pytest.mark.parametrize("precision", (1, 2))
+@pytest.mark.parametrize("precision", (2,))
 def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
     """Compare vis_cpu and pyuvsim simulated visibilities."""
     (
