@@ -1,4 +1,4 @@
-name: Tests
+name: GPU Tests
 
 # Test on all pushes, except when the push is literally just a tag (because we
 # tag automatically via CI, and therefore there's no extra code in that push).
@@ -15,8 +15,8 @@ jobs:
   tests:
     env:
       ENV_NAME: tests
-      PYTHON: ${{ matrix.python-version }}
-      OS: ${{ matrix.os }}
+      PYTHON: 3.10
+      OS: Ubuntu
     name: Testing
     runs-on: self-hosted
     defaults:
@@ -36,14 +36,14 @@ jobs:
         with:
           path: ~/conda_pkgs_dir
           key:
-            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ matrix.python-version }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
+            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ env.PYTHON }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
 
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v2.1.1
         with:
           # auto-update-conda: true
           miniconda-version: "latest"
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON }}
           environment-file: ci/test-env.yml
           activate-environment: tests
           channels: conda-forge,defaults
