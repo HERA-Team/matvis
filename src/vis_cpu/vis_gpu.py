@@ -143,10 +143,6 @@ def vis_gpu(
         min(nthreads, nfeed),
     )
     prod_block = (max(1, nthreads // nant), min(nthreads, nant), 1)
-    # prod_grid = (
-    #     int(np.ceil(nant * nfeed / float(prod_block[0]))),
-    #     int(np.ceil(nant * nfeed / float(prod_block[1]))),
-    # )
 
     logger.info(
         f"Using {np.prod(meas_block)} threads in total for measurement equation."
