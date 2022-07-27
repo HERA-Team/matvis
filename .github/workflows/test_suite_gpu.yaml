@@ -15,9 +15,9 @@ jobs:
   tests:
     env:
       ENV_NAME: tests
-      PYTHON: 3.10
+      PYTHON: "3.10"
       OS: Ubuntu
-    name: Testing
+    name: Self-Hosted Tests (GPU)
     runs-on: self-hosted
     defaults:
      run:
