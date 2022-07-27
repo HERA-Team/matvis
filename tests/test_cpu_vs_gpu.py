@@ -12,7 +12,8 @@ from . import get_standard_sim_params, nants
 
 @pytest.mark.parametrize("polarized", (True, False))
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
-def test_cpu_vs_gpu(polarized, use_analytic_beam):
+@pytest.mark.parametrize("precision", (1, 2))
+def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
     """Compare vis_cpu and pyuvsim simulated visibilities."""
     (
         sky_model,
@@ -42,7 +43,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam):
         lsts=lsts,
         beams=cpu_beams,
         polarized=polarized,
-        precision=2,
+        precision=precision,
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=False,
         beam_spline_opts={"kx": 1, "ky": 1},
@@ -60,7 +61,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam):
         lsts=lsts,
         beams=cpu_beams,
         polarized=polarized,
-        precision=2,
+        precision=precision,
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=True,
     )
