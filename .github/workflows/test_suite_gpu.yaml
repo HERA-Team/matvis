@@ -24,6 +24,9 @@ jobs:
        # Adding -l {0} ensures conda can be found properly in each step
        shell: bash -l {0}
     steps:
+      - name: Add Home to PATH
+        run: echo "$HOME/bin" >> $GITHUB_PATH
+
       - uses: actions/checkout@main
         with:
           fetch-depth: 0
