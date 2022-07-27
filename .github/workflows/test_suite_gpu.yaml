@@ -18,7 +18,7 @@ jobs:
       PYTHON: "3.10"
       OS: Ubuntu
     name: Self-Hosted Tests (GPU)
-    runs-on: self-hosted
+    runs-on: [self-hosted, gpu]
     defaults:
      run:
        # Adding -l {0} ensures conda can be found properly in each step
