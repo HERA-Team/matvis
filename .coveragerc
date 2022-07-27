@@ -2,7 +2,7 @@
 [run]
 branch = True
 source = vis_cpu
-omit = */vis_gpu.py
+omit = */cli.py
 
 [paths]
 source =

@@ -73,3 +73,10 @@ jobs:
       - name: Run Tests
         run: |
           python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25
+
+      - uses: codecov/codecov-action@v2
+        if: success()
+        with:
+          fail_ci_if_error: true
+          verbose: true
+          file: ./coverage.xml
