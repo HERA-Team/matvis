@@ -79,10 +79,10 @@ def simulate_vis(
         Complex array of shape (NFREQS, NTIMES, NFEED, NFEED, NANTS, NANTS)
         if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
     """
-    if use_gpu and not HAVE_GPU:
-        raise ValueError("You cannot use GPU without installing GPU-dependencies!")
-
     if use_gpu:
+        if not HAVE_GPU:
+            raise ImportError("You cannot use GPU without installing GPU-dependencies!")
+
         from pycuda import driver
 
         device = driver.Device(0)

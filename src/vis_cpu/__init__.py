@@ -25,8 +25,6 @@ from .vis_cpu import vis_cpu
 
 if HAVE_GPU:
     from .vis_gpu import vis_gpu
-else:
-    vis_gpu = "You need to install pycuda to use the GPU version of vis_cpu."
 
 from .wrapper import simulate_vis
 

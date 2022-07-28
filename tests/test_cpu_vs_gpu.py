@@ -47,6 +47,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=False,
         beam_spline_opts={"kx": 1, "ky": 1},
+        beam_idx=np.zeros(len(ants), dtype=int),
     )
 
     # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
         precision=precision,
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=True,
+        beam_idx=np.zeros(len(ants), dtype=int),
     )
 
     # ---------------------------------------------------------------------------

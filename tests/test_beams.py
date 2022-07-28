@@ -10,6 +10,7 @@ from pyuvsim import AnalyticBeam
 from typing import List
 
 from vis_cpu import conversions, simulate_vis, vis_cpu
+from vis_cpu._uvbeam_to_raw import uvbeam_to_azza_grid
 
 np.random.seed(0)
 NTIMES = 3
@@ -371,3 +372,39 @@ def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops)
             precision=2,
             polarized=False,
         )
+
+
+def test_wrong_coord_system(uvbeam):
+    """Test passing wrong beams/parameters to uvbeam_to_azza_grid."""
+    beam = uvbeam.copy()
+    beam.pixel_coordinate_system = "healpix"
+
+    with pytest.raises(ValueError, match="pixel_coordinate_system must be"):
+        uvbeam_to_azza_grid(beam)
+
+    with pytest.raises(ValueError, match="Can only handle one frequency"):
+        uvbeam_to_azza_grid(uvbeam)
+
+    newfreq = np.array([beam.freq_array[0, 0]])
+    print(newfreq.shape)
+    newuv = uvbeam.interp(
+        freq_array=newfreq,
+        az_array=np.array([0, 0.5, 1.2]),
+        za_array=np.array([0, 0.2, 0.4]),
+        az_za_grid=True,
+        new_object=True,
+    )
+
+    with pytest.raises(ValueError, match="Input UVBeam is not regular"):
+        uvbeam_to_azza_grid(newuv)
+
+    newuv = uvbeam.interp(
+        freq_array=newfreq,
+        az_array=np.array([0, 0.6, 1.2]),
+        za_array=np.array([0, 0.2, 0.4]),
+        az_za_grid=True,
+        new_object=True,
+    )
+
+    with pytest.raises(ValueError, match="The beam data does not cover the full sky"):
+        uvbeam_to_azza_grid(newuv)
