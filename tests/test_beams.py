@@ -11,6 +11,7 @@ from typing import List
 
 from vis_cpu import conversions, simulate_vis, vis_cpu
 from vis_cpu._uvbeam_to_raw import uvbeam_to_azza_grid
+from vis_cpu.vis_cpu import _evaluate_beam_cpu
 
 np.random.seed(0)
 NTIMES = 3
@@ -408,3 +409,30 @@ def test_wrong_coord_system(uvbeam):
 
     with pytest.raises(ValueError, match="The beam data does not cover the full sky"):
         uvbeam_to_azza_grid(newuv)
+
+
+def test_nan_in_cpu_beam(uvbeam):
+    """Test nan in cpu beam."""
+    beam = uvbeam.copy()
+    beam.data_array[1] = np.nan
+
+    tx = np.linspace(-1, 1, 100)
+    ty = tx
+
+    freq = np.array([beam.freq_array[0, 0]])
+
+    with pytest.raises(
+        ValueError, match="Beam interpolation resulted in an invalid value"
+    ):
+        _evaluate_beam_cpu(
+            [beam],
+            tx,
+            ty,
+            polarized=True,
+            nbeam=1,
+            nax=2,
+            nfeed=2,
+            freq=freq,
+            nsrcs_up=100,
+            complex_dtype=complex,
+        )
