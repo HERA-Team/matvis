@@ -317,9 +317,9 @@ def vis_cpu(
             polarized,
             freq,
             spline_opts=beam_spline_opts,
-        ).transpose(
-            (1, 2, 0, 3)
-        )  # Now (Nfeed, Nbeam, Nax, Nsrc)
+        )
+        A_s = A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
+
         log_array("beam", A_s)
 
         # Calculate delays, where tau = (b * s) / c
@@ -350,7 +350,7 @@ def get_antenna_vis(
     # below to build full phase factor for a given baseline)
     v = np.exp(1.0j * (ang_freq * tau)) * Isqrt
 
-    # A_s has shape (Nax, Nfeed, Nbeams, Nsources)
+    # A_s has shape (Nfeed, Nbeams, Nax, Nsources)
     # v has shape (Nants, Nsources) and is sqrt(I)*exp(1j tau*nu)
     # Here we expand A_s to all ants (from its beams), then broadcast to v, so we
     # end up with shape (Nax, Nfeed, Nants, Nsources)

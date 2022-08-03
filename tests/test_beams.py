@@ -421,18 +421,15 @@ def test_nan_in_cpu_beam(uvbeam):
 
     freq = np.array([beam.freq_array[0, 0]])
 
+    A_s = np.zeros((2, 2, 1, 100))
     with pytest.raises(
         ValueError, match="Beam interpolation resulted in an invalid value"
     ):
         _evaluate_beam_cpu(
+            A_s,
             [beam],
             tx,
             ty,
             polarized=True,
-            nbeam=1,
-            nax=2,
-            nfeed=2,
             freq=freq,
-            nsrcs_up=100,
-            complex_dtype=complex,
         )

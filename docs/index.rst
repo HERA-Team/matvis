@@ -9,6 +9,7 @@ Contents
    License <license>
    Authors <authors>
    Changelog <changelog>
+   Understanding The Algorithm <understanding_the_algorithm>
    Tutorials <tutorials>
    Module Reference <api>
 
