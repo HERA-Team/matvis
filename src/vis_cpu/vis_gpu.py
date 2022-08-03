@@ -380,9 +380,12 @@ def vis_gpu(
                 )
                 events[cc]["tau"].record(stream)
 
-                ## interpolate bm_tex at specified topocentric coords, store interpolation in A
-                ## threads are parallelized across pixel axis
-                ## Need to do this in polar coordinates or BAD THINGS HAPPEN
+                # Need to do this in polar coordinates, NOT (l,m), at least for
+                # polarized beams. This is because at zenith, the Efield components are
+                # discontinuous (in power they are continuous). When interpolating the
+                # E-field components, you need to treat the zenith point differently
+                # depending on which "side" of zenith you're on. This is doable in polar
+                # coordinates, but not in Cartesian coordinates.
                 A_gpu = do_beam_interpolation(
                     freq,
                     beam_list,
@@ -488,14 +491,6 @@ def vis_gpu(
 
                     logger.debug("GPU: vant orig: %s", v_gpu.get())
                     logger.debug("GPU: vis orig: %s", vis_gpus[cc].get())
-                # vis_inner_product(
-                #     v_gpu.gpudata,
-                #     np.uint(nsrcs_up),
-                #     vis_gpus[cc].gpudata,
-                #     grid=prod_grid,
-                #     block=prod_block,
-                #     stream=stream,
-                # )
 
                 events[cc]["vis"].record(stream)
 
@@ -558,18 +553,15 @@ def do_beam_interpolation(
         events[cc]["interpolation"].record(stream)
     else:
         A_gpu = gpuarray.empty(shape=(nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+        A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
 
-        A_s = _evaluate_beam_cpu(
+        _evaluate_beam_cpu(
+            A_s,
             beam_list,
             tx,
             ty,
             polarized,
-            nbeam,
-            nax,
-            nfeed,
             freq,
-            np.uint(nsrcs_up),
-            complex_dtype,
         )
         A_gpu.set(A_s)
     return A_gpu

@@ -26,8 +26,35 @@ except NameError:
 logger = logging.getLogger(__name__)
 
 
-def _wrangle_beams(beam_idx, beam_list, polarized, nant, freq, interp=True):
-    """Perform all the operations and checks on the beams."""
+def _wrangle_beams(
+    beam_idx: np.ndarray,
+    beam_list: list[UVBeam],
+    polarized: bool,
+    nant: int,
+    freq: float,
+    interp: bool = True,
+) -> tuple[list[UVBeam], int, np.ndarray]:
+    """Perform all the operations and checks on the input beams.
+
+    Checks that the beam indices match the number of antennas, pre-interpolates to the
+    given frequency, and checks that the beam type is appropriate for the given
+    polarization
+
+    Parameters
+    ----------
+    beam_idx
+        Index of the beam to use for each antenna.
+    beam_list
+        List of unique beams.
+    polarized
+        Whether to use beam polarization
+    nant
+        Number of antennas
+    freq
+        Frequency to interpolate beam to.
+    interp
+        Whether to interpolate the beam to the given frequency.
+    """
     # Get the number of unique beams
     nbeam = len(beam_list)
 
@@ -74,20 +101,35 @@ def _wrangle_beams(beam_idx, beam_list, polarized, nant, freq, interp=True):
 
 
 def _evaluate_beam_cpu(
-    beam_list,
-    tx,
-    ty,
-    polarized,
-    nbeam,
-    nax,
-    nfeed,
-    freq,
-    nsrcs_up,
-    complex_dtype,
-    spline_opts=None,
+    A_s: np.ndarray,
+    beam_list: list[UVBeam],
+    tx: np.ndarray,
+    ty: np.ndarray,
+    polarized: bool,
+    freq: float,
+    spline_opts: dict | None = None,
 ):
-    A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+    """Evaluate the beam on the CPU.
 
+    This function will either interpolate the beam to the given coordinates tx, ty,
+    or evaluate the beam there if it is an analytic beam.
+
+    Parameters
+    ----------
+    A_s
+        Array of shape (nax, nfeed, nbeam, nsrcs_up) that will be filled with beam
+        values.
+    beam_list
+        List of unique beams.
+    tx, ty
+        Coordinates to evaluate the beam at, in sin-projection.
+    polarized
+        Whether to use beam polarization.
+    freq
+        Frequency to interpolate beam to.
+    spline_opts
+        Extra options to pass to the RectBivariateSpline class when interpolating.
+    """
     # Primary beam pattern using direct interpolation of UVBeam object
     az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
     for i, bm in enumerate(beam_list):
@@ -265,17 +307,15 @@ def vis_cpu(
 
         v = np.zeros((nant, nsrcs_up), dtype=complex_dtype)
 
-        A_s = _evaluate_beam_cpu(
+        A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+
+        _evaluate_beam_cpu(
+            A_s,
             beam_list,
             tx,
             ty,
             polarized,
-            nbeam,
-            nax,
-            nfeed,
             freq,
-            nsrcs_up,
-            complex_dtype,
             spline_opts=beam_spline_opts,
         ).transpose(
             (1, 2, 0, 3)
