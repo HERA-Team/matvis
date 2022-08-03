@@ -24,8 +24,13 @@ __shared__ {{ DTYPE }} sh_buf[{{ BLOCK_PX }}*5];
 
 // Compute A*I*exp(ij*tau*freq) for all antennas, storing output in v
 __global__ void MeasEq(
-    {{ CDTYPE }} *A, {{ DTYPE }} *sqrtI, {{ DTYPE }} *tau,
-    {{ DTYPE }} freq, uint nsrc, uint *beam_idx, {{ CDTYPE }} *v
+    {{ CDTYPE }} *A,
+    {{ DTYPE }} *sqrtI,
+    {{ DTYPE }} *tau,
+    double freq,
+    uint nsrc,
+    uint *beam_idx,
+    {{ CDTYPE }} *v
 ){
     const uint nbeam = {{ NBEAM }};
     const uint nax  = {{ NAX }};
@@ -36,8 +41,8 @@ __global__ void MeasEq(
     const uint ty = threadIdx.y; // Second dim is ant
 
     const uint src  =  blockIdx.x * blockDim.x + threadIdx.x;  // first thread dim is src on sky
-    const uint antax = blockIdx.y * blockDim.y + threadIdx.y;    // second thread dim is nax*nant
-    const uint feed  = blockIdx.z * blockDim.z + threadIdx.z;   // third thread dim is nfeed
+    const uint antax = blockIdx.y * blockDim.y + threadIdx.y;  // second thread dim is nax*nant
+    const uint feed  = blockIdx.z * blockDim.z + threadIdx.z;  // third thread dim is nfeed
 
     uint ant = antax / nax;
     uint ax = antax % nax;

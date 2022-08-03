@@ -142,13 +142,11 @@ def vis_gpu(
         min(nthreads, nant * nax),
         min(nthreads, nfeed),
     )
-    prod_block = (max(1, nthreads // nant), min(nthreads, nant), 1)
 
     logger.info(
         f"Using {np.prod(meas_block)} threads in total for measurement equation."
     )
     logger.info(f"Using a shared-memory buffer of size {5*meas_block[0]}.")
-    logger.info(f"Using {np.prod(prod_block)} threads in total for inner product.")
 
     use_uvbeam = isinstance(beam_list[0], UVBeam)
     if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
@@ -190,6 +188,7 @@ def vis_gpu(
 
     # Setup the GPU code and arrays
     meas_eq_code = MeasEqTemplate.render(**cuda_params)
+
     if use_uvbeam:
         beam_interp_code = BeamInterpTemplate.render(
             **{
@@ -402,14 +401,13 @@ def vis_gpu(
                     A_gpu,
                     Isqrt_lim_gpu,
                     tau_gpu,
-                    real_dtype(ang_freq),
+                    ang_freq,
                     np.uint(nsrcs_up),
                     beam_idx,
                     v_gpu,
                     grid=grid,
                     block=meas_block,
-                    # stream=stream,
-                    # time_kernel=False,
+                    stream=stream,
                 )
                 events[cc]["meas_eq"].record(stream)
 

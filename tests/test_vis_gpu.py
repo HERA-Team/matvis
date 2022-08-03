@@ -89,6 +89,7 @@ def test_mixed_beams(uvbeam):
 
 def test_single_precision():
     """Test that using single precision on gpu works."""
+    polarized = True
     (
         sky_model,
         ants,
@@ -103,7 +104,7 @@ def test_single_precision():
         hera_lat,
         uvdata,
     ) = get_standard_sim_params(
-        polarized=True, use_analytic_beam=False, nfreq=1, nsource=2, ntime=1
+        polarized=polarized, use_analytic_beam=False, nfreq=1, nsource=2, ntime=1
     )
 
     vis_2 = simulate_vis(
@@ -114,7 +115,7 @@ def test_single_precision():
         freqs=freqs,
         lsts=lsts,
         beams=cpu_beams,
-        polarized=True,
+        polarized=polarized,
         precision=2,
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=True,
@@ -128,12 +129,10 @@ def test_single_precision():
         freqs=freqs,
         lsts=lsts,
         beams=cpu_beams,
-        polarized=True,
+        polarized=polarized,
         precision=1,
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=True,
-        min_chunks=2,
-        nthreads=512,
     )
 
     np.testing.assert_allclose(vis_1, vis_2, atol=1e-5, rtol=0)
