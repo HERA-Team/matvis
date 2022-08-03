@@ -72,11 +72,3 @@ jobs:
       - name: Run Tests
         run: |
           python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25
-
-      - name: Upload Coverage
-        uses: codecov/codecov-action@v1.5.2
-        if: matrix.os == 'ubuntu-latest' && success()
-        with:
-          file: ./coverage.xml # optional
-          fail_ci_if_error: true # optional (default = false)
-          verbose: true # optional (default = false)

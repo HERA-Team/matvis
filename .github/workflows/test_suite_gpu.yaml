@@ -1,4 +1,4 @@
-name: Tests
+name: GPU Tests
 
 # Test on all pushes, except when the push is literally just a tag (because we
 # tag automatically via CI, and therefore there's no extra code in that push).
@@ -15,18 +15,24 @@ jobs:
   tests:
     env:
       ENV_NAME: tests
-      PYTHON: ${{ matrix.python-version }}
-      OS: ${{ matrix.os }}
-    name: Testing
-    runs-on: self-hosted
+      PYTHON: "3.10"
+      OS: Ubuntu
+    name: Self-Hosted Tests (GPU)
+    runs-on: [self-hosted, gpu]
     defaults:
      run:
        # Adding -l {0} ensures conda can be found properly in each step
        shell: bash -l {0}
     steps:
+      - name: Add Home to PATH
+        run: |
+          echo "$HOME/bin" >> $GITHUB_PATH
+          echo "/usr/local/cuda/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+
       - uses: actions/checkout@main
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Cache conda
         uses: actions/cache@v2
@@ -36,14 +42,14 @@ jobs:
         with:
           path: ~/conda_pkgs_dir
           key:
-            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ matrix.python-version }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
+            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ env.PYTHON }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
 
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v2.1.1
         with:
           # auto-update-conda: true
           miniconda-version: "latest"
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON }}
           environment-file: ci/test-env.yml
           activate-environment: tests
           channels: conda-forge,defaults
@@ -66,4 +72,11 @@ jobs:
 
       - name: Run Tests
         run: |
-          python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25
+          python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=DEBUG
+
+      - uses: codecov/codecov-action@v2
+        if: success()
+        with:
+          fail_ci_if_error: true
+          verbose: true
+          file: ./coverage.xml

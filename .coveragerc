@@ -2,7 +2,7 @@
 [run]
 branch = True
 source = vis_cpu
-omit = */vis_gpu.py
+omit = */cli.py
 
 [paths]
 source =
@@ -22,6 +22,8 @@ exclude_lines =
     # Don't complain if tests don't hit defensive assertion code:
     raise AssertionError
     raise NotImplementedError
+    except ImportError
+    raise ImportError
 
     # Don't complain if non-runnable code isn't run:
     if 0:

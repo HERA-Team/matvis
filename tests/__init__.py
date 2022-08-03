@@ -18,7 +18,14 @@ nsource = 15  # 250
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
 
-def get_standard_sim_params(use_analytic_beam: bool, polarized: bool):
+def get_standard_sim_params(
+    use_analytic_beam: bool,
+    polarized: bool,
+    nants=nants,
+    nfreq=nfreq,
+    ntime=ntime,
+    nsource=nsource,
+):
     """Create some standard random simulation parameters for use in tests."""
     hera_lat = -30.7215
     hera_lon = 21.4283

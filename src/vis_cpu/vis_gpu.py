@@ -59,37 +59,6 @@ with open(templates / "measurement_equation.cu") as fl:
 with open(templates / "beam_interpolation.cu") as fl:
     BeamInterpTemplate = Template(fl.read())
 
-
-def _numpy3d_to_array(np_array):
-    """Copy a 3D (d,h,w) numpy array into a 3D pycuda array.
-
-    Array can be used to set a texture.  (For some reason, gpuarrays can't
-    be used to do that directly).  A transpose happens implicitly; the CUDA
-    array has dim (w,h,d).
-    """
-    d, h, w = np_array.shape
-    descr = driver.ArrayDescriptor3D()
-    descr.width = w
-    descr.height = h
-    descr.depth = d
-    if np_array.dtype == np.float64:
-        descr.format = driver.array_format.SIGNED_INT32
-        descr.num_channels = 2
-    else:
-        descr.format = driver.dtype_to_array_format(np_array.dtype)
-        descr.num_channels = 1
-    descr.flags = 0
-    device_array = driver.Array(descr)
-    copy = driver.Memcpy3D()
-    copy.set_src_host(np_array)
-    copy.set_dst_array(device_array)
-    copy.width_in_bytes = copy.src_pitch = np_array.strides[1]
-    copy.src_height = copy.height = h
-    copy.depth = d
-    copy()
-    return device_array
-
-
 TYPE_MAP = {
     np.float32: "float",
     np.float64: "double",
@@ -174,10 +143,6 @@ def vis_gpu(
         min(nthreads, nfeed),
     )
     prod_block = (max(1, nthreads // nant), min(nthreads, nant), 1)
-    # prod_grid = (
-    #     int(np.ceil(nant * nfeed / float(prod_block[0]))),
-    #     int(np.ceil(nant * nfeed / float(prod_block[1]))),
-    # )
 
     logger.info(
         f"Using {np.prod(meas_block)} threads in total for measurement equation."
