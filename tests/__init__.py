@@ -25,6 +25,7 @@ def get_standard_sim_params(
     nfreq=nfreq,
     ntime=ntime,
     nsource=nsource,
+    first_source_antizenith=False,
 ):
     """Create some standard random simulation parameters for use in tests."""
     hera_lat = -30.7215
@@ -99,7 +100,12 @@ def get_standard_sim_params(
 
     # One fixed source plus random other sources
     sources = [
-        [125.7, -30.72, 2, 0],  # Fix a single source near zenith
+        [
+            300 if first_source_antizenith else 125.7,
+            -30.72,
+            2,
+            0,
+        ],  # Fix a single source near zenith
     ]
     if nsource > 1:  # Add random other sources
         ra = np.random.uniform(low=0.0, high=360.0, size=nsource - 1)

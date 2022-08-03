@@ -49,6 +49,94 @@ def test_gpu_with_spline_opts():
         )
 
 
+def test_antizenith():
+    """Compare vis_cpu and pyuvsim simulated visibilities."""
+    (
+        sky_model,
+        ants,
+        flux,
+        ra,
+        dec,
+        freqs,
+        lsts,
+        cpu_beams,
+        uvsim_beams,
+        beam_dict,
+        hera_lat,
+        uvdata,
+    ) = get_standard_sim_params(True, False, nsource=1, first_source_antizenith=True)
+
+    vis = simulate_vis(
+        ants=ants,
+        fluxes=flux,
+        ra=ra,
+        dec=dec,
+        freqs=freqs,
+        lsts=lsts,
+        beams=cpu_beams,
+        polarized=False,
+        precision=2,
+        latitude=hera_lat * np.pi / 180.0,
+        use_gpu=True,
+        beam_spline_opts={"kx": 1, "ky": 1},
+        beam_idx=np.zeros(len(ants), dtype=int),
+    )
+
+    assert np.all(vis == 0)
+
+
+def test_multibeam():
+    """Ensure that running with multiple beams of the same kind gives the same answer as a single beam."""
+    (
+        sky_model,
+        ants,
+        flux,
+        ra,
+        dec,
+        freqs,
+        lsts,
+        cpu_beams,
+        uvsim_beams,
+        beam_dict,
+        hera_lat,
+        uvdata,
+    ) = get_standard_sim_params(True, False, nsource=1, first_source_antizenith=True)
+
+    vis1 = simulate_vis(
+        ants=ants,
+        fluxes=flux,
+        ra=ra,
+        dec=dec,
+        freqs=freqs,
+        lsts=lsts,
+        beams=cpu_beams * len(ants),
+        polarized=False,
+        precision=2,
+        latitude=hera_lat * np.pi / 180.0,
+        use_gpu=True,
+        beam_spline_opts={"kx": 1, "ky": 1},
+        beam_idx=np.zeros(len(ants), dtype=int),
+    )
+
+    vis2 = simulate_vis(
+        ants=ants,
+        fluxes=flux,
+        ra=ra,
+        dec=dec,
+        freqs=freqs,
+        lsts=lsts,
+        beams=cpu_beams,
+        polarized=False,
+        precision=2,
+        latitude=hera_lat * np.pi / 180.0,
+        use_gpu=True,
+        beam_spline_opts={"kx": 1, "ky": 1},
+        beam_idx=np.zeros(len(ants), dtype=int),
+    )
+
+    assert np.all(vis1 == vis2)
+
+
 def test_mixed_beams(uvbeam):
     """Test that error is raised when using a mixed beam list."""
     (

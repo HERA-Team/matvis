@@ -5,6 +5,7 @@ pytest.importorskip("pycuda")
 
 import numpy as np
 from pathlib import Path
+from pycuda.driver import Stream
 from pyuvdata import UVBeam
 
 from vis_cpu import DATA_PATH
@@ -53,7 +54,12 @@ def test_non_identity_linear():
     daz = az[1] - az[0]
 
     new_beam = gpu_beam_interpolation(
-        dec_beam, daz * 2, dza * 2, AZ.flatten(), ZA.flatten()
+        dec_beam,
+        daz * 2,
+        dza * 2,
+        AZ.flatten(),
+        ZA.flatten(),
+        stream=Stream(),
     )
 
     for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[0, 0])):
@@ -177,3 +183,26 @@ def test_non_identity_beamfile(polarized):
                 np.testing.assert_allclose(
                     new_beam_uvb[iax, 0, ifd, 0].imag, bm.imag, rtol=1e-6
                 )
+
+
+def test_wrong_beamtype():
+    """Tests that a meaningful error is raised for a dumb beamtype."""
+    # Create a small and simple beam with Nax=1, Nfeed=1
+    za = np.linspace(0, 1, 5)
+    az = np.linspace(0, 1, 5)
+
+    AZ, ZA = np.meshgrid(az, za, indexing="xy")
+    beam = np.array([1 - ZA])
+    beam = beam[:, np.newaxis, np.newaxis]  # give it nax=1, nfeed=1
+
+    dec_beam = beam[:, :, :, ::2][..., ::2]
+
+    dza = za[1] - za[0]
+    daz = az[1] - az[0]
+
+    with pytest.raises(
+        ValueError, match="as the dtype for beam, which is unrecognized"
+    ):
+        gpu_beam_interpolation(
+            dec_beam.astype(int), daz * 2, dza * 2, AZ.flatten(), ZA.flatten()
+        )
