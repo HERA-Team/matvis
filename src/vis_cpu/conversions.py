@@ -10,11 +10,7 @@ from astropy.time import Time
 from copy import deepcopy
 from numpy import typing as npt
 from pyuvdata.uvbeam import UVBeam
-
-try:
-    from typing import Literal
-except ImportError:
-    from typing import Literal
+from typing import Literal
 
 
 def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
