@@ -106,20 +106,6 @@ def test_single_precision():
         polarized=True, use_analytic_beam=False, nfreq=1, nsource=2, ntime=1
     )
 
-    vis_1 = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams,
-        polarized=True,
-        precision=1,
-        latitude=hera_lat * np.pi / 180.0,
-        use_gpu=True,
-    )
-
     vis_2 = simulate_vis(
         ants=ants,
         fluxes=flux,
@@ -132,6 +118,22 @@ def test_single_precision():
         precision=2,
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=True,
+    )
+
+    vis_1 = simulate_vis(
+        ants=ants,
+        fluxes=flux,
+        ra=ra,
+        dec=dec,
+        freqs=freqs,
+        lsts=lsts,
+        beams=cpu_beams,
+        polarized=True,
+        precision=1,
+        latitude=hera_lat * np.pi / 180.0,
+        use_gpu=True,
+        min_chunks=2,
+        nthreads=512,
     )
 
     np.testing.assert_allclose(vis_1, vis_2, atol=1e-5, rtol=0)

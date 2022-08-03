@@ -408,7 +408,8 @@ def vis_gpu(
                     v_gpu,
                     grid=grid,
                     block=meas_block,
-                    stream=stream,
+                    # stream=stream,
+                    # time_kernel=False,
                 )
                 events[cc]["meas_eq"].record(stream)
 
