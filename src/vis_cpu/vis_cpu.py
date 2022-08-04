@@ -32,7 +32,6 @@ def _wrangle_beams(
     polarized: bool,
     nant: int,
     freq: float,
-    interp: bool = True,
 ) -> tuple[list[UVBeam], int, np.ndarray]:
     """Perform all the operations and checks on the input beams.
 
@@ -52,8 +51,6 @@ def _wrangle_beams(
         Number of antennas
     freq
         Frequency to interpolate beam to.
-    interp
-        Whether to interpolate the beam to the given frequency.
     """
     # Get the number of unique beams
     nbeam = len(beam_list)
@@ -74,14 +71,13 @@ def _wrangle_beams(
             0 <= i < nbeam for i in beam_idx
         ), "beam_idx contains indices greater than the number of beams"
 
-    if interp:
-        # make sure we interpolate to the right frequency first.
-        beam_list = [
-            bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
-            if isinstance(bm, UVBeam)
-            else bm
-            for bm in beam_list
-        ]
+    # make sure we interpolate to the right frequency first.
+    beam_list = [
+        bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
+        if isinstance(bm, UVBeam)
+        else bm
+        for bm in beam_list
+    ]
 
     if polarized and any(b.beam_type != "efield" for b in beam_list):
         raise ValueError("beam type must be efield if using polarized=True")
@@ -278,7 +274,7 @@ def vis_cpu(
         complex_dtype = np.complex128
 
     beam_list, nbeam, beam_idx = _wrangle_beams(
-        beam_idx, beam_list, polarized, nant, freq, interp=True
+        beam_idx, beam_list, polarized, nant, freq
     )
 
     # Intensity distribution (sqrt) and antenna positions. Does not support
@@ -360,7 +356,7 @@ def get_antenna_vis(
 
 def log_array(name, x):
     """Debug logging of the value of an array."""
-    if logger.getEffectiveLevel() <= logging.DEBUG:
+    if logger.getEffectiveLevel() <= logging.DEBUG:  # pragma: no cover
         logger.debug(
             f"CPU: {name}: {x.flatten() if x.size < 40 else x.flatten()[:40]} {x.shape}"
         )

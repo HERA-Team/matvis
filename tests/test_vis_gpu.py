@@ -100,7 +100,7 @@ def test_multibeam():
         beam_dict,
         hera_lat,
         uvdata,
-    ) = get_standard_sim_params(True, False, nsource=1, first_source_antizenith=True)
+    ) = get_standard_sim_params(False, False, nsource=1, first_source_antizenith=True)
 
     vis1 = simulate_vis(
         ants=ants,

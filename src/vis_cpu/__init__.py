@@ -23,7 +23,7 @@ except ImportError:
 from . import plot
 from .vis_cpu import vis_cpu
 
-if HAVE_GPU:
+if HAVE_GPU:  # pragma: no cover
     from .vis_gpu import vis_gpu
 
 from .wrapper import simulate_vis

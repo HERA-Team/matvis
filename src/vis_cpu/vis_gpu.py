@@ -68,6 +68,24 @@ TYPE_MAP = {
 }
 
 
+def logdebug(xgpu: gpuarray.GPUArray, name: str):
+    """Log an array shape and first 40 elements as a debug statement.
+
+    We put this in an if statement because the xgpu.get() statement takes a long
+    time for large arrays, and we don't want to do it at all if we're not going to end
+    up logging it.
+    """
+    if logger.getEffectiveLevel() <= logging.DEBUG:  # pragma: no cover
+        # For comparison to cpu
+        xcpu = xgpu.get().flatten()
+        if xcpu.size > 40:
+            xcpu = xcpu[:40]
+
+        logger.debug(
+            f"GPU: {name} | {xgpu.shape}: {xcpu}",
+        )
+
+
 @profile
 def vis_gpu(
     *,
@@ -132,7 +150,6 @@ def vis_gpu(
         polarized=polarized,
         nant=nant,
         freq=freq,
-        interp=True,  # update later if we can.
     )
 
     # Ways to block up threads for sending to GPU calculations. "Meas" is for the
@@ -389,12 +406,7 @@ def vis_gpu(
 
                 logger.info(f"Measurement Eq. Grid Size: {grid}")
 
-                logger.debug(
-                    "GPU: Beam: %s",
-                    A_gpu.get().flatten()
-                    if A_gpu.size < 40
-                    else A_gpu.get().flatten()[:40],
-                )
+                logdebug(A_gpu, "Beam")
 
                 # compute v = A * sqrtI * exp(1j*tau*freq)
                 meas_eq(
@@ -411,17 +423,7 @@ def vis_gpu(
                 )
                 events[cc]["meas_eq"].record(stream)
 
-                if logger.getEffectiveLevel() <= logging.DEBUG:
-                    # For comparison to cpu
-                    vv = (
-                        v_gpu.get()
-                        .reshape((nfeed, nant, nax, nsrcs_up))
-                        .transpose((2, 0, 1, 3))
-                    )
-                    logger.debug(
-                        "GPU: vant: %s",
-                        vv.flatten()[:40] if vv.size < 40 else vv.flatten()[:40],
-                    )
+                logdebug(v_gpu, "vant")
 
                 # compute vis = dot(v, v.T)
                 # We want to take an outer product over feeds/antennas, contract over
@@ -445,16 +447,7 @@ def vis_gpu(
                     nfeed * nant,
                 )
 
-                if logger.getEffectiveLevel() <= logging.DEBUG:
-                    # to get the same shape as CPU
-                    vv = vis_gpus[cc].get()
-                    logger.debug(
-                        "GPU: vis: %s",
-                        vv.flatten() if vv.size < 40 else vv.flatten()[:40],
-                    )
-
-                    logger.debug("GPU: vant orig: %s", v_gpu.get())
-                    logger.debug("GPU: vis orig: %s", vis_gpus[cc].get())
+                logdebug(vis_gpus[cc], "Vis")
 
                 events[cc]["vis"].record(stream)
 
