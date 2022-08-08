@@ -61,4 +61,4 @@ jobs:
 
       - name: Run Notebooks
         run: |
-          python -m papermill -k viscpu docs/tutorials/vis_cpu_tutorial.ipynb
+          papermill -k viscpu docs/tutorials/vis_cpu_tutorial.ipynb tmp.ipynb
