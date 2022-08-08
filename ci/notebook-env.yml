@@ -1,0 +1,23 @@
+name: viscpu
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - mpi4py>=3.0  # Required here so that we get
+  - astropy>=4
+  - numpy>=1.20
+  - scipy>=1.6
+  - pip>=21.1
+  - pytest>=6.2.4
+  - pytest-cov>=2.11.1
+  - matplotlib>=3.3.4
+  - ipython>=7.22
+  - h5py>=3.2
+  - ffmpeg
+  - pyuvdata  # For testing when using UVBeam object
+  - jupyter
+  - ipykernel
+  - papermill
+  - pip:
+    - pyuvsim[sim]>=1.2
+    - pyradiosky>=0.1.1
