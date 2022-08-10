@@ -1,8 +1,6 @@
-.. understanding_the_algorithm::
-
-=========================
-The ``vis_cpu`` algorithm
-=========================
+=======================================
+Understanding the ``vis_cpu`` algorithm
+=======================================
 
 What Is ``vis_cpu``?
 ====================

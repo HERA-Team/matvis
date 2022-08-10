@@ -12,7 +12,7 @@ from typing import Callable, Optional, Sequence
 
 from . import conversions
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
-from .vis_cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
+from .cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +42,7 @@ except ImportError:
 try:
     profile
 except NameError:
-
-    def profile(fnc):
-        """No-op profiling decorator."""
-        return fnc
+    from ._utils import profile
 
 
 ONE_OVER_C = 1.0 / speed_of_light.value
@@ -68,7 +65,7 @@ TYPE_MAP = {
 }
 
 
-def logdebug(xgpu: gpuarray.GPUArray, name: str):
+def _logdebug(xgpu: gpuarray.GPUArray, name: str):
     """Log an array shape and first 40 elements as a debug statement.
 
     We put this in an if statement because the xgpu.get() statement takes a long
@@ -406,7 +403,7 @@ def vis_gpu(
 
                 logger.info(f"Measurement Eq. Grid Size: {grid}")
 
-                logdebug(A_gpu, "Beam")
+                _logdebug(A_gpu, "Beam")
 
                 # compute v = A * sqrtI * exp(1j*tau*freq)
                 meas_eq(
@@ -423,7 +420,7 @@ def vis_gpu(
                 )
                 events[cc]["meas_eq"].record(stream)
 
-                logdebug(v_gpu, "vant")
+                _logdebug(v_gpu, "vant")
 
                 # compute vis = dot(v, v.T)
                 # We want to take an outer product over feeds/antennas, contract over
@@ -447,7 +444,7 @@ def vis_gpu(
                     nfeed * nant,
                 )
 
-                logdebug(vis_gpus[cc], "Vis")
+                _logdebug(vis_gpus[cc], "Vis")
 
                 events[cc]["vis"].record(stream)
 

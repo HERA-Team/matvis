@@ -17,10 +17,7 @@ from . import conversions
 try:
     profile
 except NameError:
-
-    def profile(fnc):
-        """No-op profiling decorator."""
-        return fnc
+    from ._utils import profile
 
 
 logger = logging.getLogger(__name__)
@@ -227,14 +224,6 @@ def vis_cpu(
         the value inputted here. This is done even if only one polarization
         channel is simulated.
         Shape=(NSRCS,).
-    bm_cube : array_like, optional
-        Pixelized beam maps for each antenna. If ``polarized=False``,
-        shape=``(NBEAMS, BM_PIX, BM_PIX)``, otherwise
-        shape=``(NAX, NFEED, NBEAMS, BM_PIX, BM_PIX)``. Only one of ``bm_cube`` and
-        ``beam_list`` should be provided. If NBEAMS != NANT, then `beam_idx` must be
-        provided also. Note that the projected coordinates corresponding to the bm_cube
-        MUST be equivalent to those returned by :func:`~conversions.bm_pix_to_lm`.
-        Note that using bm_cube (in the rectangular l,m grid) is NOT A GOOD IDEA.
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
         objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
@@ -316,20 +305,20 @@ def vis_cpu(
         )
         A_s = A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
 
-        log_array("beam", A_s)
+        _log_array("beam", A_s)
 
         # Calculate delays, where tau = (b * s) / c
         tau = np.dot(antpos / c.value, crd_top[:, above_horizon])
-        log_array("tau", tau)
+        _log_array("tau", tau)
 
-        v = get_antenna_vis(
+        v = _get_antenna_vis(
             A_s, ang_freq, tau, isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
         )
-        log_array("vant", v)
+        _log_array("vant", v)
 
         # Compute visibilities using product of complex voltages (upper triangle).
         vis[t] = v.conj().dot(v.T)
-        log_array("vis", vis[t])
+        _log_array("vis", vis[t])
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
@@ -337,7 +326,7 @@ def vis_cpu(
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
 
 
-def get_antenna_vis(
+def _get_antenna_vis(
     A_s, ang_freq, tau, Isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
 ) -> np.ndarray:
     """Compute the antenna-wise visibility integrand."""
@@ -354,7 +343,7 @@ def get_antenna_vis(
     return v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
 
 
-def log_array(name, x):
+def _log_array(name, x):
     """Debug logging of the value of an array."""
     if logger.getEffectiveLevel() <= logging.DEBUG:  # pragma: no cover
         logger.debug(
