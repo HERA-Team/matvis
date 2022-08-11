@@ -1,6 +1,5 @@
 """Plotting convenience functions to help in analyzing vis_cpu output."""
 import numpy as np
-import pylab as plt
 
 from . import conversions
 
@@ -91,6 +90,7 @@ def animate_source_map(
     anim : matplotlib HTML animation
         Animation object HTML, for display in a Jupyter notebook.
     """
+    import pylab as plt
     from IPython.display import HTML
     from matplotlib import animation, rc
 

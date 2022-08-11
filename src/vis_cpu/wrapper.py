@@ -1,8 +1,15 @@
 """Simple example wrapper for basic usage of vis_cpu."""
-import numpy as np
-from pyuvdata.uvbeam import UVBeam
+from __future__ import annotations
 
-from . import conversions, vis_cpu
+import logging
+import numpy as np
+
+from . import HAVE_GPU, conversions, vis_cpu
+
+if HAVE_GPU:
+    from . import vis_gpu
+
+logger = logging.getLogger(__name__)
 
 
 def simulate_vis(
@@ -13,12 +20,14 @@ def simulate_vis(
     freqs,
     lsts,
     beams,
-    pixel_beams=False,
-    beam_npix=63,
     polarized=False,
     precision=1,
     latitude=-30.7215 * np.pi / 180.0,
     use_feed="x",
+    use_gpu: bool = False,
+    beam_spline_opts: dict | None = None,
+    beam_idx: np.ndarray | None = None,
+    **backend_kwargs,
 ):
     """
     Run a basic simulation using ``vis_cpu``.
@@ -61,16 +70,33 @@ def simulate_vis(
     latitude : float, optional
         The latitude of the center of the array, in radians. The default is the
         HERA latitude = -30.7215 * pi / 180.
+    beam_spline_opts : dict, optional
+        Options to be passed to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
 
     Returns
     -------
     vis : array_like
-        Complex array of shape (NAXES, NFEED, NFREQS, NTIMES, NANTS, NANTS)
+        Complex array of shape (NFREQS, NTIMES, NFEED, NFEED, NANTS, NANTS)
         if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
     """
-    assert len(ants) == len(
-        beams
-    ), "The `beams` list must have as many entries as the ``ants`` dict."
+    if use_gpu:
+        if not HAVE_GPU:
+            raise ImportError("You cannot use GPU without installing GPU-dependencies!")
+
+        from pycuda import driver
+
+        device = driver.Device(0)
+        attrs = device.get_attributes()
+        attrs = {str(k): v for k, v in attrs.items()}
+        string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
+        logger.debug(
+            f"""
+            Your GPU has the following attributes:
+            \t{string}
+            """
+        )
+
+    fnc = vis_gpu if use_gpu else vis_cpu
 
     assert fluxes.shape == (
         ra.size,
@@ -78,19 +104,11 @@ def simulate_vis(
     ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
 
     # Determine precision
-    if precision == 1:
-        complex_dtype = np.complex64
-    else:
-        complex_dtype = np.complex128
+    complex_dtype = np.complex64 if precision == 1 else np.complex128
 
     # Get polarization information from beams
     if polarized:
-        try:
-            naxes = beams[0].Naxes_vec
-            nfeeds = beams[0].Nfeeds
-        except AttributeError:
-            # If Naxes_vec and Nfeeds properties aren't set, assume all pol.
-            naxes = nfeeds = 2
+        nfeeds = getattr(beams[0], "Nfeeds", 2)
 
     # Antenna x,y,z positions
     antpos = np.array([ants[k] for k in ants.keys()])
@@ -103,65 +121,31 @@ def simulate_vis(
     eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     # Create beam pixel models (if requested)
-    if pixel_beams:
-        beam_pix = [
-            conversions.uvbeam_to_lm(
-                beam, freqs, n_pix_lm=beam_npix, polarized=polarized, use_feed=use_feed
-            )
-            for beam in beams
-        ]
-        beam_cube = np.array(beam_pix)
-    else:
-        beams = [
-            conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
-            for beam in beams
-        ]
+    beams = [
+        conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
+        for beam in beams
+    ]
 
-    # Run vis_cpu with pixel beams
     if polarized:
         vis = np.zeros(
-            (naxes, nfeeds, freqs.size, lsts.size, nants, nants), dtype=complex_dtype
+            (freqs.size, lsts.size, nfeeds, nfeeds, nants, nants), dtype=complex_dtype
         )
     else:
         vis = np.zeros((freqs.size, lsts.size, nants, nants), dtype=complex_dtype)
 
-    # Loop over frequencies and call vis_cpu for either UVBeam or pixel beams
-    for i in range(freqs.size):
-
-        if pixel_beams:
-
-            # Get per-freq. pixel beam
-            bm = beam_cube[:, :, :, i, :, :] if polarized else beam_cube[:, i, :, :]
-
-            # Run vis_cpu
-            v = vis_cpu(
-                antpos,
-                freqs[i],
-                eq2tops,
-                crd_eq,
-                fluxes[:, i],
-                bm_cube=bm,
-                precision=precision,
-                polarized=polarized,
-            )
-            if polarized:
-                vis[:, :, i] = v  # v.shape: (nax, nfeed, ntimes, nant, nant)
-            else:
-                vis[i] = v  # v.shape: (ntimes, nant, nant)
-        else:
-            v = vis_cpu(
-                antpos,
-                freqs[i],
-                eq2tops,
-                crd_eq,
-                fluxes[:, i],
-                beam_list=beams,
-                precision=precision,
-                polarized=polarized,
-            )
-            if polarized:
-                vis[:, :, i] = v  # v.shape: (nax, nfeed, ntimes, nant, nant)
-            else:
-                vis[i] = v  # v.shape: (ntimes, nant, nant)
-
+    # Loop over frequencies and call vis_cpu/gpu
+    for i, freq in enumerate(freqs):
+        vis[i] = fnc(
+            antpos=antpos,
+            freq=freq,
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=fluxes[:, i],
+            beam_list=beams,
+            precision=precision,
+            polarized=polarized,
+            beam_spline_opts=beam_spline_opts,
+            beam_idx=beam_idx,
+            **backend_kwargs,
+        )
     return vis

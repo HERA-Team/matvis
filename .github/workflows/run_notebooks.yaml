@@ -1,4 +1,4 @@
-name: Tests
+name: Run Notebooks
 
 # Test on all pushes, except when the push is literally just a tag (because we
 # tag automatically via CI, and therefore there's no extra code in that push).
@@ -12,18 +12,9 @@ on:
       - 'main'
 
 jobs:
-  tests:
-    env:
-      ENV_NAME: tests
-      PYTHON: ${{ matrix.python-version }}
-      OS: ${{ matrix.os }}
-    name: Testing
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: [3.8, 3.9, "3.10"]
+  notebooks:
+    name: Running Docs Notebooks
+    runs-on: ubuntu-latest
     defaults:
      run:
        # Adding -l {0} ensures conda can be found properly in each step
@@ -48,9 +39,9 @@ jobs:
         with:
           # auto-update-conda: true
           miniconda-version: "latest"
-          python-version: ${{ matrix.python-version }}
-          environment-file: ci/test-env.yml
-          activate-environment: tests
+          python-version: '3.10'
+          environment-file: ci/notebook-env.yml
+          activate-environment: viscpu
           channels: conda-forge,defaults
           channel-priority: strict
           use-only-tar-bz2: true
@@ -59,16 +50,15 @@ jobs:
         run: |
           conda info -a
           conda list
-          PYVER=`python -c "import sys; print('{:d}.{:d}'.format(sys.version_info.major, sys.version_info.minor))"`
-          if [[ $PYVER != $PYTHON ]]; then
-            exit 1;
-          fi
 
       - name: Install
         run: |
           echo $(which pip)
           pip install .[test]
 
-      - name: Run Tests
+      - name: Install ipykernel
+        run: python -m ipykernel install --user --name viscpu --display-name "viscpu"
+
+      - name: Run Notebooks
         run: |
-          python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25
+          papermill -k viscpu docs/tutorials/vis_cpu_tutorial.ipynb tmp.ipynb

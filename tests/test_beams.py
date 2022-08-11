@@ -10,6 +10,8 @@ from pyuvsim import AnalyticBeam
 from typing import List
 
 from vis_cpu import conversions, simulate_vis, vis_cpu
+from vis_cpu._uvbeam_to_raw import uvbeam_to_azza_grid
+from vis_cpu.cpu import _evaluate_beam_cpu
 
 np.random.seed(0)
 NTIMES = 3
@@ -227,47 +229,6 @@ def antpos():
     return np.array([ants[k] for k in ants.keys()])
 
 
-def test_beam_interpolation(
-    beam_list_unpol, beam_cube, crd_eq, eq2tops, sky_flux, freq, antpos
-):
-    """Test that interpolated beams and UVBeam agree on coordinates."""
-    # Run vis_cpu with pixel beams and analytic beams (uses precision=2)
-    # This test is useful for checking a particular line in vis_cpu() that
-    # evaluates the pixel beam splines, i.e. `splines[p1][p2][i](ty, tx, ...)`
-    # This test should fail if the order of the arguments (ty, tx) is wrong
-    for i in range(freq.size):
-        # Pixel beams
-        vis_pix = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=beam_cube[:, i, :, :],
-            precision=2,
-            polarized=False,
-        )
-
-        # Analytic beams
-        vis_analytic = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            beam_list=beam_list_unpol,
-            precision=2,
-            polarized=False,
-        )
-
-        assert np.all(~np.isnan(vis_pix))  # check that there are no NaN values
-        assert np.all(~np.isnan(vis_analytic))
-
-        # Check that results are close (they should be for 1000^2 pixel-beams
-        # if the elliptical beams are both oriented the same way)
-        np.testing.assert_allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
-
-
 def test_beam_interpolation_pol():
     """Test beam interpolation for polarized beams."""
     # Frequency array
@@ -295,11 +256,11 @@ def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, 
     """Test that when doing polarized sim, error is raised if beams aren't efield."""
     with pytest.raises(ValueError, match="beam type must be efield"):
         vis_cpu(
-            antpos,
-            freq[0],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, 0],
+            antpos=antpos,
+            freq=freq[0],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, 0],
             beam_list=beam_list_unpol,
             precision=2,
             polarized=True,
@@ -310,11 +271,11 @@ def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antp
     """Test that when doing unpolarized sim, error is raised if beams aren't power."""
     with pytest.raises(ValueError, match="beam type must be power"):
         vis_cpu(
-            antpos,
-            freq[0],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, 0],
+            antpos=antpos,
+            freq=freq[0],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, 0],
             beam_list=beam_list_pol,
             precision=2,
             polarized=False,
@@ -378,92 +339,97 @@ def test_prepare_beam_unpol_uvbeam_pol_no_exist():
 
 def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     """Test passing different numbers of beams than nant."""
-    beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
-    )
-
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
 
-    bm_cube = np.array([beam_pix, beam_pix, beam_pix])
-
     for i in range(freq.size):
-        # Pixel beams
-        vis_pix = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=bm_cube[:1, i, :, :],
-            precision=2,
-            polarized=False,
-        )
-
-        vis_pix2 = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=bm_cube[:2, i, :, :],
-            precision=2,
-            polarized=False,
-            beam_idx=np.array([0, 1, 0]),
-        )
-
-        vis_pix3 = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
-            bm_cube=bm_cube[:, i, :, :],
-            precision=2,
-            polarized=False,
-        )
-
         # Analytic beams
         vis_analytic = vis_cpu(
-            antpos,
-            freq[i],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, i],
+            antpos=antpos,
+            freq=freq[i],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, i],
             beam_list=beam_list_unpol[:1],
             precision=2,
             polarized=False,
         )
 
-        assert np.all(~np.isnan(vis_pix))  # check that there are no NaN values
-        assert np.all(~np.isnan(vis_pix2))  # check that there are no NaN values
         assert np.all(~np.isnan(vis_analytic))
-
-        # Check that results are close (they should be for 1000^2 pixel-beams
-        # if the elliptical beams are both oriented the same way)
-        np.testing.assert_allclose(vis_pix, vis_analytic, rtol=1e-5, atol=1e-5)
-        np.testing.assert_allclose(vis_pix, vis_pix2, rtol=1e-5, atol=1e-5)
-        np.testing.assert_allclose(vis_pix3, vis_pix2, rtol=1e-5, atol=1e-5)
 
 
 def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     """Test passing different numbers of beams than nant."""
-    beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
-    )
-
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
-
-    bm_cube = np.array([beam_pix, beam_pix, beam_pix])
 
     # Pixel beams
     with pytest.raises(ValueError, match="beam_idx must be provided"):
         vis_cpu(
-            antpos,
-            freq[0],
-            eq2tops,
-            crd_eq,
-            sky_flux[:, 0],
-            bm_cube=bm_cube[:2, 0, :, :],
+            antpos=antpos,
+            freq=freq[0],
+            eq2tops=eq2tops,
+            crd_eq=crd_eq,
+            I_sky=sky_flux[:, 0],
+            beam_list=beam_list_unpol,
             precision=2,
             polarized=False,
+        )
+
+
+def test_wrong_coord_system(uvbeam):
+    """Test passing wrong beams/parameters to uvbeam_to_azza_grid."""
+    beam = uvbeam.copy()
+    beam.pixel_coordinate_system = "healpix"
+
+    with pytest.raises(ValueError, match="pixel_coordinate_system must be"):
+        uvbeam_to_azza_grid(beam)
+
+    with pytest.raises(ValueError, match="Can only handle one frequency"):
+        uvbeam_to_azza_grid(uvbeam)
+
+    newfreq = np.array([beam.freq_array[0, 0]])
+    print(newfreq.shape)
+    newuv = uvbeam.interp(
+        freq_array=newfreq,
+        az_array=np.array([0, 0.5, 1.2]),
+        za_array=np.array([0, 0.2, 0.4]),
+        az_za_grid=True,
+        new_object=True,
+    )
+
+    with pytest.raises(ValueError, match="Input UVBeam is not regular"):
+        uvbeam_to_azza_grid(newuv)
+
+    newuv = uvbeam.interp(
+        freq_array=newfreq,
+        az_array=np.array([0, 0.6, 1.2]),
+        za_array=np.array([0, 0.2, 0.4]),
+        az_za_grid=True,
+        new_object=True,
+    )
+
+    with pytest.raises(ValueError, match="The beam data does not cover the full sky"):
+        uvbeam_to_azza_grid(newuv)
+
+
+def test_nan_in_cpu_beam(uvbeam):
+    """Test nan in cpu beam."""
+    beam = uvbeam.copy()
+    beam.data_array[1] = np.nan
+
+    tx = np.linspace(-1, 1, 100)
+    ty = tx
+
+    freq = np.array([beam.freq_array[0, 0]])
+
+    A_s = np.zeros((2, 2, 1, 100))
+    with pytest.raises(
+        ValueError, match="Beam interpolation resulted in an invalid value"
+    ):
+        _evaluate_beam_cpu(
+            A_s,
+            [beam],
+            tx,
+            ty,
+            polarized=True,
+            freq=freq,
         )

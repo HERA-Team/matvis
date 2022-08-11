@@ -143,6 +143,13 @@ def test_equatorial_to_enu():
         _az, _za = conversions.enu_to_az_za(vec_u[0], vec_u[1], orientation="uvbeam")
         assert np.isclose(_za, 0.0)
 
+        # Pointing South (UVBeam) (not 0-2pi)
+        _az, _za = conversions.enu_to_az_za(
+            vec_n[0], -vec_n[1], orientation="uvbeam", periodic_azimuth=False
+        )
+        assert np.isclose(_az, -0.5 * np.pi)
+        assert np.isclose(_za, 0.5 * np.pi)
+
         # Do inverse transform and check
         eq_e = np.dot(mat_enu_to_eci, vec_e)
         _tx, _ty, _tz = np.dot(mat_eci_to_enu, eq_e)

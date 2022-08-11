@@ -9,4 +9,4 @@ dependencies:
   - numpydoc
   - sphinx>=4.0
   - pip:
-    - sphinx-rtd-theme
+    - furo
