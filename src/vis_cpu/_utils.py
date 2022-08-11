@@ -1,3 +1,3 @@
-def profile(fnc):
-    """No-op profiling decorator."""
+def no_op(fnc):
+    """No-op function."""
     return fnc

@@ -11,7 +11,7 @@ from typing import List
 
 from vis_cpu import conversions, simulate_vis, vis_cpu
 from vis_cpu._uvbeam_to_raw import uvbeam_to_azza_grid
-from vis_cpu.vis_cpu import _evaluate_beam_cpu
+from vis_cpu.cpu import _evaluate_beam_cpu
 
 np.random.seed(0)
 NTIMES = 3

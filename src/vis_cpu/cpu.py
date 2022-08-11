@@ -17,7 +17,7 @@ from . import conversions
 try:
     profile
 except NameError:
-    from ._utils import profile
+    from ._utils import no_op as profile
 
 
 logger = logging.getLogger(__name__)

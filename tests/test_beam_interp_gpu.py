@@ -10,7 +10,7 @@ from pyuvdata import UVBeam
 
 from vis_cpu import DATA_PATH
 from vis_cpu._uvbeam_to_raw import uvbeam_to_azza_grid
-from vis_cpu.vis_gpu import gpu_beam_interpolation
+from vis_cpu.gpu import gpu_beam_interpolation
 
 
 def test_identity():

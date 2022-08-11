@@ -15,6 +15,15 @@ from .cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
 
 logger = logging.getLogger(__name__)
 
+# This enables us to put in profile decorators that will be no-ops if no profiling
+# library is being used.
+try:
+    profile
+except NameError:
+    from ._utils import no_op
+
+    profile = no_op
+
 try:
     import pycuda.autoinit
     from jinja2 import Template
@@ -35,18 +44,10 @@ try:
 
 except ImportError:
     HAVE_CUDA = False
-
-
-# This enables us to put in profile decorators that will be no-ops if no profiling
-# library is being used.
-try:
-    profile
-except NameError:
-    from ._utils import profile
+    Template = no_op
 
 
 ONE_OVER_C = 1.0 / speed_of_light.value
-
 
 templates = Path(__file__).parent / "gpu_src"
 
