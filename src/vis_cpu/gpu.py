@@ -5,7 +5,6 @@ import logging
 import numpy as np
 import warnings
 from astropy.constants import c as speed_of_light
-from jinja2 import Template
 from pathlib import Path
 from pyuvdata import UVBeam
 from typing import Callable, Optional, Sequence
@@ -18,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import pycuda.autoinit
+    from jinja2 import Template
     from pycuda import compiler
     from pycuda import cumath as cm
     from pycuda import driver, gpuarray
