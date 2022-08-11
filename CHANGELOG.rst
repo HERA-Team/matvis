@@ -2,14 +2,53 @@
 Changelog
 =========
 
-dev-version
-===========
+Version 1.0.0
+=============
+
+Version 1.0 is a major update that brings the GPU implementation up to the same API
+as the CPU implementation. It also *removes* support for (l,m)-grid beams.
+
+Removed
+-------
+
+- Support for ``bm_pix`` and ``use_pixel_beams`` (in both CPU and GPU implementations).
+  Now, using a ``UVBeam`` object will automatically use interpolation on the gridded
+  underlying data (which is typically in az/za). This can be done directly using
+  methods in ``UVBeam``, or via new GPU methods. If you input an ``AnalyticBeam``, the
+  beam will instead just merely be evaluated.
+
+Added
+-----
+
+- Polarization support for GPU implementation.
 
 Changed
 -------
 
 - Faster performance if using ``beam_list`` and the frequency is not in the ``freq_array``.
   (interpolation done before the loop).
+- Factor of ~10x speed-up of ``vis_cpu`` due to changing the final ``einsum`` into a
+  matrix product.
+- **BREAKING CHANGE:** the output from the CPU and GPU implementations has changed
+  shape: it is now ``(Ntimes, Nfeed, Nfeed, Nant, Nant)`` (and without the feed axes
+  for non-polarized data).
+
+Internals
+---------
+
+- ``vis_cpu`` and ``vis_gpu`` *modules* renamed to ``cpu`` and ``gpu`` respectively, to
+  avoid some problems with name clashes.
+- New more comprehensive tests comparing the GPU and CPU implementations against
+  each other and against pyuvsim.
+- New tests of documentation notebooks to ensure they're up to date.
+
+Documentation
+-------------
+
+- Updated sphinx them to Furo.
+- More complete Module Reference documentation.
+- Updated tutorial to match the new API.
+- Added a new "Understanding the Algorithm" page (with math!)
 
 Version 0.4.3
 =============
