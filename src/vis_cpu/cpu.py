@@ -153,7 +153,10 @@ def _evaluate_beam_cpu(
         A_s[:, :, i] = interp_beam
 
         # Check for invalid beam values
-        if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
+        sm = np.sum(A_s)
+        if np.isinf(sm) or np.isnan(
+            sm
+        ):  # np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
             raise ValueError("Beam interpolation resulted in an invalid value")
 
     return A_s
@@ -272,7 +275,7 @@ def vis_cpu(
     Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
     antpos = antpos.astype(real_dtype)
 
-    ang_freq = 2.0 * np.pi * freq
+    ang_freq = real_dtype(2.0 * np.pi * freq)
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
     vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
@@ -289,8 +292,6 @@ def vis_cpu(
         ty = ty[above_horizon]
         nsrcs_up = len(tx)
         isqrt = Isqrt[above_horizon]
-
-        v = np.zeros((nant, nsrcs_up), dtype=complex_dtype)
 
         A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
 
