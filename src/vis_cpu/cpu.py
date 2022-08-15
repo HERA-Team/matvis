@@ -100,6 +100,7 @@ def _evaluate_beam_cpu(
     ty: np.ndarray,
     polarized: bool,
     freq: float,
+    check: bool = False,
     spline_opts: dict | None = None,
 ):
     """Evaluate the beam on the CPU.
@@ -153,11 +154,10 @@ def _evaluate_beam_cpu(
         A_s[:, :, i] = interp_beam
 
         # Check for invalid beam values
-        sm = np.sum(A_s)
-        if np.isinf(sm) or np.isnan(
-            sm
-        ):  # np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
-            raise ValueError("Beam interpolation resulted in an invalid value")
+        if check:
+            sm = np.sum(A_s)
+            if np.isinf(sm) or np.isnan(sm):
+                raise ValueError("Beam interpolation resulted in an invalid value")
 
     return A_s
 
@@ -302,6 +302,7 @@ def vis_cpu(
             ty,
             polarized,
             freq,
+            check=t == 0,
             spline_opts=beam_spline_opts,
         )
         A_s = A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
