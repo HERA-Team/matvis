@@ -89,14 +89,34 @@ def uvbeam_to_azza_grid(
     delta_az = delta_az[0]
     delta_za = delta_za[0]
 
+    # covers_sky_strong is the best-case scenario, where the beam data covers the
+    # upper hemisphere and is defined directly from az=0-2pi and za=0-pi/2. If we have
+    # this *and* a regular grid, we don't have to do any interpolation of the data here,
+    # since it's already exactly in the format required by the GPU interpolation function.
     covers_sky_strong = (
         np.isclose(az[0], 0)
         and np.isclose(az[-1], 2 * np.pi)
         and np.isclose(za[0], 0)
         and az[-1] >= np.pi / 2
     )
+
+    # In this case, we have almost the strong case, but the final az value is one delta
+    # away from 2pi. Here, we can simply copy over the zero-value to the end of the
+    # data, and don't need to actually interpolate.
+    covers_sky_almost_strong = (
+        np.isclose(az[0], 0)
+        and np.isclose(az[-1], 2 * np.pi - delta_az)
+        and np.isclose(za[0], 0)
+        and az[-1] >= np.pi / 2
+    )
+
+    # "covers_sky_weak" corresponds to the case where the azimuth values cover the full
+    # 2pi range (but where the final value may be Delta(az) smaller than 2pi), because
+    # the actual 2pi value is known to be the zero value. We allow for a small epsilon
+    # of 1e-5 to account for floating point errors. Also, the zenith angle needs to start
+    # at zero and end over the horizon.
     covers_sky_weak = (
-        (az.max() - az.min()) > (2 * np.pi - delta_az)
+        (az.max() - az.min()) >= (2 * np.pi - delta_az - 1e-5)
         and np.isclose(za.min(), 0)
         and za.max() >= np.pi / 2
     )
@@ -115,6 +135,15 @@ def uvbeam_to_azza_grid(
     ):
         # Returned data has shape (Nax, Nfeeds, Nza, Naz)
         return uvbeam.data_array[:, 0, :, 0], delta_az, dza
+    elif (
+        naz == len(az)
+        and np.isclose(dza, delta_za)
+        and is_regular_grid
+        and covers_sky_almost_strong
+    ):
+        data = uvbeam.data_array[:, 0, :, 0]
+        data = np.concatenate((data, data[..., 0]), axis=-1)
+        return data, delta_az, dza
     else:
         warnings.warn(
             "The raw beam data is either irregular, or does not have the spacing you "
