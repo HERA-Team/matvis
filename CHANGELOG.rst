@@ -2,6 +2,20 @@
 Changelog
 =========
 
+Version 1.0.1
+=============
+
+Fixed
+-----
+
+- When getting the raw beam data for GPU, there was a check for whether the beam covers
+  the whole sky which didn't always pass when it should have. This has been fixed.
+
+Performance
+-----------
+
+- Added the ability to stop checks on whether the beam interpolates to inf/nan.
+
 Version 1.0.0
 =============
 
