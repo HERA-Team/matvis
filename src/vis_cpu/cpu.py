@@ -121,6 +121,9 @@ def _evaluate_beam_cpu(
         Whether to use beam polarization.
     freq
         Frequency to interpolate beam to.
+    check
+        Whether to check that the beam has no inf/nan values. Set to False if you are
+        sure that the beam is valid, as it will be faster.
     spline_opts
         Extra options to pass to the RectBivariateSpline class when interpolating.
     """
