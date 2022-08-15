@@ -142,7 +142,7 @@ def uvbeam_to_azza_grid(
         and covers_sky_almost_strong
     ):
         data = uvbeam.data_array[:, 0, :, 0]
-        data = np.concatenate((data, data[..., 0]), axis=-1)
+        data = np.concatenate((data, data[..., [0]]), axis=-1)
         return data, delta_az, dza
     else:
         warnings.warn(
