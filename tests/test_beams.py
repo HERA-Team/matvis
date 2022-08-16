@@ -229,29 +229,6 @@ def antpos():
     return np.array([ants[k] for k in ants.keys()])
 
 
-def test_beam_interpolation_pol():
-    """Test beam interpolation for polarized beams."""
-    # Frequency array
-    freq = np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
-
-    # Get Gaussian beam and transform into an elliptical version
-    base_beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-
-    # Construct pixel beam from analytic beam
-    beam_pix = conversions.uvbeam_to_lm(
-        beam_analytic, freq, n_pix_lm=21, polarized=True
-    )
-    assert np.all(~np.isnan(beam_pix))
-    assert np.all(~np.isinf(beam_pix))
-
-    # Check that unpolarized beam pixelization has 2 fewer dimensions
-    beam_pix_unpol = conversions.uvbeam_to_lm(
-        beam_analytic, freq, n_pix_lm=201, polarized=False
-    )
-    assert len(beam_pix.shape) == len(beam_pix_unpol.shape) + 2
-
-
 def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, antpos):
     """Test that when doing polarized sim, error is raised if beams aren't efield."""
     with pytest.raises(ValueError, match="beam type must be efield"):
@@ -431,5 +408,32 @@ def test_nan_in_cpu_beam(uvbeam):
             tx,
             ty,
             polarized=True,
+            check=True,
             freq=freq,
         )
+
+
+def test_covers_sky_almost_strong(uvbeam):
+    """Test that beam covers sky almost completely."""
+    beam1 = uvbeam.copy()
+    beam2 = uvbeam.copy()
+
+    beam1.data_array = beam1.data_array[:, :, :, [0]]
+    beam2.data_array = beam2.data_array[:, :, :, [0]]
+    beam1.Nfreqs = 1
+    beam2.Nfreqs = 1
+
+    beam1.axis1_array = np.linspace(0, 2 * np.pi, beam1.axis1_array.size)
+    beam2.axis1_array = np.linspace(0, 2 * np.pi, beam2.axis1_array.size)
+
+    beam1.data_array[..., -1] = beam1.data_array[..., 0]
+
+    # take out the last az value (the wrapped one)
+    beam2.data_array = beam2.data_array[..., :-1]
+    beam2.axis1_array = beam2.axis1_array[:-1]
+    beam2.Naxes1 = beam2.Naxes1 - 1
+
+    beam1_interp, daz1, dza1 = uvbeam_to_azza_grid(beam1)
+    beam2_interp, daz2, dza2 = uvbeam_to_azza_grid(beam2)
+
+    np.testing.assert_allclose(beam1_interp, beam2_interp, atol=1e-6)

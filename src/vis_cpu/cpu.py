@@ -100,6 +100,7 @@ def _evaluate_beam_cpu(
     ty: np.ndarray,
     polarized: bool,
     freq: float,
+    check: bool = False,
     spline_opts: dict | None = None,
 ):
     """Evaluate the beam on the CPU.
@@ -120,6 +121,9 @@ def _evaluate_beam_cpu(
         Whether to use beam polarization.
     freq
         Frequency to interpolate beam to.
+    check
+        Whether to check that the beam has no inf/nan values. Set to False if you are
+        sure that the beam is valid, as it will be faster.
     spline_opts
         Extra options to pass to the RectBivariateSpline class when interpolating.
     """
@@ -153,8 +157,10 @@ def _evaluate_beam_cpu(
         A_s[:, :, i] = interp_beam
 
         # Check for invalid beam values
-        if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
-            raise ValueError("Beam interpolation resulted in an invalid value")
+        if check:
+            sm = np.sum(A_s)
+            if np.isinf(sm) or np.isnan(sm):
+                raise ValueError("Beam interpolation resulted in an invalid value")
 
     return A_s
 
@@ -272,7 +278,7 @@ def vis_cpu(
     Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
     antpos = antpos.astype(real_dtype)
 
-    ang_freq = 2.0 * np.pi * freq
+    ang_freq = real_dtype(2.0 * np.pi * freq)
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
     vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
@@ -290,8 +296,6 @@ def vis_cpu(
         nsrcs_up = len(tx)
         isqrt = Isqrt[above_horizon]
 
-        v = np.zeros((nant, nsrcs_up), dtype=complex_dtype)
-
         A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
 
         _evaluate_beam_cpu(
@@ -301,6 +305,7 @@ def vis_cpu(
             ty,
             polarized,
             freq,
+            check=t == 0,
             spline_opts=beam_spline_opts,
         )
         A_s = A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
