@@ -98,6 +98,7 @@ def uvbeam_to_azza_grid(
         and np.isclose(az[-1], 2 * np.pi)
         and np.isclose(za[0], 0)
         and az[-1] >= np.pi / 2
+        and np.allclose(uvbeam.data_array[..., 0], uvbeam.data_array[..., -1])
     )
 
     # In this case, we have almost the strong case, but the final az value is one delta
