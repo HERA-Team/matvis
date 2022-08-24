@@ -418,8 +418,10 @@ def test_covers_sky_almost_strong(uvbeam):
     beam1 = uvbeam.copy()
     beam2 = uvbeam.copy()
 
+    # Restrict to a certain frequency
     beam1.data_array = beam1.data_array[:, :, :, [0]]
     beam2.data_array = beam2.data_array[:, :, :, [0]]
+
     beam1.Nfreqs = 1
     beam2.Nfreqs = 1
 

@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import logging
 import numpy as np
-import warnings
+import psutil
+import time
 from astropy.constants import c
 from pyuvdata import UVBeam
 from re import I
-from scipy.interpolate import RectBivariateSpline
-from typing import Callable, Optional, Sequence
+from typing import Callable, Sequence
 
 from . import conversions
 
@@ -284,6 +284,12 @@ def vis_cpu(
     vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
+    report_chunk = max(1, ntimes // 100)
+    pr = psutil.Process()
+    tstart = time.time()
+    mlast = pr.memory_info().rss
+    plast = tstart
+
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
         # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
@@ -325,6 +331,9 @@ def vis_cpu(
         vis[t] = v.conj().dot(v.T)
         _log_array("vis", vis[t])
 
+        if not t % report_chunk or t == ntimes - 1:
+            plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
+
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
     # Return visibilities with or without multiple polarization channels
@@ -354,3 +363,58 @@ def _log_array(name, x):
         logger.debug(
             f"CPU: {name}: {x.flatten() if x.size < 40 else x.flatten()[:40]} {x.shape}"
         )
+
+
+def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
+    """Logging of progress."""
+    if logger.getEffectiveLevel() > logging.INFO:
+        return prev_time, last_mem
+
+    t = time.time()
+    lapsed = t - prev_time
+    if lapsed > 120:
+        lapsed /= 60
+        minutes = True
+    else:
+        minutes = False
+    total = t - start_time
+    if total > 3600:
+        total /= 3600
+        tunit = "hrs"
+    elif total > 60:
+        total /= 60
+        tunit = "min"
+    else:
+        tunit = "sec"
+    expected = total * niters / iters
+    rss = pr.memory_info().rss
+    if rss > 1024**3:
+        mem = rss / 1024**3
+        munit = "GB"
+    elif rss > 1024**2:
+        mem = rss / 1024**2
+        munit = "MB"
+    else:
+        mem = rss
+        munit = "KB"
+    memdiff = rss - last_mem
+    if memdiff > 1024**3:
+        memdiff /= 1024**3
+        mdunit = "GB"
+    elif rss > 1024**2:
+        memdiff /= 1024**2
+        mdunit = "MB"
+    else:
+        mdunit = "KB"
+
+    logger.info(
+        f"""
+        Progress Info   [{iters}/{niters} times ({100 * iters / niters:.1f}%)]
+            -> Update Time:   {lapsed:.2f} {'min' if minutes else 'sec'}
+            -> Total Time:    {total:.2f} {tunit}  [{total/iters:.2f} {tunit} per integration]
+            -> Expected Time: {expected:.2f} {tunit}  [{expected - total:.2f} remaining]
+            -> Memory Usage:  {mem:.2f} {munit}  [{memdiff:+.2f} {mdunit}]
+        """
+    )
+
+    return t, rss
