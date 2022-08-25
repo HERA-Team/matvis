@@ -6,6 +6,7 @@ import numpy as np
 import psutil
 import time
 from astropy.constants import c
+from pympler import muppy, summary
 from pyuvdata import UVBeam
 from re import I
 from typing import Callable, Sequence
@@ -334,6 +335,12 @@ def vis_cpu(
 
         if not t % report_chunk or t == ntimes - 1:
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
+
+            all_objects = muppy.get_objects()
+            sum1 = summary.summarize(
+                all_objects
+            )  # Prints out a summary of the large objects
+            summary.print_(sum1)
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
