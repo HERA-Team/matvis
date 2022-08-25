@@ -6,7 +6,7 @@ import numpy as np
 import psutil
 import time
 from astropy.constants import c
-from pympler import muppy, summary
+from pympler import tracker
 from pyuvdata import UVBeam
 from re import I
 from typing import Callable, Sequence
@@ -292,6 +292,8 @@ def vis_cpu(
     mlast = pr.memory_info().rss
     plast = tstart
 
+    tr = tracker.SummaryTracker()
+
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
         # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
@@ -336,11 +338,7 @@ def vis_cpu(
         if not t % report_chunk or t == ntimes - 1:
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
-            all_objects = muppy.get_objects()
-            sum1 = summary.summarize(
-                all_objects
-            )  # Prints out a summary of the large objects
-            summary.print_(sum1)
+            tr.print_diff()
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
