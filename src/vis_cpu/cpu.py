@@ -284,7 +284,8 @@ def vis_cpu(
     vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
-    report_chunk = max(1, ntimes // 100)
+    # Have up to 100 reports as it iterates through time.
+    report_chunk = ntimes // 100 + 1
     pr = psutil.Process()
     tstart = time.time()
     mlast = pr.memory_info().rss
@@ -413,7 +414,7 @@ def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
             -> Update Time:   {lapsed:.2f} {'min' if minutes else 'sec'}
             -> Total Time:    {total:.2f} {tunit}  [{total/iters:.2f} {tunit} per integration]
             -> Expected Time: {expected:.2f} {tunit}  [{expected - total:.2f} remaining]
-            -> Memory Usage:  {mem:.2f} {munit}  [{memdiff:+.2f} {mdunit}]
+            -> Memory Usage:  {mem:.2f} {munit}   [{memdiff:+.2f} {mdunit}]
         """
     )
 
