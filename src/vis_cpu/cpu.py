@@ -370,6 +370,8 @@ def display_top(sn1, sn2, key_type="lineno", limit=10):
 
     top_stats = sn2.compare_to(sn1, key_type)
 
+    msg = "\n"
+
     def _get_size_unit(size):
         if size > 1024**3:
             size = size / 1024**3
@@ -385,26 +387,32 @@ def display_top(sn1, sn2, key_type="lineno", limit=10):
             unit = "B"
         return size, unit
 
-    logger.info(f"Top {limit} lines")
+    msg += f"Top {limit} lines:\n"
     for index, stat in enumerate(top_stats[:limit], 1):
         frame = stat.traceback[0]
+        last_frame = stat.traceback[-1]
+
         size, unit = _get_size_unit(stat.size)
         sized, dunit = _get_size_unit(stat.size_diff)
-        logger.info(
-            f"#{index}: {frame.filename}:{frame.lineno}: {size:.1f} {unit}, {stat.count:d} | {sized:+.1f} {dunit}, {stat.count_diff:+d} "
-        )
+        msg += f"#{index}: {frame.filename}:{frame.lineno}\n"
+        msg += f"  -> {size:.1f} {unit}, {stat.count:d} | {sized:+.1f} {dunit}, {stat.count_diff:+d}\n"
 
         if line := linecache.getline(frame.filename, frame.lineno).strip():
-            logger.info(f"    {line}")
+            logger.info(f"  ->           Line: {line}\n")
 
+        if line := linecache.getline(last_frame.filename, last_frame.lineno).strip():
+            logger.info(f"  -> Top-Level Line: {line}\n")
+
+    msg += "\n"
     if other := top_stats[limit:]:
         size, unit = _get_size_unit(sum(stat.size for stat in other))
         sized, dunit = _get_size_unit(sum(stat.size_diff for stat in other))
-        logger.info(f"{len(other)} others: {size:.1f} {unit} | {sized:+.1f} {dunit}")
+        msg += f"> {len(other)} others: {size:.1f} {unit} | {sized:+.1f} {dunit}\n"
 
     size, unit = _get_size_unit(sum(stat.size for stat in top_stats))
     sized, dunit = _get_size_unit(sum(stat.size_diff for stat in top_stats))
-    logger.info(f"Total allocated size: {size:.1f} {unit} | {sized:+.1f} {dunit}")
+    msg += f"Total allocated size: {size:.1f} {unit} | {sized:+.1f} {dunit}\n"
+    logger.info(msg)
 
 
 def _get_antenna_vis(
