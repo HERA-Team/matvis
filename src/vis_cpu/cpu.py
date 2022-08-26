@@ -1,14 +1,15 @@
 """CPU-based implementation of the visibility simulator."""
 from __future__ import annotations
 
+import linecache
 import logging
 import numpy as np
 import psutil
 import time
+import tracemalloc as tm
 from astropy.constants import c
 from pympler import tracker
 from pyuvdata import UVBeam
-from re import I
 from typing import Callable, Sequence
 
 from . import conversions
@@ -294,6 +295,9 @@ def vis_cpu(
 
     tr = tracker.SummaryTracker()
 
+    tm.start()
+
+    snapshot1 = tm.take_snapshot()
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
         # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
@@ -339,11 +343,68 @@ def vis_cpu(
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
             tr.print_diff()
+            snapshot2 = tm.take_snapshot()
+            display_top(snapshot1, snapshot2)
+            snapshot1 = snapshot2
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
     # Return visibilities with or without multiple polarization channels
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+
+
+def display_top(sn1, sn2, key_type="lineno", limit=10):
+    """Display top N malloc differences between snapshots."""
+    sn1 = sn1.filter_traces(
+        (
+            tm.Filter(False, "<frozen importlib._bootstrap>"),
+            tm.Filter(False, "<unknown>"),
+        )
+    )
+    sn2 = sn2.filter_traces(
+        (
+            tm.Filter(False, "<frozen importlib._bootstrap>"),
+            tm.Filter(False, "<unknown>"),
+        )
+    )
+
+    top_stats = sn2.compare_to(sn1, key_type)
+
+    def _get_size_unit(size):
+        if size > 1024**3:
+            size = size / 1024**3
+            unit = "GB"
+        elif size > 1024**2:
+            size = size / 1024**2
+            unit = "MB"
+        elif size > 1024**1:
+            size = size / 1024**1
+            unit = "KB"
+        else:
+            size = size
+            unit = "B"
+        return size, unit
+
+    logger.info(f"Top {limit} lines")
+    for index, stat in enumerate(top_stats[:limit], 1):
+        frame = stat.traceback[0]
+        size, unit = _get_size_unit(stat.size)
+        sized, dunit = _get_size_unit(stat.size_diff)
+        logger.info(
+            f"#{index}: {frame.filename}:{frame.lineno}: {size:.1f} {unit}, {stat.count:d} | {sized:+.1f} {dunit}, {stat.count_diff:+d} "
+        )
+
+        if line := linecache.getline(frame.filename, frame.lineno).strip():
+            logger.info(f"    {line}")
+
+    if other := top_stats[limit:]:
+        size, unit = _get_size_unit(sum(stat.size for stat in other))
+        sized, dunit = _get_size_unit(sum(stat.size_diff for stat in other))
+        logger.info(f"{len(other)} others: {size:.1f} {unit} | {sized:+.1f} {dunit}")
+
+    size, unit = _get_size_unit(sum(stat.size for stat in top_stats))
+    sized, dunit = _get_size_unit(sum(stat.size_diff for stat in top_stats))
+    logger.info(f"Total allocated size: {size:.1f} {unit} | {sized:+.1f} {dunit}")
 
 
 def _get_antenna_vis(
