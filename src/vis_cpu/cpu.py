@@ -287,7 +287,7 @@ def vis_cpu(
     ang_freq = real_dtype(2.0 * np.pi * freq)
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
+    vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
     crd_eq = crd_eq.astype(real_dtype)
 
     # Have up to 100 reports as it iterates through time.
@@ -312,7 +312,7 @@ def vis_cpu(
         nsrcs_up = len(tx)
         isqrt = Isqrt[above_horizon]
 
-        A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+        A_s = np.full((nax, nfeed, nbeam, nsrcs_up), 0.0, dtype=complex_dtype)
 
         _evaluate_beam_cpu(
             A_s,
