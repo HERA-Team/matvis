@@ -15,6 +15,7 @@ from pyuvdata import UVBeam
 from typing import Callable, Sequence
 
 from . import conversions
+from ._utils import addLoggingLevel
 
 # This enables us to put in profile decorators that will be no-ops if no profiling
 # library is being used.
@@ -25,6 +26,8 @@ except NameError:
 
 
 logger = logging.getLogger(__name__)
+
+addLoggingLevel("MEMTRACE", logging.DEBUG + 5)
 
 
 def _wrangle_beams(
@@ -261,14 +264,10 @@ def vis_cpu(
         shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
-    if not tm.is_tracing():
+    if not tm.is_tracing() and logger.isEnabledFor(logging.MEMTRACE):
         tm.start()
 
-    cm, pm = tm.get_traced_memory()
-    logger.info(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
-    logger.info(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
-    highest_peak = pm
-    tm.reset_peak()
+    highest_peak = _memtrace(0)
 
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
@@ -306,14 +305,7 @@ def vis_cpu(
     mlast = pr.memory_info().rss
     plast = tstart
 
-    cm, pm = tm.get_traced_memory()
-    if pm > highest_peak:
-        highest_peak = pm
-
-    logger.info(f"Current Memory usage  : {cm/1024**3:.3f} GB")
-    logger.info(f"Peak Memory usage     : {pm/1024**3:.3f} GB")
-    logger.info(f"Peak Memory usage(tot): {highest_peak/1024**3:.3f} GB")
-    tm.reset_peak()
+    highest_peak = _memtrace(highest_peak)
 
     snapshot1 = tm.take_snapshot()
     # Loop over time samples
@@ -357,20 +349,10 @@ def vis_cpu(
         vis[t] = v.conj().dot(v.T)
         _log_array("vis", vis[t])
 
-        gc.collect()
         if not t % report_chunk or t == ntimes - 1:
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
-            if logger.isEnabledFor(logging.INFO):
-                cm, pm = tm.get_traced_memory()
-                if pm > highest_peak:
-                    highest_peak = pm
-                logger.info(f"Tracemalloc Current Memory  (GB): {cm / 1024**3:.2f}")
-                logger.info(f"Traemalloc Peak Memory (it) (GB): {pm / 1024**3:.2f}")
-                logger.info(
-                    f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}"
-                )
-                tm.reset_peak()
+            highest_peak = _memtrace(highest_peak)
 
             if logger.isEnabledFor(logging.DEBUG):
                 snapshot2 = tm.take_snapshot()
@@ -460,6 +442,18 @@ def _get_antenna_vis(
     # end up with shape (Nax, Nfeed, Nants, Nsources)
     v = A_s[:, beam_idx] * v[np.newaxis, :, np.newaxis, :]  # ^ but Nbeam -> Nant
     return v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
+
+
+def _memtrace(highest_peak) -> int:
+    if logger.isEnabledFor(logging.MEMTRACE):
+        cm, pm = tm.get_traced_memory()
+        logger.memtrace(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
+        logger.memtrace(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
+        logger.memtrace(
+            f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}"
+        )
+        tm.reset_peak()
+        return max(pm, highest_peak)
 
 
 def _log_array(name, x):
