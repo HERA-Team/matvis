@@ -394,14 +394,14 @@ def display_top(sn1, sn2, key_type="lineno", limit=10):
 
         size, unit = _get_size_unit(stat.size)
         sized, dunit = _get_size_unit(stat.size_diff)
-        msg += f"#{index}: {frame.filename}:{frame.lineno}\n"
-        msg += f"  -> {size:.1f} {unit}, {stat.count:d} | {sized:+.1f} {dunit}, {stat.count_diff:+d}\n"
+        msg += f"#{index:>02}: {frame.filename}:{frame.lineno}\n"
+        msg += f"  -> {size:.1f} {unit}, {stat.count:>4} | {sized:+.1f} {dunit}, {stat.count_diff:+d}\n"
 
         if line := linecache.getline(frame.filename, frame.lineno).strip():
-            logger.info(f"  ->           Line: {line}\n")
+            msg += f"  ->           Line: {line}\n"
 
         if line := linecache.getline(last_frame.filename, last_frame.lineno).strip():
-            logger.info(f"  -> Top-Level Line: {line}\n")
+            msg += f"  -> Top-Level Line: {line}\n"
 
     msg += "\n"
     if other := top_stats[limit:]:
