@@ -300,6 +300,12 @@ def vis_cpu(
     mlast = pr.memory_info().rss
     plast = tstart
 
+    cm, pm = tm.get_traced_memory()
+    logger.info(f"Current Memory usage: {cm/1024**3:.2f} GB")
+    logger.info(f"Peak Memory usage   : {pm/1024**3:.2f} GB")
+    highest_peak = pm
+    tm.reset_peak()
+
     #    tr = tracker.SummaryTracker()
 
     snapshot1 = tm.take_snapshot()
@@ -350,8 +356,16 @@ def vis_cpu(
 
             if logger.isEnabledFor(logging.INFO):
                 cm, pm = tm.get_traced_memory()
-                logger.info(f"Tracemalloc Current Memory (GB): {cm / 1024**3:.2f}")
-                logger.info(f"Tracemalloc Peak Memory    (GB): {pm / 1024**3:.2f}")
+                if pm > highest_peak:
+                    highest_peak = pm
+                logger.info(f"Tracemalloc Current Memory  (GB): {cm / 1024**3:.2f}")
+                logger.info(f"Traemalloc Peak Memory (it) (GB): {pm / 1024**3:.2f}")
+                logger.info(
+                    f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}"
+                )
+                tm.reset_peak()
+
+            if logger.isEnabledFor(logging.DEBUG):
                 snapshot2 = tm.take_snapshot()
                 display_top(snapshot1, snapshot2)
                 snapshot1 = snapshot2
@@ -421,7 +435,7 @@ def display_top(sn1, sn2, key_type="lineno", limit=10):
     size, unit = _get_size_unit(sum(stat.size for stat in top_stats))
     sized, dunit = _get_size_unit(sum(stat.size_diff for stat in top_stats))
     msg += f"Total allocated size: {size:.1f} {unit} | {sized:+.1f} {dunit}\n"
-    logger.info(msg)
+    logger.debug(msg)
 
 
 def _get_antenna_vis(
