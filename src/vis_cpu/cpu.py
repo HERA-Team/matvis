@@ -260,6 +260,8 @@ def vis_cpu(
         shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
+    tm.start()
+
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
     )
@@ -295,8 +297,6 @@ def vis_cpu(
     plast = tstart
 
     tr = tracker.SummaryTracker()
-
-    tm.start()
 
     snapshot1 = tm.take_snapshot()
     # Loop over time samples
