@@ -1,6 +1,7 @@
 """CPU-based implementation of the visibility simulator."""
 from __future__ import annotations
 
+import gc
 import linecache
 import logging
 import numpy as np
@@ -339,6 +340,7 @@ def vis_cpu(
         vis[t] = v.conj().dot(v.T)
         _log_array("vis", vis[t])
 
+        gc.collect()
         if not t % report_chunk or t == ntimes - 1:
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
