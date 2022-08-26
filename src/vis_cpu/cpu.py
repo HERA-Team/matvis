@@ -261,7 +261,8 @@ def vis_cpu(
         shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
-    tm.start()
+    if not tm.is_tracing():
+        tm.start()
 
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
@@ -288,6 +289,8 @@ def vis_cpu(
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
     vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
+    logger.info(f"Visibility Array takes {vis.nbytes/1024**2:.1f} MB")
+
     crd_eq = crd_eq.astype(real_dtype)
 
     # Have up to 100 reports as it iterates through time.
@@ -345,10 +348,13 @@ def vis_cpu(
         if not t % report_chunk or t == ntimes - 1:
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
-            # tr.print_diff()
-            snapshot2 = tm.take_snapshot()
-            display_top(snapshot1, snapshot2)
-            snapshot1 = snapshot2
+            if logger.isEnabledFor(logging.INFO):
+                cm, pm = tm.get_traced_memory()
+                logger.info(f"Tracemalloc Current Memory (GB): {cm / 1024**3:.2f}")
+                logger.info(f"Tracemalloc Peak Memory    (GB): {pm / 1024**3:.2f}")
+                snapshot2 = tm.take_snapshot()
+                display_top(snapshot1, snapshot2)
+                snapshot1 = snapshot2
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
