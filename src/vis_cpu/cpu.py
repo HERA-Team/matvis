@@ -267,6 +267,8 @@ def vis_cpu(
     cm, pm = tm.get_traced_memory()
     logger.info(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
     logger.info(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
+    highest_peak = pm
+    tm.reset_peak()
 
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
@@ -305,12 +307,13 @@ def vis_cpu(
     plast = tstart
 
     cm, pm = tm.get_traced_memory()
-    logger.info(f"Current Memory usage: {cm/1024**3:.3f} GB")
-    logger.info(f"Peak Memory usage   : {pm/1024**3:.3f} GB")
-    highest_peak = pm
-    tm.reset_peak()
+    if pm > highest_peak:
+        highest_peak = pm
 
-    #    tr = tracker.SummaryTracker()
+    logger.info(f"Current Memory usage  : {cm/1024**3:.3f} GB")
+    logger.info(f"Peak Memory usage     : {pm/1024**3:.3f} GB")
+    logger.info(f"Peak Memory usage(tot): {highest_peak/1024**3:.3f} GB")
+    tm.reset_peak()
 
     snapshot1 = tm.take_snapshot()
     # Loop over time samples
