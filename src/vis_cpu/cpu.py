@@ -9,7 +9,8 @@ import psutil
 import time
 import tracemalloc as tm
 from astropy.constants import c
-from pympler import tracker
+
+# from pympler import tracker
 from pyuvdata import UVBeam
 from typing import Callable, Sequence
 
@@ -296,7 +297,7 @@ def vis_cpu(
     mlast = pr.memory_info().rss
     plast = tstart
 
-    tr = tracker.SummaryTracker()
+    #    tr = tracker.SummaryTracker()
 
     snapshot1 = tm.take_snapshot()
     # Loop over time samples
@@ -344,7 +345,7 @@ def vis_cpu(
         if not t % report_chunk or t == ntimes - 1:
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
-            tr.print_diff()
+            # tr.print_diff()
             snapshot2 = tm.take_snapshot()
             display_top(snapshot1, snapshot2)
             snapshot1 = snapshot2
