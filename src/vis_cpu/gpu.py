@@ -279,7 +279,7 @@ def vis_gpu(
 
     # output CPU buffers for downloading answers
     vis_cpus = [
-        np.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+        np.full((nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
         for _ in range(chunk)
     ]
     streams = [driver.Stream() for _ in range(chunk)]
