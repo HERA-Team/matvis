@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+import psutil
+import time
 import warnings
 from astropy.constants import c as speed_of_light
 from pathlib import Path
@@ -11,7 +13,13 @@ from typing import Callable, Optional, Sequence
 
 from . import conversions
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
-from .cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
+from .cpu import (
+    _evaluate_beam_cpu,
+    _log_progress,
+    _validate_inputs,
+    _wrangle_beams,
+    vis_cpu,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +113,7 @@ def vis_gpu(
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
+    pr = psutil.Process()
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
     )
@@ -291,6 +300,12 @@ def vis_gpu(
 
     logger.info("Running With %s chunks: ", chunk)
 
+    report_chunk = ntimes // 100 + 1
+    pr = psutil.Process()
+    tstart = time.time()
+    mlast = pr.memory_info().rss
+    plast = tstart
+
     for t in range(ntimes):
         eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
         events = [{e: driver.Event() for e in event_order} for _ in range(chunk)]
@@ -402,7 +417,7 @@ def vis_gpu(
                     int(np.ceil(nfeed / float(meas_block[2]))),
                 )
 
-                logger.info(f"Measurement Eq. Grid Size: {grid}")
+                logger.debug(f"Measurement Eq. Grid Size: {grid}")
 
                 _logdebug(A_gpu, "Beam")
 
@@ -462,6 +477,9 @@ def vis_gpu(
 
         events[chunk - 1]["end"].synchronize()
         vis[t] = sum(vis_cpus)
+
+        if not t % report_chunk or t == ntimes - 1:
+            plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
     # teardown GPU configuration
     cublasDestroy(h)
