@@ -296,7 +296,7 @@ def vis_gpu(
     if use_uvbeam:
         event_order.insert(4, "interpolation")
 
-    vis = np.empty((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
+    vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
 
     logger.info("Running With %s chunks: ", chunk)
 
