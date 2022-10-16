@@ -2,6 +2,15 @@
 Changelog
 =========
 
+Dev
+===
+
+Fixed
+-----
+
+- Better handling of errors when GPUs are present but currently unavailable for some
+  reason.
+
 Version 1.0.1
 =============
 
