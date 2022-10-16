@@ -43,6 +43,13 @@ try:
     HAVE_CUDA = True
 
 except ImportError:
+    # if not installed, don't warn
+    HAVE_CUDA = False
+    Template = no_op
+except Exception as e:
+    # if installed but having initialization issues
+    # warn, but default back to non-gpu functionality
+    warnings.warn(str(e))
     HAVE_CUDA = False
     Template = no_op
 
