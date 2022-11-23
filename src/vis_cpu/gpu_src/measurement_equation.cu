@@ -33,9 +33,6 @@ __global__ void MeasEq(
     const uint nfeed= {{ NFEED }};
     const uint nant = {{ NANT }};
 
-    const uint tx = threadIdx.x; // First dim is src
-    const uint ty = threadIdx.y; // Second dim is ant
-
     const uint src  =  blockIdx.x * blockDim.x + threadIdx.x;  // first thread dim is src on sky
     const uint antax = blockIdx.y * blockDim.y + threadIdx.y;  // second thread dim is nax*nant
     const uint feed  = blockIdx.z * blockDim.z + threadIdx.z;  // third thread dim is nfeed
@@ -51,8 +48,8 @@ __global__ void MeasEq(
     // Create both real/imag parts of the "amplitude"
     uint tau_indx = ant*nsrc + src;
     uint Aindx = ax*(nfeed*nbeam*nsrc) + feed*nbeam*nsrc + beam*nsrc + src;
-    amp.x = A[Aindx].x * sh_buf[tx];
-    amp.y = A[Aindx].y * sh_buf[tx];
+    amp.x = A[Aindx].x * sqrtI[src];
+    amp.y = A[Aindx].y * sqrtI[src];
 
     phs = tau[tau_indx] * freq;
 
