@@ -18,10 +18,6 @@
 #include <pycuda-helpers.hpp>
 #include <stdio.h>
 
-// Shared memory for storing per-antenna results to be reused among all ants
-// for "BLOCK_PX" pixels, avoiding a rush on global memory.
-__shared__ {{ DTYPE }} sh_buf[{{ BLOCK_PX }}*5];
-
 // Compute A*I*exp(ij*tau*freq) for all antennas, storing output in v
 __global__ void MeasEq(
     {{ CDTYPE }} *A,
@@ -51,9 +47,6 @@ __global__ void MeasEq(
     {{ CDTYPE }} amp;
     {{ DTYPE }} phs;
     if (ant >= nant || ax >= nax || feed >= nfeed || src >= nsrc) return;
-    if (ty == 0)
-        sh_buf[tx] = sqrtI[src];
-    __syncthreads(); // make sure all memory is loaded before computing
 
     // Create both real/imag parts of the "amplitude"
     uint tau_indx = ant*nsrc + src;

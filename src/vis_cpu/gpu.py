@@ -157,19 +157,6 @@ def vis_gpu(
         freq=freq,
     )
 
-    # Ways to block up threads for sending to GPU calculations. "Meas" is for the
-    # measurement equation function, and "prod" is for the inner-product calculation.
-    meas_block = (
-        max(1, nthreads // (nant * nax * nfeed)),
-        min(nthreads, nant * nax),
-        min(nthreads, nfeed),
-    )
-
-    logger.info(
-        f"Using {np.prod(meas_block)} threads in total for measurement equation."
-    )
-    logger.info(f"Using a shared-memory buffer of size {5*meas_block[0]}.")
-
     use_uvbeam = isinstance(beam_list[0], UVBeam)
     if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
         raise ValueError(
@@ -181,7 +168,6 @@ def vis_gpu(
         "NAX": nax,
         "NFEED": nfeed,
         "NBEAM": nbeam,
-        "BLOCK_PX": meas_block[0],
         "DTYPE": DTYPE,
         "CDTYPE": CDTYPE,
         "f": "f" if precision == 1 else "",
@@ -401,19 +387,18 @@ def vis_gpu(
                     Isqrt_gpu.get()[above_horizon].copy(), stream=stream
                 )
 
-                # blocks of threads are mapped to (pixels,ants,freqs)
-
-                grid = (
-                    int(np.ceil(nsrcs_up / float(meas_block[0]))),
-                    int(np.ceil(nax * nant / float(meas_block[1]))),
-                    int(np.ceil(nfeed / float(meas_block[2]))),
-                )
-
-                logger.info(f"Measurement Eq. Grid Size: {grid}")
-
                 _logdebug(A_gpu, "Beam")
 
                 # compute v = A * sqrtI * exp(1j*tau*freq)
+                # Ways to block up threads for sending to GPU calculations. "Meas" is for the
+                # measurement equation function, and "prod" is for the inner-product calculation.
+                block, grid = _get_3d_block_grid(nthreads, nsrcs_up, nant * nax, nfeed)
+
+                logger.info(
+                    f"Using {np.prod(block)} threads in total, in a grid of {grid}, "
+                    "for measurement equation."
+                )
+
                 meas_eq(
                     A_gpu,
                     Isqrt_lim_gpu,
@@ -423,7 +408,7 @@ def vis_gpu(
                     beam_idx,
                     v_gpu,
                     grid=grid,
-                    block=meas_block,
+                    block=block,
                     stream=stream,
                 )
                 events[cc]["meas_eq"].record(stream)
@@ -615,16 +600,7 @@ def gpu_beam_interpolation(
         beam_interp_module = compiler.SourceModule(beam_interp_code)
         gpu_func = beam_interp_module.get_function("InterpolateBeamAltAz")
 
-    block = (
-        max(1, nthreads // nbeam // (nax * nfeed)),
-        min(nthreads, nbeam),
-        nax * nfeed,
-    )
-    grid = (
-        int(np.ceil(nsrc / float(block[0]))),
-        int(np.ceil(nbeam / float(block[1]))),
-        int(np.ceil(nax * nfeed / float(block[2]))),
-    )
+    block, grid = _get_3d_block_grid(nthreads, nsrc, nbeam, nax * nfeed)
 
     az_gpu = gpuarray.to_gpu_async(az, stream=stream)
     za_gpu = gpuarray.to_gpu_async(za, stream=stream)
@@ -660,6 +636,31 @@ def gpu_beam_interpolation(
         return beam_at_src.get_async(stream=stream)
     else:
         return beam_at_src
+
+
+def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
+    """Create a block/grid layout for 3D where axis speed is a > b > c.
+
+    This puts a,b,c into the 1st 2nd and 3rd axes, and optimizes for the "a" axis
+    moving the fastest.
+    """
+    bla = min(nthreads, a)
+    blb = min(nthreads // bla, b // bla)
+    blc = min(nthreads // (bla * blb), c // (bla * blb))
+    block = (bla, blb, blc)
+
+    grid = (
+        int(np.ceil(a / float(block[0]))),
+        int(np.ceil(b / float(block[1]))),
+        int(np.ceil(c / float(block[2]))),
+    )
+
+    if np.prod(block) > nthreads:
+        raise ValueError(
+            f"Something went wrong with setting block shape. Got {block} which has "
+            f"more than {nthreads} threads."
+        )
+    return block, grid
 
 
 vis_gpu.__doc__ += vis_cpu.__doc__
