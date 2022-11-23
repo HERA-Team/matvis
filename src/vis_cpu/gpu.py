@@ -645,8 +645,8 @@ def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
     moving the fastest.
     """
     bla = min(nthreads, a)
-    blb = min(nthreads // bla, b // bla)
-    blc = min(nthreads // (bla * blb), c // (bla * blb))
+    blb = max(1, min(nthreads // bla, b // bla))
+    blc = max(1, min(nthreads // (bla * blb), c // (bla * blb)))
     block = (bla, blb, blc)
 
     grid = (
