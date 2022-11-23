@@ -143,12 +143,6 @@ def vis_gpu(
     crd_eq = crd_eq.astype(real_dtype)
     Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
 
-    chunk = max(
-        min(nsrc, min_chunks),
-        2 ** int(np.ceil(np.log2(float(nant * nsrc) / max_memory / 2))),
-    )
-    npixc = nsrc // chunk
-
     beam_list, nbeam, beam_idx = _wrangle_beams(
         beam_idx=beam_idx,
         beam_list=beam_list,
@@ -156,6 +150,19 @@ def vis_gpu(
         nant=nant,
         freq=freq,
     )
+
+    total_beam_pix = sum(
+        beam.data_array.shape[-2] * beam.data_array.shape[-1]
+        for beam in beam_list
+        if hasattr(beam, "data_array")
+    )
+
+    chunk = max(
+        min_chunks,
+        _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, total_beam_pix, precision),
+    )
+
+    npixc = nsrc // chunk
 
     use_uvbeam = isinstance(beam_list[0], UVBeam)
     if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
@@ -664,3 +671,28 @@ def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
 
 
 vis_gpu.__doc__ += vis_cpu.__doc__
+
+
+def _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, nbeampix, precision):
+    freemem = driver.mem_get_info()[0]  # in bytes
+    size = 4 * precision
+
+    gpusize = freemem
+    ch = 1
+    while gpusize >= freemem and ch < 100:
+        gpusize = (
+            nant * 3 * size
+            + nsrc // ch * size  # antpos
+            + nbeampix * nfeed * nax * size * 2  # Isqrt
+            + 3 * nsrc // ch * size  # complex beam data
+            + 3 * nsrc // ch * size  # crd_eq_gpu
+            + nfeed * nant * nax * nant * ch * size * 2  # crdtop
+            + nax * nfeed * nbeam * nsrc // ch // 2 * size * 2  # vis_gpus
+            + nant * nsrc // ch // 2 * size * 2  # interpolated beam  # ant-vis
+        )
+        ch += 1
+
+    logger.info(
+        f"Total free mem on GPU: {freemem/(1024**3):.2f} GB. Requires {ch} chunks."
+    )
+    return ch
