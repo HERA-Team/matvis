@@ -157,9 +157,14 @@ def vis_gpu(
         if hasattr(beam, "data_array")
     )
 
-    nchunks = max(
-        min_chunks,
-        _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, total_beam_pix, precision),
+    nchunks = min(
+        max(
+            min_chunks,
+            _get_required_chunks(
+                nax, nfeed, nant, nsrc, nbeam, total_beam_pix, precision
+            ),
+        ),
+        nsrc,
     )
 
     npixc = nsrc // nchunks
@@ -270,7 +275,7 @@ def vis_gpu(
 
     # output CPU buffers for downloading answers
     vis_cpus = [
-        np.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+        np.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
         for _ in range(nchunks)
     ]
     streams = [driver.Stream() for _ in range(nchunks)]
@@ -377,8 +382,7 @@ def vis_gpu(
                 dza,
                 beam_interp,
                 beam_data_gpu,
-                events,
-                c,
+                event,
                 stream,
                 tx,
                 ty,
@@ -449,7 +453,6 @@ def vis_gpu(
 
             vis_gpus[c].get(ary=vis_cpus[c], stream=stream)
             event["end"].record(stream)
-
         events[nchunks - 1]["end"].synchronize()
         vis[t] = sum(vis_cpus)
 
@@ -473,8 +476,7 @@ def do_beam_interpolation(
     dza,
     beam_interp,
     beam_data_gpu,
-    events,
-    cc,
+    event,
     stream,
     tx,
     ty,
@@ -495,7 +497,7 @@ def do_beam_interpolation(
             stream=stream,
             return_on_cpu=False,
         )
-        events[cc]["interpolation"].record(stream)
+        event["interpolation"].record(stream)
     else:
         A_gpu = gpuarray.empty(shape=(nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
         A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
@@ -668,22 +670,26 @@ def _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, nbeampix, precision):
     freemem = driver.mem_get_info()[0]  # in bytes
     size = 4 * precision
 
-    gpusize = freemem
-    ch = 1
-    while gpusize >= freemem and ch < 100:
-        gpusize = (
-            nant * 3 * size
-            + nsrc // ch * size  # antpos
-            + nbeampix * nfeed * nax * size * 2  # Isqrt
-            + 3 * nsrc // ch * size  # complex beam data
-            + 3 * nsrc // ch * size  # crd_eq_gpu
-            + nfeed * nant * nax * nant * ch * size * 2  # crdtop
-            + nax * nfeed * nbeam * nsrc // ch // 2 * size * 2  # vis_gpus
-            + nant * nsrc // ch // 2 * size * 2  # interpolated beam  # ant-vis
-        )
+    gpusize = [freemem]
+    ch = 0
+    while sum(gpusize) >= freemem and ch < 100:
         ch += 1
+        gpusize = [
+            nant * 3 * size,
+            nsrc // ch * size,  # antpos
+            nbeampix * nfeed * nax * size * 2,  # Isqrt
+            3 * nsrc // ch * size,  # complex beam data
+            3 * nsrc // ch * size,  # crd_eq_gpu
+            nfeed * nant * nax * nant * ch * size * 2,  # crdtop
+            nax * nfeed * nbeam * nsrc // ch // 2 * size * 2,  # vis_gpus
+            nant * nsrc // ch // 2 * size * 2,  # interpolated beam  # ant-vis
+        ]
+        logger.debug(
+            f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize)}"
+        )
 
     logger.info(
-        f"Total free mem on GPU: {freemem/(1024**3):.2f} GB. Requires {ch} chunks."
+        f"Total free mem on GPU: {freemem/(1024**3):.2f} GB. Requires {ch} chunks "
+        f"(estimate {sum(gpusize) / 1024**3:.2f} GB)"
     )
     return ch
