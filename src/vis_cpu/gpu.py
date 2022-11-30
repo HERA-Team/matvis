@@ -31,13 +31,15 @@ try:
     from pycuda import cumath as cm
     from pycuda import driver, gpuarray
     from skcuda.cublas import (
-        cublasCgemm,
+#        cublasCgemm,
         cublasCreate,
         cublasDestroy,
         cublasDgemm,
         cublasSetStream,
         cublasSgemm,
-        cublasZgemm,
+#        cublasZgemm,
+        cublasCherk,
+        cublasZherk,
     )
 
     HAVE_CUDA = True
@@ -126,11 +128,11 @@ def vis_gpu(
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64
         cublas_real_mm = cublasSgemm
-        cublas_complex_mm = cublasCgemm
+        cublas_complex_mm = cublasCherk
     else:
         real_dtype, complex_dtype = np.float64, np.complex128
         cublas_real_mm = cublasDgemm
-        cublas_complex_mm = cublasZgemm
+        cublas_complex_mm = cublasZherk
 
     DTYPE, CDTYPE = TYPE_MAP[real_dtype], TYPE_MAP[complex_dtype]
 
@@ -433,14 +435,11 @@ def vis_gpu(
             # v_gpu is (nfeed * nant, nax * nsrcs_up)
             cublas_complex_mm(
                 h,
+                'u',  # upper triangle of matrix stored.
                 "c",  # conjugate transpose for first (remember fortran order)
-                "n",  # no transpose for second.
-                nfeed * nant,
                 nfeed * nant,
                 nax * nsrcs_up,
                 1.0,
-                v_gpu.gpudata,
-                nax * nsrcs_up,
                 v_gpu.gpudata,
                 nax * nsrcs_up,
                 0.0,

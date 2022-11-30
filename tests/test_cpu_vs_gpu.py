@@ -73,5 +73,6 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
     # ---------------------------------------------------------------------------
     rtol = 2e-4 if use_analytic_beam else 0.01
     atol = 5e-4
+
     np.testing.assert_allclose(vis_vg.real, vis_vc.real, rtol=rtol, atol=atol)
     np.testing.assert_allclose(vis_vg.imag, vis_vc.imag, rtol=rtol, atol=atol)
