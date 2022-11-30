@@ -334,13 +334,14 @@ def vis_gpu(
             tx = tx[above_horizon]
             ty = ty[above_horizon]
             nsrcs_up = len(tx)
+
+            if nsrcs_up < 1:
+                continue
+
             crdtop_lim_gpu = gpuarray.to_gpu_async(
                 crdtop_gpu.get_async(stream=stream)[:, above_horizon].copy(),
                 stream=stream,
             )
-
-            if nsrcs_up < 1:
-                continue
 
             tau_gpu = gpuarray.empty(shape=(nant, nsrcs_up), dtype=real_dtype)
 
