@@ -74,12 +74,13 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
                     d_uvsim = uvd_uvsim.get_data(
                         (i, j, feed1 + feed2)
                     ).T  # pyuvsim visibility
-                    d_viscpu = (
-                        vis_vc[:, :, if1, if2, i, j]
-                        if polarized
-                        else vis_vc[:, :, i, j]
-                    )
-
+                    if not polarized:
+                        d_viscpu = vis_vc[:, :, i, j]
+                    elif if1 <= if2:
+                        d_viscpu = vis_vc[:, :, if1, if2, i, j]
+                    else:
+                        d_viscpu = vis_vc[:, :, if2, if1, j, i].conj()
+                            
                     # Keep track of maximum difference
                     delta = d_uvsim - d_viscpu
                     if np.max(np.abs(delta.real)) > diff_re:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import numpy as np
-import warnings
+from scipy.linalg import blas
 from astropy.constants import c
 from pyuvdata import UVBeam
 from re import I
@@ -322,7 +322,7 @@ def vis_cpu(
         _log_array("vant", v)
 
         # Compute visibilities using product of complex voltages (upper triangle).
-        vis[t] = v.conj().dot(v.T)
+        vis[t] = blas.zherk(1.0, v.conj(), lower=0)
         _log_array("vis", vis[t])
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)

@@ -271,7 +271,7 @@ def vis_gpu(
     crdtop_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
     # will be set on GPU
     vis_gpus = [
-        gpuarray.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+        gpuarray.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
         for _ in range(nchunks)
     ]
 
@@ -435,7 +435,7 @@ def vis_gpu(
             # v_gpu is (nfeed * nant, nax * nsrcs_up)
             cublas_complex_mm(
                 h,
-                'u',  # upper triangle of matrix stored.
+                'l',  # lower triangle of matrix stored.
                 "c",  # conjugate transpose for first (remember fortran order)
                 nfeed * nant,
                 nax * nsrcs_up,
