@@ -54,8 +54,10 @@ main = click.Group()
 
 def get_label(kw):
     """Get a short string label from input parameters to the CLI."""
-    return "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_nch{nchunks}_g{gpu}_pr{2 if double_precision else 1}".format(
-        **kw
+    pr = int(kw["double_precision"]) + 1
+    bmkind = "anl" if kw["analytic_beam"] else "interp"
+    return "nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_nch{nchunks}_g{gpu}_pr{pr}_{bmkind}".format(
+        pr=pr, bmkind=bmkind, **kw
     )
 
 
