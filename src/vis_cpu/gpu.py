@@ -31,14 +31,14 @@ try:
     from pycuda import cumath as cm
     from pycuda import driver, gpuarray
     from skcuda.cublas import (
-#        cublasCgemm,
+        cublasCgemm,
+        cublasCherk,
         cublasCreate,
         cublasDestroy,
         cublasDgemm,
         cublasSetStream,
         cublasSgemm,
-#        cublasZgemm,
-        cublasCherk,
+        cublasZgemm,
         cublasZherk,
     )
 
@@ -104,15 +104,22 @@ def vis_gpu(
     beam_list: Sequence[UVBeam | Callable] | None,
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
-    nthreads: int = 1024,
+    nthreads: int | None = None,
     max_memory: int = 2**29,
     min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
+    use_hermitian_symmetry: bool = False,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
+
+    # TODO: ability to use more than one device...
+    device = driver.Device(0)
+
+    if nthreads is None:
+        nthreads = device.MAX_THREADS_PER_BLOCK
 
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
@@ -128,11 +135,11 @@ def vis_gpu(
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64
         cublas_real_mm = cublasSgemm
-        cublas_complex_mm = cublasCherk
+        cublas_complex_mm = cublasCherk if use_hermitian_symmetry else cublasCgemm
     else:
         real_dtype, complex_dtype = np.float64, np.complex128
         cublas_real_mm = cublasDgemm
-        cublas_complex_mm = cublasZherk
+        cublas_complex_mm = cublasZherk if use_hermitian_symmetry else cublasZgemm
 
     DTYPE, CDTYPE = TYPE_MAP[real_dtype], TYPE_MAP[complex_dtype]
 
@@ -433,20 +440,37 @@ def vis_gpu(
             # E-field components, and integrate over the sky.
             # Remember cublas is in fortran order...
             # v_gpu is (nfeed * nant, nax * nsrcs_up)
-            cublas_complex_mm(
-                h,
-                'l',  # lower triangle of matrix stored.
-                "c",  # conjugate transpose for first (remember fortran order)
-                nfeed * nant,
-                nax * nsrcs_up,
-                1.0,
-                v_gpu.gpudata,
-                nax * nsrcs_up,
-                0.0,
-                vis_gpus[c].gpudata,
-                nfeed * nant,
-            )
-
+            if use_hermitian_symmetry:
+                cublas_complex_mm(
+                    h,
+                    "l",  # lower triangle of matrix stored.
+                    "c",  # conjugate transpose for first (remember fortran order)
+                    nfeed * nant,
+                    nax * nsrcs_up,
+                    1.0,
+                    v_gpu.gpudata,
+                    nax * nsrcs_up,
+                    0.0,
+                    vis_gpus[c].gpudata,
+                    nfeed * nant,
+                )
+            else:
+                cublas_complex_mm(
+                    h,
+                    "c",  # conjugate transpose for first (remember fortran order)
+                    "n",  # no transpose for second.
+                    nfeed * nant,
+                    nfeed * nant,
+                    nax * nsrcs_up,
+                    1.0,
+                    v_gpu.gpudata,
+                    nax * nsrcs_up,
+                    v_gpu.gpudata,
+                    nax * nsrcs_up,
+                    0.0,
+                    vis_gpus[c].gpudata,
+                    nfeed * nant,
+                )
             _logdebug(vis_gpus[c], "Vis")
 
             event["vis"].record(stream)

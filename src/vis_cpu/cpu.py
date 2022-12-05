@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import logging
 import numpy as np
-from scipy.linalg import blas
 from astropy.constants import c
 from pyuvdata import UVBeam
 from re import I
 from scipy.interpolate import RectBivariateSpline
+from scipy.linalg import blas
 from typing import Callable, Optional, Sequence
 
 from . import conversions
@@ -200,6 +200,7 @@ def vis_cpu(
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
+    use_hermitian_symmetry: bool = False,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -322,7 +323,11 @@ def vis_cpu(
         _log_array("vant", v)
 
         # Compute visibilities using product of complex voltages (upper triangle).
-        vis[t] = blas.zherk(1.0, v.conj(), lower=0)
+        if use_hermitian_symmetry:
+            vis[t] = blas.zherk(1.0, v.conj(), lower=0)
+        else:
+            vis[t] = v.conj().dot(v.T)
+
         _log_array("vis", vis[t])
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)

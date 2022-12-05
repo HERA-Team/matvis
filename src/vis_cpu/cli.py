@@ -52,49 +52,68 @@ profiler = LineProfiler()
 main = click.Group()
 
 
+def get_label(kw):
+    """Get a short string label from input parameters to the CLI."""
+    return "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_nch{nchunks}_g{gpu}_pr{2 if double_precision else 1}".format(
+        **kw
+    )
+
+
+def group_options(*options):
+    """Simple way to group click options together."""
+
+    def wrapper(function):
+        for option in reversed(options):
+            function = option(function)
+        return function
+
+    return wrapper
+
+
+profile_options = [
+    click.option("-A/-I", "--analytic-beam/--interpolated-beam", default=True),
+    click.option("-f", "--nfreq", default=1),
+    click.option("-t", "--ntimes", default=1),
+    click.option(
+        "-a",
+        "--nants",
+        default=1,
+    ),
+    click.option("-b", "--nbeams", default=1),
+    click.option("-s", "--nsource", default=1),
+    click.option("-g/-c", "--gpu/--cpu", default=False),
+    click.option(
+        "-n",
+        "--gpu-nthreads",
+        default=None,
+        type=int,
+        help="Number of threads to use for GPU",
+    ),
+    click.option(
+        "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
+    ),
+    click.option(
+        "--nchunks",
+        default=1,
+        type=int,
+        help="Number of chunks to split the source axis into",
+    ),
+    click.option(
+        "-l",
+        "--log-level",
+        default="INFO",
+        type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+    ),
+    click.option("-o", "--outdir", default="."),
+    click.option("--double-precision/--single-precision", default=True),
+]
+
+
 @main.command()
-@click.option("-A/-I", "--analytic-beam/--interpolated-beam", default=True)
-@click.option("-f", "--nfreq", default=1)
-@click.option(
-    "-t",
-    "--ntimes",
-    default=1,
-)
-@click.option(
-    "-a",
-    "--nants",
-    default=1,
-)
-@click.option(
-    "-b",
-    "--nbeams",
-    default=1,
-)
-@click.option(
-    "-s",
-    "--nsource",
-    default=1,
-)
-@click.option(
-    "-g/-c",
-    "--gpu/--cpu",
-    default=False,
-)
-@click.option(
-    "-n", "--gpu-nthreads", default=1024, help="Number of threads to use for GPU"
-)
-@click.option(
-    "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
-)
-@click.option(
-    "-l",
-    "--log-level",
-    default="INFO",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
-)
-@click.option("-o", "--outdir", default=".")
-@click.option("--double-precision/--single-precision", default=True)
+@group_options(*profile_options)
+@click.pass_context
 def profile(
+    ctx,
     analytic_beam,
     nfreq,
     ntimes,
@@ -104,6 +123,7 @@ def profile(
     gpu,
     double_precision,
     outdir,
+    nchunks,
     verbose,
     log_level,
     gpu_nthreads,
@@ -147,6 +167,7 @@ def profile(
         profiler.add_function(vis_gpu)
         kw = {
             "nthreads": gpu_nthreads,
+            "min_chunks": nchunks,
         }
     else:
         profiler.add_function(vis_cpu)
@@ -174,7 +195,7 @@ def profile(
 
     outdir = Path(outdir).expanduser().absolute()
 
-    str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}"
+    str_id = get_label(ctx.params)
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
         profiler.print_stats(stream=fl, stripzeros=True)
