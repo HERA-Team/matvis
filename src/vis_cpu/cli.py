@@ -133,14 +133,14 @@ def profile(
 
     print("---------------------------------")
     print("Running vc-profile with:")
-    print(f"  NANTS:            {nants:>7}")
-    print(f"  NTIMES:           {ntimes:>7}")
-    print(f"  NFREQ:            {nfreq:>7}")
-    print(f"  NBEAMS:           {nbeams:>7}")
-    print(f"  NSOURCE:          {nsource:>7}")
-    print(f"  GPU:              {gpu:>7}")
+    print(f"             NANTS: {nants:>7}")
+    print(f"            NTIMES: {ntimes:>7}")
+    print(f"             NFREQ: {nfreq:>7}")
+    print(f"            NBEAMS: {nbeams:>7}")
+    print(f"           NSOURCE: {nsource:>7}")
+    print(f"               GPU: {gpu:>7}")
     print(f"  DOUBLE-PRECISION: {double_precision:>7}")
-    print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
+    print(f"     ANALYTIC-BEAM: {analytic_beam:>7}")
     print("---------------------------------")
 
     if gpu:
