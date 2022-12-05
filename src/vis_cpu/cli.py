@@ -56,8 +56,9 @@ def get_label(kw):
     """Get a short string label from input parameters to the CLI."""
     pr = int(kw["double_precision"]) + 1
     bmkind = "anl" if kw["analytic_beam"] else "interp"
-    return "nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_nch{nchunks}_g{gpu}_pr{pr}_{bmkind}".format(
-        pr=pr, bmkind=bmkind, **kw
+    herm = "herk" if kw["hermitian"] else "gemm"
+    return "nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_nch{nchunks}_g{gpu}_pr{pr}_{bmkind}_{herm}".format(
+        pr=pr, bmkind=bmkind, herm=herm, **kw
     )
 
 
@@ -108,6 +109,7 @@ profile_options = [
     ),
     click.option("-o", "--outdir", default="."),
     click.option("--double-precision/--single-precision", default=True),
+    click.option("--hermitian/--no-hermitian", default=False),
 ]
 
 
@@ -129,6 +131,7 @@ def profile(
     verbose,
     log_level,
     gpu_nthreads,
+    hermitian,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -189,6 +192,7 @@ def profile(
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=gpu,
         beam_idx=beam_idx,
+        use_hermitian_symmetry=hermitian,
         **kw,
     )
 
