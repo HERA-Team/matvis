@@ -307,7 +307,6 @@ def vis_cpu(
 
     highest_peak = _memtrace(highest_peak)
 
-    snapshot1 = tm.take_snapshot()
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
         # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
@@ -351,80 +350,12 @@ def vis_cpu(
 
         if not t % report_chunk or t == ntimes - 1:
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
-
             highest_peak = _memtrace(highest_peak)
-
-            if logger.isEnabledFor(logging.DEBUG):
-                snapshot2 = tm.take_snapshot()
-                display_top(snapshot1, snapshot2)
-                snapshot1 = snapshot2
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
     # Return visibilities with or without multiple polarization channels
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
-
-
-def display_top(sn1, sn2, key_type="lineno", limit=10):
-    """Display top N malloc differences between snapshots."""
-    sn1 = sn1.filter_traces(
-        (
-            tm.Filter(False, "<frozen importlib._bootstrap>"),
-            tm.Filter(False, "<unknown>"),
-        )
-    )
-    sn2 = sn2.filter_traces(
-        (
-            tm.Filter(False, "<frozen importlib._bootstrap>"),
-            tm.Filter(False, "<unknown>"),
-        )
-    )
-
-    top_stats = sn2.compare_to(sn1, key_type)
-
-    msg = "\n"
-
-    def _get_size_unit(size):
-        if size > 1024**3:
-            size = size / 1024**3
-            unit = "GB"
-        elif size > 1024**2:
-            size = size / 1024**2
-            unit = "MB"
-        elif size > 1024**1:
-            size = size / 1024**1
-            unit = "KB"
-        else:
-            size = size
-            unit = "B"
-        return size, unit
-
-    msg += f"Top {limit} lines:\n"
-    for index, stat in enumerate(top_stats[:limit], 1):
-        frame = stat.traceback[0]
-        last_frame = stat.traceback[-1]
-
-        size, unit = _get_size_unit(stat.size)
-        sized, dunit = _get_size_unit(stat.size_diff)
-        msg += f"#{index:>02}: {frame.filename}:{frame.lineno}\n"
-        msg += f"  -> {size:.1f} {unit}, {stat.count:>4} | {sized:+.1f} {dunit}, {stat.count_diff:+d}\n"
-
-        if line := linecache.getline(frame.filename, frame.lineno).strip():
-            msg += f"  ->           Line: {line}\n"
-
-        if line := linecache.getline(last_frame.filename, last_frame.lineno).strip():
-            msg += f"  -> Top-Level Line: {line}\n"
-
-    msg += "\n"
-    if other := top_stats[limit:]:
-        size, unit = _get_size_unit(sum(stat.size for stat in other))
-        sized, dunit = _get_size_unit(sum(stat.size_diff for stat in other))
-        msg += f"> {len(other)} others: {size:.1f} {unit} | {sized:+.1f} {dunit}\n"
-
-    size, unit = _get_size_unit(sum(stat.size for stat in top_stats))
-    sized, dunit = _get_size_unit(sum(stat.size_diff for stat in top_stats))
-    msg += f"Total allocated size: {size:.1f} {unit} | {sized:+.1f} {dunit}\n"
-    logger.debug(msg)
 
 
 def _get_antenna_vis(
