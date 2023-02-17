@@ -155,11 +155,17 @@ def _evaluate_beam_cpu(
         )[0]
 
         if polarized:
-            interp_beam = interp_beam[:, 0, :, 0, :]
+            if interp_beam.ndim == 4:
+                interp_beam = interp_beam[:, :, 0, :]
+            else:
+                interp_beam = interp_beam[:, 0, :, 0, :]
         else:
             # Here we have already asserted that the beam is a power beam and
             # has only one polarization, so we just evaluate that one.
-            interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
+            if interp_beam.ndim == 4:
+                interp_beam = np.sqrt(interp_beam[0, 0, 0, :])
+            else:
+                interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
 
         A_s[:, :, i] = interp_beam
 

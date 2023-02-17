@@ -169,11 +169,17 @@ def uvbeam_to_azza_grid(
 
         # Returned data has shape (Nax, Nfeeds, Nza, Naz)
         if uvbeam.beam_type == "efield":
-            return out[:, 0, :, 0], new_az[1] - new_az[0], dza
+            if out.ndim == 5:
+                return out[:, 0, :, 0], new_az[1] - new_az[0], dza
+            else:
+                return out[:, :, 0], new_az[1] - new_az[0], dza
         else:
             # For a power beam, we just want to the I part of the XX pol.
             # Also, need the sqrt of the beam (to make it quasi X)
-            out = out[0, 0, 0, 0]
+            if out.ndim == 5:
+                out = out[0, 0, 0, 0]
+            else:
+                out = out[0, 0, 0]
 
             # But we need to return it with the nax and nfeed dimensions (both have size 1)
             return out[np.newaxis, np.newaxis], new_az[1] - new_az[0], dza
