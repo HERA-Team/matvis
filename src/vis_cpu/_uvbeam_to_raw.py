@@ -127,6 +127,8 @@ def uvbeam_to_azza_grid(
             "The beam data does not cover the full sky. Cannot use in vis_cpu."
         )
 
+    uvbeam.use_future_array_shapes()
+
     # Simplest Case: everything is already in the regular format we need.
     if (
         naz == len(az)
@@ -135,14 +137,14 @@ def uvbeam_to_azza_grid(
         and covers_sky_strong
     ):
         # Returned data has shape (Nax, Nfeeds, Nza, Naz)
-        return uvbeam.data_array[:, 0, :, 0], delta_az, dza
+        return uvbeam.data_array[:, :, 0], delta_az, dza
     elif (
         naz == len(az)
         and np.isclose(dza, delta_za)
         and is_regular_grid
         and covers_sky_almost_strong
     ):
-        data = uvbeam.data_array[:, 0, :, 0]
+        data = uvbeam.data_array[:, :, 0]
         data = np.concatenate((data, data[..., [0]]), axis=-1)
         return data, delta_az, dza
     else:
@@ -170,17 +172,11 @@ def uvbeam_to_azza_grid(
 
         # Returned data has shape (Nax, Nfeeds, Nza, Naz)
         if uvbeam.beam_type == "efield":
-            if out.ndim == 5:
-                return out[:, 0, :, 0], new_az[1] - new_az[0], dza
-            else:
-                return out[:, :, 0], new_az[1] - new_az[0], dza
+            return out[:, :, 0], new_az[1] - new_az[0], dza
         else:
             # For a power beam, we just want to the I part of the XX pol.
             # Also, need the sqrt of the beam (to make it quasi X)
-            if out.ndim == 5:
-                out = out[0, 0, 0, 0]
-            else:
-                out = out[0, 0, 0]
+            out = out[0, 0, 0]
 
             # But we need to return it with the nax and nfeed dimensions (both have size 1)
             return out[np.newaxis, np.newaxis], new_az[1] - new_az[0], dza
