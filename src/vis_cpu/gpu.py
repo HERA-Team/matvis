@@ -120,7 +120,8 @@ def vis_gpu(
 
     if beam_spline_opts:
         warnings.warn(
-            "You have passed beam_spline_opts, but these are not used in GPU."
+            "You have passed beam_spline_opts, but these are not used in GPU.",
+            stacklevel=1,
         )
 
     nsrc = len(I_sky)

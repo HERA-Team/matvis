@@ -150,7 +150,8 @@ def uvbeam_to_azza_grid(
             "The raw beam data is either irregular, or does not have the spacing you "
             "desire. This means we need to interpolate to a grid, from which a second "
             "round of interpolation will be performed in the visibility calculation."
-            "You might be able to avoid this by not specifying a desired naz and dza."
+            "You might be able to avoid this by not specifying a desired naz and dza.",
+            stacklevel=1,
         )
 
         # We have to treat az and za differently. For az, we need to start at 0 and end at 2pi exactly.
