@@ -1,5 +1,6 @@
 """Tests."""
 import numpy as np
+from astropy import units as un
 from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
 from astropy.units import Quantity
@@ -139,7 +140,7 @@ def get_standard_sim_params(
         dec=Latitude(ra_dec[:, 1], "rad"),
         spectral_type="spectral_index",
         spectral_index=sources[:, 3],
-        stokes=stokes,
+        stokes=stokes * un.Jy,
         reference_frequency=Quantity(reference_frequency, "Hz"),
     )
 
