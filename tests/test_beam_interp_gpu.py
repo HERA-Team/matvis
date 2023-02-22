@@ -178,10 +178,10 @@ def test_non_identity_beamfile(polarized):
             for ibeam, bm in enumerate(feed):
                 print(iax, ifd, ibeam)
                 np.testing.assert_allclose(
-                    new_beam_uvb[iax, 0, ifd, 0].real, bm.real, rtol=1e-6
+                    new_beam_uvb[iax, ifd, 0].real, bm.real, rtol=1e-6
                 )
                 np.testing.assert_allclose(
-                    new_beam_uvb[iax, 0, ifd, 0].imag, bm.imag, rtol=1e-6
+                    new_beam_uvb[iax, ifd, 0].imag, bm.imag, rtol=1e-6
                 )
 
 
