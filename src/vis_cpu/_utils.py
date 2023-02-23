@@ -43,3 +43,19 @@ def addLoggingLevel(levelName, levelNum, methodName=None):
     setattr(logging, levelName, levelNum)
     setattr(logging.getLoggerClass(), methodName, logForLevel)
     setattr(logging, methodName, logToRoot)
+
+
+def human_readable_size(size, decimal_places=2, indicate_sign=False):
+    """Get a human-readable data size.
+
+    From: https://stackoverflow.com/a/43690506/1467820
+    """
+    for unit in ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]:
+        if abs(size) < 1024.0 or unit == "PiB":
+            break
+        size /= 1024.0
+
+    if indicate_sign:
+        return f"{size:+.{decimal_places}f} {unit}"
+    else:
+        return f"{size:.{decimal_places}f} {unit}"

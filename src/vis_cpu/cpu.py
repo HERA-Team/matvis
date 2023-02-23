@@ -1,6 +1,7 @@
 """CPU-based implementation of the visibility simulator."""
 from __future__ import annotations
 
+import datetime
 import gc
 import linecache
 import logging
@@ -15,7 +16,7 @@ from pyuvdata import UVBeam
 from typing import Callable, Sequence
 
 from . import conversions
-from ._utils import addLoggingLevel
+from ._utils import addLoggingLevel, human_readable_size
 
 # This enables us to put in profile decorators that will be no-ops if no profiling
 # library is being used.
@@ -146,6 +147,8 @@ def _evaluate_beam_cpu(
             if isinstance(bm, UVBeam)
             else {}
         )
+        if isinstance(bm, UVBeam) and not bm.future_array_shapes:
+            bm.use_future_array_shapes()
 
         interp_beam = bm.interp(
             az_array=az,
@@ -155,17 +158,11 @@ def _evaluate_beam_cpu(
         )[0]
 
         if polarized:
-            if interp_beam.ndim == 4:
-                interp_beam = interp_beam[:, :, 0, :]
-            else:
-                interp_beam = interp_beam[:, 0, :, 0, :]
+            interp_beam = interp_beam[:, :, 0, :]
         else:
             # Here we have already asserted that the beam is a power beam and
             # has only one polarization, so we just evaluate that one.
-            if interp_beam.ndim == 4:
-                interp_beam = np.sqrt(interp_beam[0, 0, 0, :])
-            else:
-                interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
+            interp_beam = np.sqrt(interp_beam[0, 0, 0, :])
 
         A_s[:, :, i] = interp_beam
 
@@ -407,49 +404,22 @@ def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
         return prev_time, last_mem
 
     t = time.time()
-    lapsed = t - prev_time
-    if lapsed > 120:
-        lapsed /= 60
-        minutes = True
-    else:
-        minutes = False
-    total = t - start_time
-    if total > 3600:
-        total /= 3600
-        tunit = "hrs"
-    elif total > 60:
-        total /= 60
-        tunit = "min"
-    else:
-        tunit = "sec"
-    expected = total * niters / iters
+    lapsed = datetime.timedelta(t - prev_time)
+    total = datetime.timedelta(t - start_time)
+    per_iter = total / iters
+    expected = per_iter * niters
+
     rss = pr.memory_info().rss
-    if rss > 1024**3:
-        mem = rss / 1024**3
-        munit = "GB"
-    elif rss > 1024**2:
-        mem = rss / 1024**2
-        munit = "MB"
-    else:
-        mem = rss
-        munit = "KB"
-    memdiff = rss - last_mem
-    if memdiff > 1024**3:
-        memdiff /= 1024**3
-        mdunit = "GB"
-    elif rss > 1024**2:
-        memdiff /= 1024**2
-        mdunit = "MB"
-    else:
-        mdunit = "KB"
+    mem = human_readable_size(rss)
+    memdiff = human_readable_size(rss - last_mem, indicate_sign=True)
 
     logger.info(
         f"""
         Progress Info   [{iters}/{niters} times ({100 * iters / niters:.1f}%)]
-            -> Update Time:   {lapsed:.2f} {'min' if minutes else 'sec'}
-            -> Total Time:    {total:.2f} {tunit}  [{total/iters:.2f} {tunit} per integration]
-            -> Expected Time: {expected:.2f} {tunit}  [{expected - total:.2f} remaining]
-            -> Memory Usage:  {mem:.2f} {munit}   [{memdiff:+.2f} {mdunit}]
+            -> Update Time:   {lapsed}
+            -> Total Time:    {total} [{per_iter} per integration]
+            -> Expected Time: {expected:.2f} [{expected - total} remaining]
+            -> Memory Usage:  {mem}  [{memdiff}]
         """
     )
 
