@@ -57,7 +57,7 @@ except ImportError:
 except Exception as e:  # pragma: no cover
     # if installed but having initialization issues
     # warn, but default back to non-gpu functionality
-    warnings.warn(str(e))
+    warnings.warn(str(e), stacklevel=2)
     HAVE_CUDA = False
     Template = no_op
 
