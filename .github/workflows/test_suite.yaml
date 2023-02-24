@@ -29,6 +29,7 @@ jobs:
         with:
           fetch-depth: 1
       - uses: mpi4py/setup-mpi@v1
+      - uses: FedericoCarboni/setup-ffmpeg@v2
 
       - name: Setup Python
         uses: actions/setup-python@v4
