@@ -15,46 +15,51 @@ jobs:
   notebooks:
     name: Running Docs Notebooks
     runs-on: ubuntu-latest
-    defaults:
-     run:
-       # Adding -l {0} ensures conda can be found properly in each step
-       shell: bash -l {0}
+    # defaults:
+    #  run:
+    #    # Adding -l {0} ensures conda can be found properly in each step
+    #    shell: bash -l {0}
     steps:
       - uses: actions/checkout@main
         with:
           fetch-depth: 1
 
-      - name: Cache conda
-        uses: actions/cache@v2
-        env:
-          # Increase this value to reset cache if ci/test-env.yml has not changed
-          CACHE_NUMBER: 0
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          path: ~/conda_pkgs_dir
-          key:
-            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ matrix.python-version }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
+          python-version: ${{ matrix.python-version }}
 
-      - name: Setup Miniconda
-        uses: conda-incubator/setup-miniconda@v2.1.1
-        with:
-          # auto-update-conda: true
-          miniconda-version: "latest"
-          python-version: '3.10'
-          environment-file: ci/notebook-env.yml
-          activate-environment: viscpu
-          channels: conda-forge,defaults
-          channel-priority: strict
-          use-only-tar-bz2: true
+      # - name: Cache conda
+      #   uses: actions/cache@v2
+      #   env:
+      #     # Increase this value to reset cache if ci/test-env.yml has not changed
+      #     CACHE_NUMBER: 0
+      #   with:
+      #     path: ~/conda_pkgs_dir
+      #     key:
+      #       ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ matrix.python-version }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
 
-      - name: Conda Info
-        run: |
-          conda info -a
-          conda list
+      # - name: Setup Miniconda
+      #   uses: conda-incubator/setup-miniconda@v2.1.1
+      #   with:
+      #     # auto-update-conda: true
+      #     miniconda-version: "latest"
+      #     python-version: '3.10'
+      #     environment-file: ci/notebook-env.yml
+      #     activate-environment: viscpu
+      #     channels: conda-forge,defaults
+      #     channel-priority: strict
+      #     use-only-tar-bz2: true
+
+      # - name: Conda Info
+      #   run: |
+      #     conda info -a
+      #     conda list
 
       - name: Install
         run: |
           echo $(which pip)
-          pip install .[test]
+          pip install .[test] papermill jupyter ipykernel
 
       - name: Install ipykernel
         run: python -m ipykernel install --user --name viscpu --display-name "viscpu"

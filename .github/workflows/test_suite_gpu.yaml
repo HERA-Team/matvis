@@ -19,10 +19,10 @@ jobs:
       OS: Ubuntu
     name: Self-Hosted Tests (GPU)
     runs-on: [self-hosted, gpu]
-    defaults:
-     run:
-       # Adding -l {0} ensures conda can be found properly in each step
-       shell: bash -l {0}
+    # defaults:
+    #  run:
+    #    # Adding -l {0} ensures conda can be found properly in each step
+    #    shell: bash -l {0}
     steps:
       - name: Add Home to PATH
         run: |
@@ -34,36 +34,41 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache conda
-        uses: actions/cache@v2
-        env:
-          # Increase this value to reset cache if ci/test-env.yml has not changed
-          CACHE_NUMBER: 0
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          path: ~/conda_pkgs_dir
-          key:
-            ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ env.PYTHON }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
+          python-version: ${{ matrix.python-version }}
 
-      - name: Setup Miniconda
-        uses: conda-incubator/setup-miniconda@v2.1.1
-        with:
-          # auto-update-conda: true
-          miniconda-version: "latest"
-          python-version: ${{ env.PYTHON }}
-          environment-file: ci/test-env.yml
-          activate-environment: tests
-          channels: conda-forge,defaults
-          channel-priority: strict
-          use-only-tar-bz2: true
+      # - name: Cache conda
+      #   uses: actions/cache@v2
+      #   env:
+      #     # Increase this value to reset cache if ci/test-env.yml has not changed
+      #     CACHE_NUMBER: 0
+      #   with:
+      #     path: ~/conda_pkgs_dir
+      #     key:
+      #       ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ env.PYTHON }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
 
-      - name: Conda Info
-        run: |
-          conda info -a
-          conda list
-          PYVER=`python -c "import sys; print('{:d}.{:d}'.format(sys.version_info.major, sys.version_info.minor))"`
-          if [[ $PYVER != $PYTHON ]]; then
-            exit 1;
-          fi
+      # - name: Setup Miniconda
+      #   uses: conda-incubator/setup-miniconda@v2.1.1
+      #   with:
+      #     # auto-update-conda: true
+      #     miniconda-version: "latest"
+      #     python-version: ${{ env.PYTHON }}
+      #     environment-file: ci/test-env.yml
+      #     activate-environment: tests
+      #     channels: conda-forge,defaults
+      #     channel-priority: strict
+      #     use-only-tar-bz2: true
+
+      # - name: Conda Info
+      #   run: |
+      #     conda info -a
+      #     conda list
+      #     PYVER=`python -c "import sys; print('{:d}.{:d}'.format(sys.version_info.major, sys.version_info.minor))"`
+      #     if [[ $PYVER != $PYTHON ]]; then
+      #       exit 1;
+      #     fi
 
       - name: Install
         run: |
