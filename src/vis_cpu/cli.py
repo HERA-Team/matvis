@@ -44,7 +44,7 @@ VIS_GPU_STEPS = {
     "beam_interp": ("do_beam_interpolation(",),
     "get_tau": ("# compute tau",),
     "get_antenna_vis": ("meas_eq(",),
-    "get_baseline_vis": ("vis_inner_product(",),
+    "get_baseline_vis": ("cublas_complex_mm(",),
 }
 
 profiler = LineProfiler()
