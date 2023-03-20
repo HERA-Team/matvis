@@ -201,8 +201,9 @@ def profile(
 
 def get_line_based_stats(lstats) -> tuple[dict, float]:
     """Convert the line-number based stats into line-based stats."""
+    time_unit = lstats.unit
     (fn, lineno, name), timings = sorted(lstats.timings.items())[0]
-    d, total_time = get_stats_and_lines(fn, lineno, timings)
+    d, total_time = get_stats_and_lines(fn, lineno, timings, time_unit)
     return d, total_time
 
 
@@ -244,7 +245,7 @@ def get_summary_stats(line_data, total_time, ids):
     return thing_stats
 
 
-def get_stats_and_lines(filename, start_lineno, timings):
+def get_stats_and_lines(filename, start_lineno, timings, time_unit):
     """Match up timing stats with line content of the code."""
     d = {}
     total_time = 0.0
@@ -267,13 +268,13 @@ def get_stats_and_lines(filename, start_lineno, timings):
 
         d[sublines[idx].rstrip("\n").rstrip("\r")] = (
             nhits,
-            time / 1e6,
-            float(time) / nhits / 1e6,
+            time * time_unit,
+            float(time) / nhits * time_unit,
             percent,
             lineno,
         )
 
-    return d, total_time / 1e6
+    return d, total_time * time_unit
 
 
 def get_standard_sim_params(
