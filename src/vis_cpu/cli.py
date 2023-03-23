@@ -191,7 +191,7 @@ def profile(
     print("------------- Summary of timings -------------")
     for thing, (hits, time, time_per_hit, percent, nlines) in thing_stats.items():
         print(
-            f"{thing:>19}: {hits:>4} hits, {time:.2f} seconds, {time_per_hit:.2f} sec/hit, {percent:3.2f}%, {nlines} lines"
+            f"{thing:>19}: {hits:>4} hits, {time:.3e} seconds, {time_per_hit:.3e} sec/hit, {percent:3.2f}%, {nlines} lines"
         )
     print("----------------------------------------------")
 
