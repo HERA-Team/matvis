@@ -70,7 +70,6 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         for j in range(i, nants):
             for if1, feed1 in enumerate(("X", "Y") if polarized else ("X",)):
                 for if2, feed2 in enumerate(("X", "Y") if polarized else ("X",)):
-
                     d_uvsim = uvd_uvsim.get_data(
                         (i, j, feed1 + feed2)
                     ).T  # pyuvsim visibility

@@ -82,7 +82,6 @@ def test_equatorial_to_enu():
 
     # Loop over LSTs
     for i, lst in enumerate(lsts):
-
         # Rotation matrices from ECI <-> ENU
         mat_eci_to_enu = conversions.eci_to_enu_matrix(lst, lat=hera_lat)
         mat_enu_to_eci = conversions.enu_to_eci_matrix(lst, lat=hera_lat)
