@@ -404,8 +404,8 @@ def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
         return prev_time, last_mem
 
     t = time.time()
-    lapsed = datetime.timedelta(t - prev_time)
-    total = datetime.timedelta(t - start_time)
+    lapsed = datetime.timedelta(seconds=(t - prev_time))
+    total = datetime.timedelta(seconds=(t - start_time))
     per_iter = total / iters
     expected = per_iter * niters
 
@@ -418,7 +418,7 @@ def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
         Progress Info   [{iters}/{niters} times ({100 * iters / niters:.1f}%)]
             -> Update Time:   {lapsed}
             -> Total Time:    {total} [{per_iter} per integration]
-            -> Expected Time: {expected:.2f} [{expected - total} remaining]
+            -> Expected Time: {expected} [{expected - total} remaining]
             -> Memory Usage:  {mem}  [{memdiff}]
         """
     )
