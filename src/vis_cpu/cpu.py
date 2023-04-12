@@ -16,7 +16,7 @@ from pyuvdata import UVBeam
 from typing import Callable, Sequence
 
 from . import conversions
-from ._utils import addLoggingLevel, human_readable_size
+from ._utils import human_readable_size
 
 # This enables us to put in profile decorators that will be no-ops if no profiling
 # library is being used.
@@ -27,8 +27,6 @@ except NameError:
 
 
 logger = logging.getLogger(__name__)
-
-addLoggingLevel("MEMTRACE", logging.DEBUG + 5)
 
 
 def _wrangle_beams(
