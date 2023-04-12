@@ -265,7 +265,7 @@ def vis_cpu(
         shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
-    if not tm.is_tracing() and logger.isEnabledFor(logging.MEMTRACE):
+    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
         tm.start()
 
     highest_peak = _memtrace(0)
@@ -377,20 +377,18 @@ def _get_antenna_vis(
 
 
 def _memtrace(highest_peak) -> int:
-    if logger.isEnabledFor(logging.MEMTRACE):
+    if logger.isEnabledFor(logging.INFO):
         cm, pm = tm.get_traced_memory()
-        logger.memtrace(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
-        logger.memtrace(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
-        logger.memtrace(
-            f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}"
-        )
+        logger.info(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
+        logger.info(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
+        logger.info(f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
         tm.reset_peak()
         return max(pm, highest_peak)
 
 
 def _log_array(name, x):
     """Debug logging of the value of an array."""
-    if logger.getEffectiveLevel() <= logging.DEBUG:  # pragma: no cover
+    if logger.isEnabledFor(logging.DEBUG):  # pragma: no cover
         logger.debug(
             f"CPU: {name}: {x.flatten() if x.size < 40 else x.flatten()[:40]} {x.shape}"
         )
@@ -398,7 +396,7 @@ def _log_array(name, x):
 
 def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
     """Logging of progress."""
-    if logger.getEffectiveLevel() > logging.INFO:
+    if not logger.isEnabledFor(logging.INFO):
         return prev_time, last_mem
 
     t = time.time()
