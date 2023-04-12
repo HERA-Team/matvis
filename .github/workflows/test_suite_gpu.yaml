@@ -28,7 +28,6 @@ jobs:
         run: |
           echo "/home/locoadmin/bin" >> $GITHUB_PATH
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
-          echo "LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
       - uses: actions/checkout@main
         with:
@@ -37,38 +36,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: ${{ matrix.python-version }}
-
-      # - name: Cache conda
-      #   uses: actions/cache@v2
-      #   env:
-      #     # Increase this value to reset cache if ci/test-env.yml has not changed
-      #     CACHE_NUMBER: 0
-      #   with:
-      #     path: ~/conda_pkgs_dir
-      #     key:
-      #       ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{ env.PYTHON }}-${{ hashFiles('ci/test-env.yml', 'setup.cfg') }}
-
-      # - name: Setup Miniconda
-      #   uses: conda-incubator/setup-miniconda@v2.1.1
-      #   with:
-      #     # auto-update-conda: true
-      #     miniconda-version: "latest"
-      #     python-version: ${{ env.PYTHON }}
-      #     environment-file: ci/test-env.yml
-      #     activate-environment: tests
-      #     channels: conda-forge,defaults
-      #     channel-priority: strict
-      #     use-only-tar-bz2: true
-
-      # - name: Conda Info
-      #   run: |
-      #     conda info -a
-      #     conda list
-      #     PYVER=`python -c "import sys; print('{:d}.{:d}'.format(sys.version_info.major, sys.version_info.minor))"`
-      #     if [[ $PYVER != $PYTHON ]]; then
-      #       exit 1;
-      #     fi
+          python-version: ${{ env.PYTHON }}
 
       - name: Install
         run: |
@@ -79,7 +47,7 @@ jobs:
         run: |
           python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=DEBUG
 
-      - uses: codecov/codecov-action@v2
+      - uses: codecov/codecov-action@v3
         if: success()
         with:
           fail_ci_if_error: true
