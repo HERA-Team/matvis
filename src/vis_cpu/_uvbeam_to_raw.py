@@ -127,7 +127,8 @@ def uvbeam_to_azza_grid(
             "The beam data does not cover the full sky. Cannot use in vis_cpu."
         )
 
-    uvbeam.use_future_array_shapes()
+    if not uvbeam.future_array_shapes:
+        uvbeam.use_future_array_shapes()
 
     # Simplest Case: everything is already in the regular format we need.
     if (
