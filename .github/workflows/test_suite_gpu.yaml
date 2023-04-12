@@ -45,7 +45,7 @@ jobs:
 
       - name: Run Tests
         run: |
-          python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=DEBUG
+          python -m pytest -k "gpu" --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - uses: codecov/codecov-action@v3
         if: success()
