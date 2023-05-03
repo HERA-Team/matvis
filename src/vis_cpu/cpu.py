@@ -208,6 +208,7 @@ def vis_cpu(
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
+    max_progress_reports: int = 100,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -257,6 +258,11 @@ def vis_cpu(
         Optional length-NANT array specifying a beam index for each antenna.
         By default, either a single beam is assumed to apply to all antennas or
         each antenna gets its own beam.
+    beam_spline_opts : dict, optional
+        Dictionary of options to pass to the beam interpolation function.
+    max_progress_reports : int, optional
+        Maximum number of progress reports to print to the screen (if logging level
+        allows). Default is 100.
 
     Returns
     -------
@@ -300,7 +306,7 @@ def vis_cpu(
     crd_eq = crd_eq.astype(real_dtype)
 
     # Have up to 100 reports as it iterates through time.
-    report_chunk = ntimes // 100 + 1
+    report_chunk = ntimes // max_progress_reports + 1
     pr = psutil.Process()
     tstart = time.time()
     mlast = pr.memory_info().rss

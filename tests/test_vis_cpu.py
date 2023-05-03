@@ -49,5 +49,6 @@ def test_simulate_vis(polarized):
         polarized=polarized,
         precision=1,
         latitude=-30.7215 * np.pi / 180.0,
+        max_progress_reports=2,
     )
     assert np.all(~np.isnan(vis))  # check that there are no NaN values
