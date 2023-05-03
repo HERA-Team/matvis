@@ -7,9 +7,10 @@ import psutil
 import time
 import warnings
 from astropy.constants import c as speed_of_light
+from collections.abc import Sequence
 from pathlib import Path
 from pyuvdata import UVBeam
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional
 
 from . import conversions
 from ._uvbeam_to_raw import uvbeam_to_azza_grid

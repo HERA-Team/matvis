@@ -10,10 +10,11 @@ import psutil
 import time
 import tracemalloc as tm
 from astropy.constants import c
+from collections.abc import Sequence
 
 # from pympler import tracker
 from pyuvdata import UVBeam
-from typing import Callable, Sequence
+from typing import Callable
 
 from . import conversions
 from ._utils import human_readable_size
