@@ -13,7 +13,8 @@ from astropy.constants import c
 
 # from pympler import tracker
 from pyuvdata import UVBeam
-from typing import Callable, Sequence
+from typing import Callable
+from collections.abc import Sequence
 
 from . import conversions
 from ._utils import human_readable_size
