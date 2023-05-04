@@ -42,7 +42,12 @@ jobs:
 
       - name: Run Tests
         run: |
-          python -m pytest --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
+          python -m pytest --ignore tests/test_plot.py --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
+
+      - name: Run Plotting Tests
+        if: matrix.python-version != '3.9' || matrix.os == 'macos-latest'
+        run: |
+          python -m pytest tests/test_plot.py --cov=vis_cpu --cov-config=.coveragerc --cov-append --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - name: Upload coverage data
         uses: "actions/upload-artifact@v3"
