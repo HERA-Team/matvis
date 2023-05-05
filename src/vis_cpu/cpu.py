@@ -356,7 +356,7 @@ def vis_cpu(
         vis[t] = v.conj().dot(v.T)
         _log_array("vis", vis[t])
 
-        if not t % report_chunk or t == ntimes - 1:
+        if not (t % report_chunk or t == ntimes - 1):
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
             highest_peak = _memtrace(highest_peak)
 

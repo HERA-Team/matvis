@@ -487,7 +487,7 @@ def vis_gpu(
         events[chunk - 1]["end"].synchronize()
         vis[t] = sum(vis_cpus)
 
-        if not t % report_chunk or t == ntimes - 1:
+        if not (t % report_chunk or t == ntimes - 1):
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
     # teardown GPU configuration
