@@ -17,6 +17,7 @@ jobs:
       ENV_NAME: tests
       PYTHON: ${{ matrix.python-version }}
       OS: ${{ matrix.os }}
+      LOG_LEVEL: ${{ INFO if matrix.os == 'macos-latest' else WARNING }}
     name: Testing
     runs-on: ${{ matrix.os }}
     strategy:
@@ -42,7 +43,7 @@ jobs:
 
       - name: Run Tests
         run: |
-          python -m pytest --ignore tests/test_plot.py --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
+          python -m pytest --ignore tests/test_plot.py --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL}}
 
       - name: Run Plotting Tests
         if: matrix.python-version != '3.9' || matrix.os == 'macos-latest'
