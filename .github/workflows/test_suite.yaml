@@ -17,7 +17,7 @@ jobs:
       ENV_NAME: tests
       PYTHON: ${{ matrix.python-version }}
       OS: ${{ matrix.os }}
-      LOG_LEVEL: ${{ INFO if matrix.os == 'macos-latest' else WARNING }}
+      LOG_LEVEL: ${{ 'INFO' if matrix.os == 'macos-latest' else 'WARNING' }}
     name: Testing
     runs-on: ${{ matrix.os }}
     strategy:
