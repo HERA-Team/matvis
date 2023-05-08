@@ -3,15 +3,24 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+import psutil
+import time
 import warnings
 from astropy.constants import c as speed_of_light
+from collections.abc import Sequence
 from pathlib import Path
 from pyuvdata import UVBeam
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional
 
 from . import conversions
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
-from .cpu import _evaluate_beam_cpu, _validate_inputs, _wrangle_beams, vis_cpu
+from .cpu import (
+    _evaluate_beam_cpu,
+    _log_progress,
+    _validate_inputs,
+    _wrangle_beams,
+    vis_cpu,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +58,7 @@ except ImportError:
 except Exception as e:  # pragma: no cover
     # if installed but having initialization issues
     # warn, but default back to non-gpu functionality
-    warnings.warn(str(e))
+    warnings.warn(str(e), stacklevel=2)
     HAVE_CUDA = False
     Template = no_op
 
@@ -112,13 +121,15 @@ def vis_gpu(
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
+    pr = psutil.Process()
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
     )
 
     if beam_spline_opts:
         warnings.warn(
-            "You have passed beam_spline_opts, but these are not used in GPU."
+            "You have passed beam_spline_opts, but these are not used in GPU.",
+            stacklevel=1,
         )
 
     nsrc = len(I_sky)
@@ -292,16 +303,21 @@ def vis_gpu(
     if use_uvbeam:
         event_order.insert(4, "interpolation")
 
-    vis = np.empty((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
+    vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
 
     logger.info(f"Running With {nchunks} chunks")
+
+    report_chunk = ntimes // 100 + 1
+    pr = psutil.Process()
+    tstart = time.time()
+    mlast = pr.memory_info().rss
+    plast = tstart
 
     for t in range(ntimes):
         eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
         events = [{e: driver.Event() for e in event_order} for _ in range(nchunks)]
 
         for c, (stream, event) in enumerate(zip(streams, events)):
-
             event["start"].record(stream)
             crd_eq_gpu.set_async(crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream)
             Isqrt_gpu.set_async(Isqrt[c * npixc : (c + 1) * npixc], stream=stream)
@@ -456,6 +472,9 @@ def vis_gpu(
             event["end"].record(stream)
         events[nchunks - 1]["end"].synchronize()
         vis[t] = sum(vis_cpus)
+
+        if not (t % report_chunk or t == ntimes - 1):
+            plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
     # teardown GPU configuration
     cublasDestroy(h)

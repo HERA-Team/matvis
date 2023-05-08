@@ -160,7 +160,7 @@ def freq() -> np.ndarray:
 
 
 @pytest.fixture(scope="function")
-def beam_list_unpol() -> List[EllipticalBeam]:
+def beam_list_unpol() -> list[EllipticalBeam]:
     """Get Gaussian beam and transform into an elliptical version."""
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
@@ -172,7 +172,7 @@ def beam_list_unpol() -> List[EllipticalBeam]:
 
 
 @pytest.fixture(scope="function")
-def beam_list_pol() -> List[EllipticalBeam]:
+def beam_list_pol() -> list[EllipticalBeam]:
     """Get Gaussian beam and transform into an elliptical version with polarization."""
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
@@ -418,8 +418,10 @@ def test_covers_sky_almost_strong(uvbeam):
     beam1 = uvbeam.copy()
     beam2 = uvbeam.copy()
 
+    # Restrict to a certain frequency
     beam1.data_array = beam1.data_array[:, :, :, [0]]
     beam2.data_array = beam2.data_array[:, :, :, [0]]
+
     beam1.Nfreqs = 1
     beam2.Nfreqs = 1
 
