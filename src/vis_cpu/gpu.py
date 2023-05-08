@@ -13,6 +13,7 @@ from pyuvdata import UVBeam
 from typing import Callable, Optional
 
 from . import conversions
+from ._utils import ceildiv
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
 from .cpu import (
     _evaluate_beam_cpu,
@@ -664,15 +665,20 @@ def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
     This puts a,b,c into the 1st 2nd and 3rd axes, and optimizes for the "a" axis
     moving the fastest.
     """
+    if nthreads < 1:
+        raise ValueError("nthreads must be at least 1")
+    if a < 1 or b < 1 or c < 1:
+        raise ValueError("a, b, and c must all be at least 1")
+
     bla = min(nthreads, a)
-    blb = max(1, min(nthreads // bla, b // bla))
-    blc = max(1, min(nthreads // (bla * blb), c // (bla * blb)))
+    blb = max(1, min(nthreads // bla, b))
+    blc = max(1, min(nthreads // (bla * blb), c))
     block = (bla, blb, blc)
 
     grid = (
-        int(np.ceil(a / float(block[0]))),
-        int(np.ceil(b / float(block[1]))),
-        int(np.ceil(c / float(block[2]))),
+        ceildiv(a, block[0]),
+        ceildiv(b, block[1]),
+        ceildiv(c, block[2]),
     )
 
     if np.prod(block) > nthreads:
