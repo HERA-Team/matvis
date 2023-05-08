@@ -7,6 +7,6 @@ dependencies:
   - ipython
   - nbsphinx
   - numpydoc
-  - sphinx>=4.0
+  - sphinx>=5.0
   - pip:
     - furo

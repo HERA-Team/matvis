@@ -35,7 +35,7 @@ VIS_CPU_STEPS = {
     "eq2top": ("np.dot(eq2top",),
     "beam_interp": ("_evaluate_beam_cpu(",),
     "get_tau": ("np.dot(antpos",),
-    "get_antenna_vis": ("v = get_antenna_vis(",),
+    "get_antenna_vis": ("v = _get_antenna_vis(",),
     "get_baseline_vis": ("vis[t] =",),
 }
 
@@ -44,7 +44,7 @@ VIS_GPU_STEPS = {
     "beam_interp": ("do_beam_interpolation(",),
     "get_tau": ("# compute tau",),
     "get_antenna_vis": ("meas_eq(",),
-    "get_baseline_vis": ("vis_inner_product(",),
+    "get_baseline_vis": ("cublas_complex_mm(",),
 }
 
 profiler = LineProfiler()
@@ -191,7 +191,7 @@ def profile(
     print("------------- Summary of timings -------------")
     for thing, (hits, time, time_per_hit, percent, nlines) in thing_stats.items():
         print(
-            f"{thing:>19}: {hits:>4} hits, {time:.2f} seconds, {time_per_hit:.2f} sec/hit, {percent:3.2f}%, {nlines} lines"
+            f"{thing:>19}: {hits:>4} hits, {time:.3e} seconds, {time_per_hit:.3e} sec/hit, {percent:3.2f}%, {nlines} lines"
         )
     print("----------------------------------------------")
 
@@ -201,8 +201,9 @@ def profile(
 
 def get_line_based_stats(lstats) -> tuple[dict, float]:
     """Convert the line-number based stats into line-based stats."""
+    time_unit = lstats.unit
     (fn, lineno, name), timings = sorted(lstats.timings.items())[0]
-    d, total_time = get_stats_and_lines(fn, lineno, timings)
+    d, total_time = get_stats_and_lines(fn, lineno, timings, time_unit)
     return d, total_time
 
 
@@ -244,7 +245,7 @@ def get_summary_stats(line_data, total_time, ids):
     return thing_stats
 
 
-def get_stats_and_lines(filename, start_lineno, timings):
+def get_stats_and_lines(filename, start_lineno, timings, time_unit):
     """Match up timing stats with line content of the code."""
     d = {}
     total_time = 0.0
@@ -267,13 +268,13 @@ def get_stats_and_lines(filename, start_lineno, timings):
 
         d[sublines[idx].rstrip("\n").rstrip("\r")] = (
             nhits,
-            time / 1e6,
-            float(time) / nhits / 1e6,
+            time * time_unit,
+            float(time) / nhits * time_unit,
             percent,
             lineno,
         )
 
-    return d, total_time / 1e6
+    return d, total_time * time_unit
 
 
 def get_standard_sim_params(

@@ -42,7 +42,7 @@ def _source_az_za_beam(
 
     # Get beam values
     interp_beam = beam.interp(az, za, np.atleast_1d(ref_freq))[0]
-    A_s = interp_beam[0, 0, 1, 0]  # (2, 1, 2, 1, Nptsrc)
+    A_s = interp_beam[0, 1, 0]  # (2, 2, 1, Nptsrc)
 
     # Horizon cut
     A_s = np.where(tz > 0, A_s, np.nan)

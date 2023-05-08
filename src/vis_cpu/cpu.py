@@ -1,16 +1,23 @@
 """CPU-based implementation of the visibility simulator."""
 from __future__ import annotations
 
+import datetime
+import gc
+import linecache
 import logging
 import numpy as np
-import warnings
+import psutil
+import time
+import tracemalloc as tm
 from astropy.constants import c
+from collections.abc import Sequence
+
+# from pympler import tracker
 from pyuvdata import UVBeam
-from re import I
-from scipy.interpolate import RectBivariateSpline
-from typing import Callable, Optional, Sequence
+from typing import Callable
 
 from . import conversions
+from ._utils import human_readable_size
 
 # This enables us to put in profile decorators that will be no-ops if no profiling
 # library is being used.
@@ -139,6 +146,8 @@ def _evaluate_beam_cpu(
             if isinstance(bm, UVBeam)
             else {}
         )
+        if isinstance(bm, UVBeam) and not bm.future_array_shapes:
+            bm.use_future_array_shapes()
 
         interp_beam = bm.interp(
             az_array=az,
@@ -148,11 +157,11 @@ def _evaluate_beam_cpu(
         )[0]
 
         if polarized:
-            interp_beam = interp_beam[:, 0, :, 0, :]
+            interp_beam = interp_beam[:, :, 0, :]
         else:
             # Here we have already asserted that the beam is a power beam and
             # has only one polarization, so we just evaluate that one.
-            interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
+            interp_beam = np.sqrt(interp_beam[0, 0, 0, :])
 
         A_s[:, :, i] = interp_beam
 
@@ -200,6 +209,7 @@ def vis_cpu(
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
+    max_progress_reports: int = 100,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -249,6 +259,11 @@ def vis_cpu(
         Optional length-NANT array specifying a beam index for each antenna.
         By default, either a single beam is assumed to apply to all antennas or
         each antenna gets its own beam.
+    beam_spline_opts : dict, optional
+        Dictionary of options to pass to the beam interpolation function.
+    max_progress_reports : int, optional
+        Maximum number of progress reports to print to the screen (if logging level
+        allows). Default is 100.
 
     Returns
     -------
@@ -257,6 +272,11 @@ def vis_cpu(
         shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
+    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
+        tm.start()
+
+    highest_peak = _memtrace(0)
+
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, eq2tops, crd_eq, I_sky
     )
@@ -281,8 +301,19 @@ def vis_cpu(
     ang_freq = real_dtype(2.0 * np.pi * freq)
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
+    vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
+    logger.info(f"Visibility Array takes {vis.nbytes/1024**2:.1f} MB")
+
     crd_eq = crd_eq.astype(real_dtype)
+
+    # Have up to 100 reports as it iterates through time.
+    report_chunk = ntimes // max_progress_reports + 1
+    pr = psutil.Process()
+    tstart = time.time()
+    mlast = pr.memory_info().rss
+    plast = tstart
+
+    highest_peak = _memtrace(highest_peak)
 
     # Loop over time samples
     for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
@@ -296,7 +327,7 @@ def vis_cpu(
         nsrcs_up = len(tx)
         isqrt = Isqrt[above_horizon]
 
-        A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+        A_s = np.full((nax, nfeed, nbeam, nsrcs_up), 0.0, dtype=complex_dtype)
 
         _evaluate_beam_cpu(
             A_s,
@@ -325,6 +356,10 @@ def vis_cpu(
         vis[t] = v.conj().dot(v.T)
         _log_array("vis", vis[t])
 
+        if not (t % report_chunk or t == ntimes - 1):
+            plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
+            highest_peak = _memtrace(highest_peak)
+
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
     # Return visibilities with or without multiple polarization channels
@@ -348,9 +383,47 @@ def _get_antenna_vis(
     return v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
 
 
+def _memtrace(highest_peak) -> int:
+    if logger.isEnabledFor(logging.INFO):
+        cm, pm = tm.get_traced_memory()
+        logger.info(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
+        logger.info(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
+        logger.info(f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
+        tm.reset_peak()
+        return max(pm, highest_peak)
+
+
 def _log_array(name, x):
     """Debug logging of the value of an array."""
-    if logger.getEffectiveLevel() <= logging.DEBUG:  # pragma: no cover
+    if logger.isEnabledFor(logging.DEBUG):  # pragma: no cover
         logger.debug(
             f"CPU: {name}: {x.flatten() if x.size < 40 else x.flatten()[:40]} {x.shape}"
         )
+
+
+def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
+    """Logging of progress."""
+    if not logger.isEnabledFor(logging.INFO):
+        return prev_time, last_mem
+
+    t = time.time()
+    lapsed = datetime.timedelta(seconds=(t - prev_time))
+    total = datetime.timedelta(seconds=(t - start_time))
+    per_iter = total / iters
+    expected = per_iter * niters
+
+    rss = pr.memory_info().rss
+    mem = human_readable_size(rss)
+    memdiff = human_readable_size(rss - last_mem, indicate_sign=True)
+
+    logger.info(
+        f"""
+        Progress Info   [{iters}/{niters} times ({100 * iters / niters:.1f}%)]
+            -> Update Time:   {lapsed}
+            -> Total Time:    {total} [{per_iter} per integration]
+            -> Expected Time: {expected} [{expected - total} remaining]
+            -> Memory Usage:  {mem}  [{memdiff}]
+        """
+    )
+
+    return t, rss
