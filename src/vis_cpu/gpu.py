@@ -681,11 +681,6 @@ def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
         ceildiv(c, block[2]),
     )
 
-    if np.prod(block) > nthreads:
-        raise ValueError(
-            f"Something went wrong with setting block shape. Got {block} which has "
-            f"more than {nthreads} threads."
-        )
     return block, grid
 
 
