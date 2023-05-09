@@ -13,6 +13,7 @@ from pyuvdata import UVBeam
 from typing import Callable, Optional
 
 from . import conversions
+from ._utils import ceildiv
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
 from .cpu import (
     _evaluate_beam_cpu,
@@ -154,12 +155,6 @@ def vis_gpu(
     crd_eq = crd_eq.astype(real_dtype)
     Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
 
-    chunk = max(
-        min(nsrc, min_chunks),
-        2 ** int(np.ceil(np.log2(float(nant * nsrc) / max_memory / 2))),
-    )
-    npixc = nsrc // chunk
-
     beam_list, nbeam, beam_idx = _wrangle_beams(
         beam_idx=beam_idx,
         beam_list=beam_list,
@@ -168,18 +163,23 @@ def vis_gpu(
         freq=freq,
     )
 
-    # Ways to block up threads for sending to GPU calculations. "Meas" is for the
-    # measurement equation function, and "prod" is for the inner-product calculation.
-    meas_block = (
-        max(1, nthreads // (nant * nax * nfeed)),
-        min(nthreads, nant * nax),
-        min(nthreads, nfeed),
+    total_beam_pix = sum(
+        beam.data_array.shape[-2] * beam.data_array.shape[-1]
+        for beam in beam_list
+        if hasattr(beam, "data_array")
     )
 
-    logger.info(
-        f"Using {np.prod(meas_block)} threads in total for measurement equation."
+    nchunks = min(
+        max(
+            min_chunks,
+            _get_required_chunks(
+                nax, nfeed, nant, nsrc, nbeam, total_beam_pix, precision
+            ),
+        ),
+        nsrc,
     )
-    logger.info(f"Using a shared-memory buffer of size {5*meas_block[0]}.")
+
+    npixc = nsrc // nchunks
 
     use_uvbeam = isinstance(beam_list[0], UVBeam)
     if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
@@ -192,7 +192,6 @@ def vis_gpu(
         "NAX": nax,
         "NFEED": nfeed,
         "NBEAM": nbeam,
-        "BLOCK_PX": meas_block[0],
         "DTYPE": DTYPE,
         "CDTYPE": CDTYPE,
         "f": "f" if precision == 1 else "",
@@ -283,15 +282,15 @@ def vis_gpu(
     # will be set on GPU
     vis_gpus = [
         gpuarray.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
-        for _ in range(chunk)
+        for _ in range(nchunks)
     ]
 
     # output CPU buffers for downloading answers
     vis_cpus = [
-        np.full((nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
-        for _ in range(chunk)
+        np.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+        for _ in range(nchunks)
     ]
-    streams = [driver.Stream() for _ in range(chunk)]
+    streams = [driver.Stream() for _ in range(nchunks)]
     event_order = [
         "start",
         "upload",
@@ -307,7 +306,7 @@ def vis_gpu(
 
     vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
 
-    logger.info("Running With %s chunks: ", chunk)
+    logger.info(f"Running With {nchunks} chunks")
 
     report_chunk = ntimes // 100 + 1
     pr = psutil.Process()
@@ -317,174 +316,162 @@ def vis_gpu(
 
     for t in range(ntimes):
         eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
-        events = [{e: driver.Event() for e in event_order} for _ in range(chunk)]
+        events = [{e: driver.Event() for e in event_order} for _ in range(nchunks)]
 
-        for c in range(chunk + 2):
-            cc = c - 1
-            ccc = c - 2
-            if 0 <= ccc < chunk:
-                stream = streams[ccc]
-                vis_gpus[ccc].get(ary=vis_cpus[ccc], stream=stream)
-                events[ccc]["end"].record(stream)
-            if 0 <= cc < chunk:
-                stream = streams[cc]
-                cublasSetStream(h, stream.handle)
+        for c, (stream, event) in enumerate(zip(streams, events)):
+            event["start"].record(stream)
+            crd_eq_gpu.set_async(crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream)
+            Isqrt_gpu.set_async(Isqrt[c * npixc : (c + 1) * npixc], stream=stream)
+            event["upload"].record(stream)
 
-                # cublas arrays are in Fortran order, so P=M*N is actually
-                # peformed as P.T = N.T * M.T
-                cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
-                    h,
-                    "n",
-                    "n",
-                    npixc,
-                    3,
-                    3,
-                    1.0,
-                    crd_eq_gpu.gpudata,
-                    npixc,
-                    eq2top_gpu.gpudata,
-                    3,
-                    0.0,
-                    crdtop_gpu.gpudata,
-                    npixc,
-                )
-                events[cc]["eq2top"].record(stream)
+            cublasSetStream(h, stream.handle)
 
-                tx, ty, tz = crdtop_gpu.get_async(stream=stream)
-                above_horizon = tz > 0
-                tx = tx[above_horizon]
-                ty = ty[above_horizon]
-                nsrcs_up = len(tx)
-                crdtop_lim_gpu = gpuarray.to_gpu_async(
-                    crdtop_gpu.get_async(stream=stream)[:, above_horizon].copy(),
-                    stream=stream,
-                )
+            # cublas arrays are in Fortran order, so P=M*N is actually
+            # peformed as P.T = N.T * M.T
+            cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
+                h,
+                "n",
+                "n",
+                npixc,
+                3,
+                3,
+                1.0,
+                crd_eq_gpu.gpudata,
+                npixc,
+                eq2top_gpu.gpudata,
+                3,
+                0.0,
+                crdtop_gpu.gpudata,
+                npixc,
+            )
+            event["eq2top"].record(stream)
 
-                if nsrcs_up < 1:
-                    continue
+            tx, ty, tz = crdtop_gpu.get_async(stream=stream)
+            above_horizon = tz > 0
+            tx = tx[above_horizon]
+            ty = ty[above_horizon]
+            nsrcs_up = len(tx)
 
-                tau_gpu = gpuarray.empty(shape=(nant, nsrcs_up), dtype=real_dtype)
+            if nsrcs_up < 1:
+                continue
 
-                cublas_real_mm(  # compute tau = dot(antpos,crdtop) / speed_of_light
-                    h,
-                    "n",
-                    "n",
-                    nsrcs_up,
-                    nant,
-                    3,
-                    ONE_OVER_C,
-                    crdtop_lim_gpu.gpudata,
-                    nsrcs_up,
-                    antpos_gpu.gpudata,
-                    3,
-                    0.0,
-                    tau_gpu.gpudata,
-                    nsrcs_up,
-                )
-                events[cc]["tau"].record(stream)
+            crdtop_lim_gpu = gpuarray.to_gpu_async(
+                crdtop_gpu.get_async(stream=stream)[:, above_horizon].copy(),
+                stream=stream,
+            )
 
-                # Need to do this in polar coordinates, NOT (l,m), at least for
-                # polarized beams. This is because at zenith, the Efield components are
-                # discontinuous (in power they are continuous). When interpolating the
-                # E-field components, you need to treat the zenith point differently
-                # depending on which "side" of zenith you're on. This is doable in polar
-                # coordinates, but not in Cartesian coordinates.
-                A_gpu = do_beam_interpolation(
-                    freq,
-                    beam_list,
-                    polarized,
-                    nthreads,
-                    nax,
-                    nfeed,
-                    complex_dtype,
-                    nbeam,
-                    use_uvbeam,
-                    daz,
-                    dza,
-                    beam_interp,
-                    beam_data_gpu,
-                    events,
-                    cc,
-                    stream,
-                    tx,
-                    ty,
-                    nsrcs_up,
-                )
+            tau_gpu = gpuarray.empty(shape=(nant, nsrcs_up), dtype=real_dtype)
 
-                v_gpu = gpuarray.empty(
-                    shape=(nfeed * nant, nax * nsrcs_up), dtype=complex_dtype
-                )
-                Isqrt_lim_gpu = gpuarray.to_gpu_async(
-                    Isqrt_gpu.get()[above_horizon].copy(), stream=stream
-                )
+            cublas_real_mm(  # compute tau = dot(antpos,crdtop) / speed_of_light
+                h,
+                "n",
+                "n",
+                nsrcs_up,
+                nant,
+                3,
+                ONE_OVER_C,
+                crdtop_lim_gpu.gpudata,
+                nsrcs_up,
+                antpos_gpu.gpudata,
+                3,
+                0.0,
+                tau_gpu.gpudata,
+                nsrcs_up,
+            )
+            event["tau"].record(stream)
 
-                # blocks of threads are mapped to (pixels,ants,freqs)
+            # Need to do this in polar coordinates, NOT (l,m), at least for
+            # polarized beams. This is because at zenith, the Efield components are
+            # discontinuous (in power they are continuous). When interpolating the
+            # E-field components, you need to treat the zenith point differently
+            # depending on which "side" of zenith you're on. This is doable in polar
+            # coordinates, but not in Cartesian coordinates.
+            A_gpu = do_beam_interpolation(
+                freq,
+                beam_list,
+                polarized,
+                nthreads,
+                nax,
+                nfeed,
+                complex_dtype,
+                nbeam,
+                use_uvbeam,
+                daz,
+                dza,
+                beam_interp,
+                beam_data_gpu,
+                event,
+                stream,
+                tx,
+                ty,
+                nsrcs_up,
+            )
 
-                grid = (
-                    int(np.ceil(nsrcs_up / float(meas_block[0]))),
-                    int(np.ceil(nax * nant / float(meas_block[1]))),
-                    int(np.ceil(nfeed / float(meas_block[2]))),
-                )
+            v_gpu = gpuarray.empty(
+                shape=(nfeed * nant, nax * nsrcs_up), dtype=complex_dtype
+            )
+            Isqrt_lim_gpu = gpuarray.to_gpu_async(
+                Isqrt_gpu.get()[above_horizon].copy(), stream=stream
+            )
 
-                logger.debug(f"Measurement Eq. Grid Size: {grid}")
+            _logdebug(A_gpu, "Beam")
 
-                _logdebug(A_gpu, "Beam")
+            # compute v = A * sqrtI * exp(1j*tau*freq)
+            # Ways to block up threads for sending to GPU calculations. "Meas" is for the
+            # measurement equation function, and "prod" is for the inner-product calculation.
+            block, grid = _get_3d_block_grid(nthreads, nsrcs_up, nant * nax, nfeed)
 
-                # compute v = A * sqrtI * exp(1j*tau*freq)
-                meas_eq(
-                    A_gpu,
-                    Isqrt_lim_gpu,
-                    tau_gpu,
-                    ang_freq,
-                    np.uint(nsrcs_up),
-                    beam_idx,
-                    v_gpu,
-                    grid=grid,
-                    block=meas_block,
-                    stream=stream,
-                )
-                events[cc]["meas_eq"].record(stream)
-
-                _logdebug(v_gpu, "vant")
-
-                # compute vis = dot(v, v.T)
-                # We want to take an outer product over feeds/antennas, contract over
-                # E-field components, and integrate over the sky.
-                # Remember cublas is in fortran order...
-                # v_gpu is (nfeed * nant, nax * nsrcs_up)
-                cublas_complex_mm(
-                    h,
-                    "c",  # conjugate transpose for first (remember fortran order)
-                    "n",  # no transpose for second.
-                    nfeed * nant,
-                    nfeed * nant,
-                    nax * nsrcs_up,
-                    1.0,
-                    v_gpu.gpudata,
-                    nax * nsrcs_up,
-                    v_gpu.gpudata,
-                    nax * nsrcs_up,
-                    0.0,
-                    vis_gpus[cc].gpudata,
-                    nfeed * nant,
+            if t == 0:
+                logger.info(
+                    f"Using {block} = {np.prod(block)} threads in total, in a grid of {grid}, "
+                    "for measurement equation."
                 )
 
-                _logdebug(vis_gpus[cc], "Vis")
+            meas_eq(
+                A_gpu,
+                Isqrt_lim_gpu,
+                tau_gpu,
+                ang_freq,
+                np.uint(nsrcs_up),
+                beam_idx,
+                v_gpu,
+                grid=grid,
+                block=block,
+                stream=stream,
+            )
+            event["meas_eq"].record(stream)
 
-                events[cc]["vis"].record(stream)
+            _logdebug(v_gpu, "vant")
 
-            if c < chunk:
-                # This is the first thing that happens in the loop over chunks.
+            # compute vis = dot(v, v.T)
+            # We want to take an outer product over feeds/antennas, contract over
+            # E-field components, and integrate over the sky.
+            # Remember cublas is in fortran order...
+            # v_gpu is (nfeed * nant, nax * nsrcs_up)
+            cublas_complex_mm(
+                h,
+                "c",  # conjugate transpose for first (remember fortran order)
+                "n",  # no transpose for second.
+                nfeed * nant,
+                nfeed * nant,
+                nax * nsrcs_up,
+                1.0,
+                v_gpu.gpudata,
+                nax * nsrcs_up,
+                v_gpu.gpudata,
+                nax * nsrcs_up,
+                0.0,
+                vis_gpus[c].gpudata,
+                nfeed * nant,
+            )
 
-                stream = streams[c]
-                events[c]["start"].record(stream)
-                crd_eq_gpu.set_async(
-                    crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream
-                )
-                Isqrt_gpu.set_async(Isqrt[c * npixc : (c + 1) * npixc], stream=stream)
-                events[c]["upload"].record(stream)
+            _logdebug(vis_gpus[c], "Vis")
 
-        events[chunk - 1]["end"].synchronize()
+            event["vis"].record(stream)
+
+            vis_gpus[c].get(ary=vis_cpus[c], stream=stream)
+            event["end"].record(stream)
+        events[nchunks - 1]["end"].synchronize()
         vis[t] = sum(vis_cpus)
 
         if not (t % report_chunk or t == ntimes - 1):
@@ -510,8 +497,7 @@ def do_beam_interpolation(
     dza,
     beam_interp,
     beam_data_gpu,
-    events,
-    cc,
+    event,
     stream,
     tx,
     ty,
@@ -532,7 +518,7 @@ def do_beam_interpolation(
             stream=stream,
             return_on_cpu=False,
         )
-        events[cc]["interpolation"].record(stream)
+        event["interpolation"].record(stream)
     else:
         A_gpu = gpuarray.empty(shape=(nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
         A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
@@ -635,16 +621,7 @@ def gpu_beam_interpolation(
         beam_interp_module = compiler.SourceModule(beam_interp_code)
         gpu_func = beam_interp_module.get_function("InterpolateBeamAltAz")
 
-    block = (
-        max(1, nthreads // nbeam // (nax * nfeed)),
-        min(nthreads, nbeam),
-        nax * nfeed,
-    )
-    grid = (
-        int(np.ceil(nsrc / float(block[0]))),
-        int(np.ceil(nbeam / float(block[1]))),
-        int(np.ceil(nax * nfeed / float(block[2]))),
-    )
+    block, grid = _get_3d_block_grid(nthreads, nsrc, nbeam, nax * nfeed)
 
     az_gpu = gpuarray.to_gpu_async(az, stream=stream)
     za_gpu = gpuarray.to_gpu_async(za, stream=stream)
@@ -682,4 +659,58 @@ def gpu_beam_interpolation(
         return beam_at_src
 
 
+def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
+    """Create a block/grid layout for 3D where axis speed is a > b > c.
+
+    This puts a,b,c into the 1st 2nd and 3rd axes, and optimizes for the "a" axis
+    moving the fastest.
+    """
+    if nthreads < 1:
+        raise ValueError("nthreads must be at least 1")
+    if a < 1 or b < 1 or c < 1:
+        raise ValueError("a, b, and c must all be at least 1")
+
+    bla = min(nthreads, a)
+    blb = max(1, min(nthreads // bla, b))
+    blc = max(1, min(nthreads // (bla * blb), c))
+    block = (bla, blb, blc)
+
+    grid = (
+        ceildiv(a, block[0]),
+        ceildiv(b, block[1]),
+        ceildiv(c, block[2]),
+    )
+
+    return block, grid
+
+
 vis_gpu.__doc__ += vis_cpu.__doc__
+
+
+def _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, nbeampix, precision):
+    freemem = driver.mem_get_info()[0]  # in bytes
+    size = 4 * precision
+
+    gpusize = [freemem]
+    ch = 0
+    while sum(gpusize) >= freemem and ch < 100:
+        ch += 1
+        gpusize = [
+            nant * 3 * size,
+            nsrc // ch * size,  # antpos
+            nbeampix * nfeed * nax * size * 2,  # Isqrt
+            3 * nsrc // ch * size,  # complex beam data
+            3 * nsrc // ch * size,  # crd_eq_gpu
+            nfeed * nant * nax * nant * ch * size * 2,  # crdtop
+            nax * nfeed * nbeam * nsrc // ch // 2 * size * 2,  # vis_gpus
+            nant * nsrc // ch // 2 * size * 2,  # interpolated beam  # ant-vis
+        ]
+        logger.debug(
+            f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize)}"
+        )
+
+    logger.info(
+        f"Total free mem on GPU: {freemem/(1024**3):.2f} GB. Requires {ch} chunks "
+        f"(estimate {sum(gpusize) / 1024**3:.2f} GB)"
+    )
+    return ch

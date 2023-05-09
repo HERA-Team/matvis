@@ -7,6 +7,7 @@ import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
 
 from vis_cpu import simulate_vis
+from vis_cpu.gpu import _get_3d_block_grid
 
 from . import get_standard_sim_params
 

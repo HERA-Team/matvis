@@ -6,6 +6,14 @@ def no_op(fnc):
     return fnc
 
 
+def ceildiv(a: int, b: int) -> int:
+    """Ceiling division for integers.
+
+    From https://stackoverflow.com/a/17511341/1467820
+    """
+    return -(a // -b)
+
+
 def human_readable_size(size, decimal_places=2, indicate_sign=False):
     """Get a human-readable data size.
 

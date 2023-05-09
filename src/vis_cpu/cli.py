@@ -230,7 +230,7 @@ def get_summary_stats(line_data, total_time, ids):
         if not assoc_lines:
             raise RuntimeError(
                 f"Could not find any lines for {thing} satisfying '{lines}'. "
-                f"Possible lines: {' | '.join(list(line_data.keys()))}"
+                "Possible lines:\n" + "\n".join(list(line_data.keys()))
             )
 
         # save (hits, time, time/hits, percent, nlines)

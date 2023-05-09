@@ -18,10 +18,6 @@
 #include <pycuda-helpers.hpp>
 #include <stdio.h>
 
-// Shared memory for storing per-antenna results to be reused among all ants
-// for "BLOCK_PX" pixels, avoiding a rush on global memory.
-__shared__ {{ DTYPE }} sh_buf[{{ BLOCK_PX }}*5];
-
 // Compute A*I*exp(ij*tau*freq) for all antennas, storing output in v
 __global__ void MeasEq(
     {{ CDTYPE }} *A,
@@ -37,9 +33,6 @@ __global__ void MeasEq(
     const uint nfeed= {{ NFEED }};
     const uint nant = {{ NANT }};
 
-    const uint tx = threadIdx.x; // First dim is src
-    const uint ty = threadIdx.y; // Second dim is ant
-
     const uint src  =  blockIdx.x * blockDim.x + threadIdx.x;  // first thread dim is src on sky
     const uint antax = blockIdx.y * blockDim.y + threadIdx.y;  // second thread dim is nax*nant
     const uint feed  = blockIdx.z * blockDim.z + threadIdx.z;  // third thread dim is nfeed
@@ -51,15 +44,12 @@ __global__ void MeasEq(
     {{ CDTYPE }} amp;
     {{ DTYPE }} phs;
     if (ant >= nant || ax >= nax || feed >= nfeed || src >= nsrc) return;
-    if (ty == 0)
-        sh_buf[tx] = sqrtI[src];
-    __syncthreads(); // make sure all memory is loaded before computing
 
     // Create both real/imag parts of the "amplitude"
     uint tau_indx = ant*nsrc + src;
     uint Aindx = ax*(nfeed*nbeam*nsrc) + feed*nbeam*nsrc + beam*nsrc + src;
-    amp.x = A[Aindx].x * sh_buf[tx];
-    amp.y = A[Aindx].y * sh_buf[tx];
+    amp.x = A[Aindx].x * sqrtI[src];
+    amp.y = A[Aindx].y * sqrtI[src];
 
     phs = tau[tau_indx] * freq;
 
