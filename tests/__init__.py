@@ -138,6 +138,7 @@ def get_standard_sim_params(
         name=[str(i) for i in range(len(ra_dec))],
         ra=Longitude(ra_dec[:, 0], "rad"),
         dec=Latitude(ra_dec[:, 1], "rad"),
+        frame="icrs",
         spectral_type="spectral_index",
         spectral_index=sources[:, 3],
         stokes=stokes * un.Jy,
