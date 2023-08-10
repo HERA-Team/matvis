@@ -11,6 +11,11 @@ Fixed
 - Better handling of errors when GPUs are present but currently unavailable for some
   reason.
 
+Tests
+-----
+
+- Correct formation of SkyModel for ``pyradiosky>=0.3.0`` in tests.
+
 Version 1.0.1
 =============
 
