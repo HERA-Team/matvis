@@ -1,10 +1,12 @@
-from ._jax import JAXRed as _JR
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
+
+from ._jax import JAXRed as _JR
+
 
 class JAXChunkedLoop(_JR):
     chunksize = 350
-            
+
     def compute(self):
         nchunks = len(self.ant1) // self.chunksize
 
@@ -16,11 +18,11 @@ class JAXChunkedLoop(_JR):
             self.out = self.out.at[slc].set(sm)
 
         for chunk in range(nchunks):
-            slc = slice(chunk*self.chunksize, (chunk+1)*self.chunksize)
+            slc = slice(chunk * self.chunksize, (chunk + 1) * self.chunksize)
             doslc(slc)
 
         if len(self.ant1) % self.chunksize:
-            slc = slice((chunk+1)*self.chunksize, None)
+            slc = slice((chunk + 1) * self.chunksize, None)
             doslc(slc)
 
         return jax.device_get(self.out)

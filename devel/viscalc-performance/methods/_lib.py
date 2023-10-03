@@ -6,13 +6,13 @@ import numpy as np
 class Solver:
     def __init__(self, z: np.ndarray):
         self._z = z
-        
+
     def setup(self):
         self.z = self._z
-    
+
     def compute(self) -> np.ndarray:
         pass
-    
+
     def teardown(self):
         pass
 
@@ -21,7 +21,7 @@ class Solver:
         out = self.compute()
         self.teardown()
         return out
-    
+
     @classmethod
     def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
         if rtol is None:
@@ -32,12 +32,13 @@ class Solver:
         obj = cls(z0)
         result = obj()
         np.testing.assert_allclose(np.triu(result), np.triu(v0), rtol=rtol, atol=atol)
-        
+
+
 class RedundantSolver(Solver):
     def __init__(self, z: np.ndarray, pairs: np.ndarray):
         self._z = z
         self.pairs = pairs
-            
+
     @classmethod
     def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
         if rtol is None:
@@ -50,5 +51,6 @@ class RedundantSolver(Solver):
         pairs = np.array([(a, b) for a in range(nant) for b in range(nant)])
         obj = cls(z0, pairs)
         result = obj()
-        np.testing.assert_allclose(np.triu(result.reshape((nant, nant))), np.triu(v0), rtol=rtol, atol=atol)
-    
+        np.testing.assert_allclose(
+            np.triu(result.reshape((nant, nant))), np.triu(v0), rtol=rtol, atol=atol
+        )

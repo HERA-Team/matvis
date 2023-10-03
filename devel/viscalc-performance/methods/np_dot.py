@@ -1,5 +1,7 @@
-from ._lib import Solver
 import numpy as np
+
+from ._lib import Solver
+
 
 class NpDot(Solver):
     def compute(self):

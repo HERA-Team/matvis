@@ -1,33 +1,33 @@
-from ._lib import Solver, RedundantSolver
+from ._lib import RedundantSolver, Solver
 
 try:
+    import jax
     import jax.numpy as jnp
     from jax import config
-    import jax
+
     HAVE_JAX = True
 except ImportError:
     HAVE_JAX = False
 
 
 class JAXSolver(Solver):
-    def setup(self):        
-        if self._z.dtype is complex:
-            config.update('jax_enable_x64',True)
-
-        self.z = jax.device_put(self._z)
-    
-            
-
-class JAXRed(RedundantSolver):    
     def setup(self):
         if self._z.dtype is complex:
-            config.update('jax_enable_x64',True)
+            config.update("jax_enable_x64", True)
+
+        self.z = jax.device_put(self._z)
+
+
+class JAXRed(RedundantSolver):
+    def setup(self):
+        if self._z.dtype is complex:
+            config.update("jax_enable_x64", True)
 
         self.z = jax.device_put(self._z)
         self.ant1 = jax.device_put(self.pairs[:, 0])
         self.ant2 = jax.device_put(self.pairs[:, 1])
         self.out = jnp.empty(len(self.ant1), dtype=self._z.dtype)
-        
+
     def compute(self):
         nchunks = len(self.ant1) // self.chunksize
 
@@ -39,11 +39,11 @@ class JAXRed(RedundantSolver):
             self.out = self.out.at[slc].set(sm)
 
         for chunk in range(nchunks):
-            slc = slice(chunk*self.chunksize, (chunk+1)*self.chunksize)
+            slc = slice(chunk * self.chunksize, (chunk + 1) * self.chunksize)
             doslc(slc)
 
         if len(self.ant1) % self.chunksize:
-            slc = slice((chunk+1)*self.chunksize, None)
+            slc = slice((chunk + 1) * self.chunksize, None)
             doslc(slc)
 
         return jax.device_get(self.out)

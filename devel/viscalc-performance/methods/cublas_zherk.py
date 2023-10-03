@@ -1,5 +1,6 @@
 from ._cublas import CuBLAS as _CB
 
+
 class CuBLASZherk(_CB):
     def compute(self):
         nant, nsrc = self.z.shape
@@ -7,7 +8,7 @@ class CuBLASZherk(_CB):
         self.herk(
             self.h,
             uplo="L",
-            trans='c',
+            trans="c",
             n=nant,
             k=nsrc,
             alpha=1.0,
@@ -15,6 +16,6 @@ class CuBLASZherk(_CB):
             lda=nsrc,
             beta=0.0,
             C=self.out.gpudata,
-            ldc=nant
+            ldc=nant,
         )
         return self.out.get()

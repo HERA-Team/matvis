@@ -1,22 +1,24 @@
-from ._lib import Solver, RedundantSolver
+from ._lib import RedundantSolver, Solver
 
 try:
     import pycuda.autoinit
     from pycuda import cumath as cm
     from pycuda import driver, gpuarray
     from skcuda.cublas import (
-        cublasCreate,
-        cublasDestroy,
-        cublasZgemm,
-        cublasZherk,
-        cublasZdotc,
+        cublasCdotc,
         cublasCgemm,
         cublasCherk,
-        cublasCdotc,
+        cublasCreate,
+        cublasDestroy,
+        cublasZdotc,
+        cublasZgemm,
+        cublasZherk,
     )
-    HAVE_PYCUDA = True 
+
+    HAVE_PYCUDA = True
 except:
     HAVE_PYCUDA = False
+
 
 class _CuBLASCommon:
     def setup(self):
@@ -32,13 +34,14 @@ class _CuBLASCommon:
             self.herk = cublasCherk
             self.dotc = cublasCdotc
 
-class _CuBLAS(Solver, _CuBLASCommon):
 
+class _CuBLAS(Solver, _CuBLASCommon):
     def setup(self):
         super().setup()
         nant = self.z.shape[0]
         self.out = gpuarray.empty(shape=(nant, nant), dtype=self._z.dtype)
-        
+
+
 class _CuBLASRed(RedundantSolver, _CuBLASCommon):
     def setup(self):
         super().setup()

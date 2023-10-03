@@ -1,5 +1,7 @@
-from ._lib import Solver
 from scipy.linalg import blas
+
+from ._lib import Solver
+
 
 class NpZgemm(Solver):
     def compute(self):

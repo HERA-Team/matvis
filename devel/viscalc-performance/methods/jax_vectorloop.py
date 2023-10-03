@@ -1,8 +1,10 @@
-from ._jax import JAXRed as _JR
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 
-class JAXVectorLoop(_JR):            
+from ._jax import JAXRed as _JR
+
+
+class JAXVectorLoop(_JR):
     def compute(self):
         zc = self.z.conj()
 

@@ -1,5 +1,6 @@
 from ._cublas import CuBLAS as _CB
 
+
 class CuBLASZgemm(_CB):
     def compute(self):
         nant, nsrc = self.z.shape
