@@ -1,3 +1,1 @@
-from . import np_dot
-from . import np_zgemm
-from . import np_zherk
+from . import np_dot, np_zgemm, np_zherk
