@@ -1,23 +1,25 @@
+"""JAX implementation of the visibility simulator."""
+
+import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
-import jax
-
-import numpy as np
-from typing import Sequence, Callable
-from pyuvdata import UVBeam
-import psutil
 import logging
-import warnings
-from ._uvbeam_to_raw import uvbeam_to_azza_grid
+import numpy as np
+import psutil
 import time
-from . import conversions
+import warnings
+from collections.abc import Sequence
+from pyuvdata import UVBeam
+from typing import Callable
 
+from . import conversions
+from ._uvbeam_to_raw import uvbeam_to_azza_grid
 from .cpu import (
     _evaluate_beam_cpu,
     _log_progress,
     _validate_inputs,
     _wrangle_beams,
-    vis_cpu
+    vis_cpu,
 )
 from .gpu import _get_required_chunks
 
@@ -122,7 +124,7 @@ def vis_gpu(
     else:
         daz, dza = None, None
 
-    # Send the regular-grid beam data to the GPU. This has dimensions 
+    # Send the regular-grid beam data to the GPU. This has dimensions
     # (Nbeam, Nax, Nfeed, Nza, Nza)
     # Note that Nbeam is not in general equal to Nant (we can have multiple antennas with
     # the same beam).
@@ -138,16 +140,8 @@ def vis_gpu(
     # sent from CPU each time
     eq2top_gpu = jnp.empty(shape=(3, 3), dtype=real_dtype)
     # will be set on GPU
-    crdtop_gpu = jnp.empty(shape=(3, npixc), dtype=real_dtype)
-    # will be set on GPU
-    vis_gpus = [
+    vis_chunks = [
         jnp.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
-        for _ in range(nchunks)
-    ]
-
-    # output CPU buffers for downloading answers
-    vis_cpus = [
-        np.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
         for _ in range(nchunks)
     ]
 
@@ -162,16 +156,17 @@ def vis_gpu(
     plast = tstart
 
     for t in range(ntimes):
-        eq2top_gpu = jax.device_put(eq2tops[t])  # defines sky orientation for this time step
-        
+        eq2top_gpu = jax.device_put(
+            eq2tops[t]
+        )  # defines sky orientation for this time step
+
         for c in range(nchunks):
-            
             crd_eq_gpu = jax.device_put(crd_eq[:, c * npixc : (c + 1) * npixc])
             Isqrt_gpu = Isqrt[c * npixc : (c + 1) * npixc]
 
             crdtop = jnp.dot(eq2top_gpu, crd_eq_gpu)
 
-            #tx, ty, tz = crdtop_gpu
+            # tx, ty, tz = crdtop_gpu
             above_horizon = crdtop[:, 2] > 0
             tx = crdtop[above_horizon:, 0]
             ty = crdtop[above_horizon, 1]
@@ -190,55 +185,24 @@ def vis_gpu(
             # coordinates, but not in Cartesian coordinates.
             A_gpu = do_beam_interpolation(
                 freq,
-                beam_list,
                 polarized,
                 nax,
                 nfeed,
                 complex_dtype,
-                nbeam,
                 use_uvbeam,
                 daz,
                 dza,
-                beam_data_gpu,
                 tx,
                 ty,
-                nsrcs_up,
+                beam_list=beam_list,
+                beam_data_gpu=beam_data_gpu,
             )
 
-            if not use_redundancy:
-                _viscalc_antbased_single_time(
-                    nant=nant,
-                    nfeed=nfeed,
-                    nsrcs_up=nsrc_up,
-                    nax=nax, 
-                    real_dtype=real_dtype,
-                    complex_dtype=complex_dtype,
-                    h=h,
-                    crdtop_lim_gpu=crdtop_lim_gpu,
-                    antpos_gpu=antpos_gpu,
-                    event=event,
-                    stream=stream,
-                    above_horizon=above_horizon,
-                    nthreads=nthreads,
-                    A_gpu=A_gpu,
-                    beam_idx=beam_idx,
-                    ang_freq=ang_freq,
-                    t=t,
-                    vis_gpus=vis_gpus,
-                    Isqrt_gpu=Isqrt_gpu,
-                    c=c,
-                    cublas_real_mm=cublas_real_mm,
-                    meas_eq=meas_eq,
-                    cublas_complex_mm=cublas_complex_mm,
-                )
-            else:
-                _viscalc_baseline_based_single_time(
+            tau = -ang_freq * 1j * jnp.dot(antpos, crdtop)
+            Z = jnp.einsum("l,ijkl,jl->ijkl", Isqrt_gpu, A_gpu, jnp.exp(tau))
+            vis_chunks[c] = jnp.dot(Z, Z.T.conj())
 
-                )
-            vis_gpus[c].get(ary=vis_cpus[c], stream=stream)
-            event["end"].record(stream)
-        events[nchunks - 1]["end"].synchronize()
-        vis[t] = sum(vis_cpus)
+        vis[t] = jax.device_get(jnp.sum(vis_chunks, axis=0))
 
         if not (t % report_chunk or t == ntimes - 1):
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
@@ -246,31 +210,27 @@ def vis_gpu(
     vis = vis.conj().reshape((ntimes, nfeed, nant, nfeed, nant))
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
 
+
 def do_beam_interpolation(
     freq,
-    beam_list,
     polarized,
     nax,
     nfeed,
     complex_dtype,
-    nbeam,
     use_uvbeam,
     daz,
     dza,
-    beam_data_gpu,
     tx,
     ty,
-    nsrcs_up,
+    beam_list=None,
+    beam_data_gpu=None,
 ):
     """Perform the beam interpolation, choosing between CPU and GPU as necessary."""
     if use_uvbeam:  # perform interpolation on GPU
         az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-
-        A_gpu = jax_beam_interpolation(
-            beam_data_gpu, daz, dza, az, za,
-        )
+        return jax_beam_interpolation(beam_data_gpu, daz, dza, az, za)
     else:
-        A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+        A_s = np.zeros((nax, nfeed, len(beam_list), len(tx)), dtype=complex_dtype)
 
         _evaluate_beam_cpu(
             A_s,
@@ -280,8 +240,8 @@ def do_beam_interpolation(
             polarized,
             freq,
         )
-        A_gpu = jax.device_put(A_s)
-    return A_gpu
+        return jax.device_put(A_s)
+
 
 def jax_beam_interpolation(
     beam,
@@ -305,15 +265,6 @@ def jax_beam_interpolation(
     az, za
         The azimuth and zenith-angle values of the sources to which to interpolate.
         These should be  1D arrays. They are not treated as a "grid".
-    gpu_func
-        The callable, compiled GPU function to use. This is generated dynamically
-        if not given, but can be given to avoid recompilation.
-    nthreads
-        The number of threads to use.
-    stream
-        An option GPU stream to write to.
-    return_on_cpu
-        Whether to return the result as CPU memory, or a GPUArray.
 
     Returns
     -------
@@ -324,27 +275,16 @@ def jax_beam_interpolation(
     """
     complex_beam = beam.dtype.name.startswith("complex")
 
-    nbeam, nax, nfeed, nza, naz = beam.shape
-    nsrc = len(az)
-
-    # az_gpu = gpuarray.to_gpu_async(az, stream=stream)
-    # za_gpu = gpuarray.to_gpu_async(za, stream=stream)
-    # nsrc_uint = np.uint(nsrc)
-
     az_pixel_coords = az / daz
     za_pixel_coords = za / dza
+
     # maybe v thing here.
     def fnc(beam_in):
         jsp.ndimage.map_coordinates(
             beam_in,
             jnp.array([az_pixel_coords, za_pixel_coords]),
             order=1,
-            mode='wrap'  # TODO: check if this is correct
+            mode="wrap",  # TODO: check if this is correct
         )
 
-    if complex_beam:
-        beam_at_src = fnc(beam)
-    else:
-        beam_at_src = jnp.sqrt(fnc(beam))
-        
-    return beam_at_src
+    return fnc(beam) if complex_beam else jnp.sqrt(fnc(beam))
