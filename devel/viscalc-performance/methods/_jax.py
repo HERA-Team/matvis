@@ -12,7 +12,7 @@ except ImportError:
 
 class JAXSolver(Solver):
     def setup(self):
-        if self._z.dtype is complex:
+        if self._z.dtype.name == 'complex128':
             config.update("jax_enable_x64", True)
 
         self.z = jax.device_put(self._z)
@@ -20,7 +20,7 @@ class JAXSolver(Solver):
 
 class JAXRed(RedundantSolver):
     def setup(self):
-        if self._z.dtype is complex:
+        if self._z.dtype.name == 'complex128':
             config.update("jax_enable_x64", True)
 
         self.z = jax.device_put(self._z)

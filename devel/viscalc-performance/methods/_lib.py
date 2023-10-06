@@ -4,8 +4,14 @@ import numpy as np
 
 
 class Solver:
+    is_redundant: bool = False
+
     def __init__(self, z: np.ndarray):
         self._z = z
+        if self._z.shape[0] > self._z.shape[1]:
+            self.transposed = True
+        else:
+            self.transposed = False
 
     def setup(self):
         self.z = self._z
@@ -25,9 +31,9 @@ class Solver:
     @classmethod
     def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
         if rtol is None:
-            rtol = 1e-5 if z0.dtype is complex else 1e-3
+            rtol = 1e-5 if z0.dtype.name == 'complex128' else 1e-3
         if atol is None:
-            atol = 1e-5 if z0.dtype is complex else 1e-3
+            atol = 1e-5 if z0.dtype.name == 'complex128' else 1e-3
 
         obj = cls(z0)
         result = obj()
@@ -35,19 +41,26 @@ class Solver:
 
 
 class RedundantSolver(Solver):
+    is_redundant: bool = True
+
     def __init__(self, z: np.ndarray, pairs: np.ndarray):
         self._z = z
+        if self._z.shape[0] > self._z.shape[1]:
+            self.transposed = True
+        else:
+            self.transposed = False
+
         self.pairs = pairs
 
     @classmethod
     def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
         if rtol is None:
-            rtol = 1e-5 if z0.dtype is complex else 1e-3
+            rtol = 1e-5 if z0.dtype.name=='complex128' else 1e-3
         if atol is None:
-            atol = 1e-5 if z0.dtype is complex else 1e-3
+            atol = 1e-5 if z0.dtype.name == 'complex128' else 1e-3
 
         # All the pairs.
-        nant = z0.shape[0]
+        nant = min(z0.shape)
         pairs = np.array([(a, b) for a in range(nant) for b in range(nant)])
         obj = cls(z0, pairs)
         result = obj()

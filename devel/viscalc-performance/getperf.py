@@ -91,20 +91,19 @@ def get_timings(
     ctype=complex,
     nants_redundant: int | None = None,
     pairs: dict | None = None,
+    transpose: bool = False,
 ) -> dict[tuple[int, int], float]:
     out = {}
+    cache=Path(cache)
 
     # First, test the solver.
     test_solver(solver, nants[0], nsrcs[0], ctype)
 
     # Get the outer iterator.
-    if nants_redundant:
-        outer = pairs
-    else:
-        outer = nants
+    outer = pairs.items() if solver.is_redundant else nants
 
     for outer_thing in outer:
-        if nants_redundant:
+        if solver.is_redundant:
             label_outer = outer_thing[0]  # pairfrac
             use_nants = nants_redundant
         else:
@@ -113,19 +112,17 @@ def get_timings(
 
         for nside, nsrc in zip(nsides, nsrcs):
             size = (use_nants, nsrc)
-            z = getz(size, ctype)
+            z = getz(size, ctype, transpose=transpose)
 
-            print(size, end=": ")
+            print((label_outer, nside), end=": ")
             prec = "double" if ctype is complex else "single"
-            pth = cache / f"{solver.__name__}_{label_outer}x{nside}_{prec}.yaml"
+            trns = 'col' if transpose else 'row'
+            pth = cache / f"{solver.__name__}_{label_outer}x{nside}_{prec}_{trns}.yaml"
             if not rerun and pth.exists():
                 with open(pth) as fl:
                     o = out[(label_outer, nside)] = TimeResult(**yaml.safe_load(fl))
             else:
-                if issubclass(solver, RedundantSolver):
-                    sln = solver(z, outer_thing[1])
-                else:
-                    sln = solver(z)
+                sln = solver(z, outer_thing[1]) if solver.is_redundant else solver(z)
 
                 o = out[(label_outer, nside)] = get_timing(sln, repeats=repeats)
                 del sln  # Ensure memory is freed.
@@ -139,9 +136,12 @@ def get_timings(
     return out
 
 
-def getz(shape, ctype):
-    return (np.random.random(shape) + np.random.random(shape) * 1j).astype(ctype)
-
+def getz(shape, ctype, transpose=False):
+    if transpose:
+        return (np.random.random(shape[::-1]) + np.random.random(shape[::-1]) * 1j).astype(ctype)
+    else:
+        return (np.random.random(shape) + np.random.random(shape) * 1j).astype(ctype)
+    
 
 def get_sizes(
     max_nants: int,
@@ -157,6 +157,22 @@ def get_sizes(
 
     return nants, nsides, nsrcs
 
+def get_solver(solver):
+    mdl = importlib.import_module(f"methods.{solver}")
+
+    for k, v in mdl.__dict__.items():
+        if (
+            np.issubclass_(v, (Solver, RedundantSolver))
+            and v is not Solver
+            and v is not RedundantSolver
+            and not k.startswith("_")
+        ):
+            solver = v
+            break
+    else:
+        raise ValueError(f"Cannot find a solver in '{solver}'")
+
+    return solver
 
 @click.command
 @click.argument("solver", type=str, required=True)
@@ -164,10 +180,10 @@ def get_sizes(
 @click.option("--n-nants", type=int, default=4)
 @click.option("--max-nside", type=int, default=256)
 @click.option("--n-nsides", type=int, default=4)
-@click.option("--redundant-nants", type=int, default=None)
 @click.option("--double/--single", default=True)
 @click.option("--repeats", type=int, default=3)
 @click.option("--rerun/--use-cache", default=False)
+@click.option("--transpose/--no-transpose", default=False)
 @click.option(
     "--cache", type=click.Path(exists=True, file_okay=False), default=Path(".")
 )
@@ -177,11 +193,11 @@ def main(
     n_nants: int,
     max_nside: int,
     n_nsides: int,
-    redundant_nants: int | None,
     double: bool,
     repeats: int,
     rerun: bool,
     cache,
+    transpose: bool
 ):
     """Get the performance metric of a particular solver."""
 
@@ -195,24 +211,11 @@ def main(
     nsides = sorted(max_nside // 2**i for i in range(n_nsides))
     nsrcs = [2 * 12 * nside**2 for nside in nsides]
 
-    if redundant_nants is None:
-        redundant_nants = nants[-1] // 2
+    redundant_nants = nants[-1] // 2
 
-    mdl = importlib.import_module(solver, package="methods")
+    solver = get_solver(solver)
 
-    for k, v in mdl.__dict__:
-        if (
-            issubclass(v, (Solver, RedundantSolver))
-            and v is not Solver
-            and v is not RedundantSolver
-            and not k.startswith("_")
-        ):
-            solver = v
-            break
-    else:
-        raise ValueError(f"Cannot find a solver in '{solver}'")
-
-    if issubclass(solver, RedundantSolver):
+    if solver.is_redundant:
         allpairs = np.array(
             [(0, 0)]
             + [
@@ -247,8 +250,9 @@ def main(
         rerun=rerun,
         cache=cache,
         ctype=complex if double else np.complex64,
-        nants_redundant=redundant_nants * 2 if issubclass(v, RedundantSolver) else None,
+        nants_redundant=redundant_nants * 2,
         pairs=pairs,
+        transpose=transpose
     )
 
 
