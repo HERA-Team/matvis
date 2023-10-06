@@ -3,6 +3,7 @@ import jax.numpy as jnp
 
 from ._jax import JAXRed as _JR
 
+
 @jax.jit
 def _go_at_it(z: jnp.array, out: jnp.array, pairs: jnp.array):
     zc = z.conj()
@@ -16,4 +17,3 @@ def _go_at_it(z: jnp.array, out: jnp.array, pairs: jnp.array):
 class JAXVectorLoop(_JR):
     def compute(self):
         return _go_at_it(self.z, self.out, self.pairs)
-        

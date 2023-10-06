@@ -2,6 +2,7 @@ from scipy.linalg import blas
 
 from ._lib import Solver
 
+
 class NpZgemm(Solver):
     def compute(self):
         if self.transposed:

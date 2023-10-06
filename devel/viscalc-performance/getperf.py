@@ -94,7 +94,7 @@ def get_timings(
     transpose: bool = False,
 ) -> dict[tuple[int, int], float]:
     out = {}
-    cache=Path(cache)
+    cache = Path(cache)
 
     # First, test the solver.
     test_solver(solver, nants[0], nsrcs[0], ctype)
@@ -116,7 +116,7 @@ def get_timings(
 
             print((label_outer, nside), end=": ")
             prec = "double" if ctype is complex else "single"
-            trns = 'col' if transpose else 'row'
+            trns = "col" if transpose else "row"
             pth = cache / f"{solver.__name__}_{label_outer}x{nside}_{prec}_{trns}.yaml"
             if not rerun and pth.exists():
                 with open(pth) as fl:
@@ -138,10 +138,12 @@ def get_timings(
 
 def getz(shape, ctype, transpose=False):
     if transpose:
-        return (np.random.random(shape[::-1]) + np.random.random(shape[::-1]) * 1j).astype(ctype)
+        return (
+            np.random.random(shape[::-1]) + np.random.random(shape[::-1]) * 1j
+        ).astype(ctype)
     else:
         return (np.random.random(shape) + np.random.random(shape) * 1j).astype(ctype)
-    
+
 
 def get_sizes(
     max_nants: int,
@@ -156,6 +158,7 @@ def get_sizes(
     nsrcs = [2 * 12 * nside**2 for nside in nsides]
 
     return nants, nsides, nsrcs
+
 
 def get_solver(solver):
     mdl = importlib.import_module(f"methods.{solver}")
@@ -173,6 +176,7 @@ def get_solver(solver):
         raise ValueError(f"Cannot find a solver in '{solver}'")
 
     return solver
+
 
 @click.command
 @click.argument("solver", type=str, required=True)
@@ -197,7 +201,7 @@ def main(
     repeats: int,
     rerun: bool,
     cache,
-    transpose: bool
+    transpose: bool,
 ):
     """Get the performance metric of a particular solver."""
 
@@ -252,7 +256,7 @@ def main(
         ctype=complex if double else np.complex64,
         nants_redundant=redundant_nants * 2,
         pairs=pairs,
-        transpose=transpose
+        transpose=transpose,
     )
 
 

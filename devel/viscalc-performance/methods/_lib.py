@@ -31,9 +31,9 @@ class Solver:
     @classmethod
     def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
         if rtol is None:
-            rtol = 1e-5 if z0.dtype.name == 'complex128' else 1e-3
+            rtol = 1e-5 if z0.dtype.name == "complex128" else 1e-3
         if atol is None:
-            atol = 1e-5 if z0.dtype.name == 'complex128' else 1e-3
+            atol = 1e-5 if z0.dtype.name == "complex128" else 1e-3
 
         obj = cls(z0)
         result = obj()
@@ -55,9 +55,9 @@ class RedundantSolver(Solver):
     @classmethod
     def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
         if rtol is None:
-            rtol = 1e-5 if z0.dtype.name=='complex128' else 1e-3
+            rtol = 1e-5 if z0.dtype.name == "complex128" else 1e-3
         if atol is None:
-            atol = 1e-5 if z0.dtype.name == 'complex128' else 1e-3
+            atol = 1e-5 if z0.dtype.name == "complex128" else 1e-3
 
         # All the pairs.
         nant = min(z0.shape)

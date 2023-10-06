@@ -1,30 +1,34 @@
-from ._cublas import _CuBLASRed, cuda_take_along_axis
-from . import _cublas as _cu
 import numpy as np
+
+from . import _cublas as _cu
+from ._cublas import _CuBLASRed, cuda_take_along_axis
+
 
 class CuBLASChunkedLoop(_CuBLASRed):
     def setup(self):
         super().setup()
-        
+
         # Now, chunk the pairs into lists of pairs, where each list has the same
         # first antenna.
         ants = {}
 
         if self.transposed:
-            for (a, b) in self.pairs:
+            for a, b in self.pairs:
                 if b not in ants:
                     ants[b] = [a]
                 else:
                     ants[b].append(a)
         else:
-            for (a, b) in self.pairs:
+            for a, b in self.pairs:
                 if a not in ants:
                     ants[a] = [b]
                 else:
                     ants[a].append(b)
 
         # Put them on the GPU
-        self.ants = {k: _cu.gpuarray.to_gpu(np.sort(v).astype(np.int32)) for k, v in ants.items()}
+        self.ants = {
+            k: _cu.gpuarray.to_gpu(np.sort(v).astype(np.int32)) for k, v in ants.items()
+        }
         # most_pairs = max(len(v) for v in ants.values())
 
     def compute(self):
@@ -37,9 +41,9 @@ class CuBLASChunkedLoop(_CuBLASRed):
             for a, b in self.ants.items():
                 # Make new contiguous array for these antennas.
                 m = cuda_take_along_axis(self.z, b, axis=1)
-                print('m shape', m.shape, b.shape, b)
+                print("m shape", m.shape, b.shape, b)
                 thisn = len(b)
-                print('thisn', thisn)
+                print("thisn", thisn)
                 this = _cu.gpuarray.empty((thisn,), dtype=self.z.dtype)
 
                 self.gemv(
@@ -54,11 +58,11 @@ class CuBLASChunkedLoop(_CuBLASRed):
                     1,
                     0.0,
                     this.gpudata,
-                    1
+                    1,
                 )
-                out[n: n+thisn] = this.get()
+                out[n : n + thisn] = this.get()
                 n += thisn
-        
+
             return out
 
         else:
@@ -85,9 +89,9 @@ class CuBLASChunkedLoop(_CuBLASRed):
                     1,
                     0.0,
                     this.gpudata,
-                    1
+                    1,
                 )
-                out[n: n+thisn] = this.get()
+                out[n : n + thisn] = this.get()
                 n += thisn
-        
+
             return out

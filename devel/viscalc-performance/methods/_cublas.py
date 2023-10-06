@@ -1,29 +1,30 @@
-from ._lib import RedundantSolver, Solver
 import ctypes
 import numpy as np
-from functools import cache
-from jinja2 import Template
 import os
 import warnings
+from functools import cache
+from jinja2 import Template
+
+from ._lib import RedundantSolver, Solver
 
 try:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-    
-        import pycuda.autoinit
-        from pycuda import cumath as cm
 
-        from pycuda import driver, gpuarray, compiler
+        import pycuda.autoinit
+        from pycuda import compiler
+        from pycuda import cumath as cm
+        from pycuda import driver, gpuarray
         from skcuda.cublas import (
+            _libcublas,
             cublasCgemm,
+            cublasCgemv,
             cublasCherk,
             cublasCreate,
             cublasDestroy,
             cublasZgemm,
-            cublasZherk,
             cublasZgemv,
-            cublasCgemv,
-            _libcublas,
+            cublasZherk,
             cuda,
         )
 
@@ -31,16 +32,13 @@ try:
 except:
     HAVE_PYCUDA = False
 
+
 def cublasZdotc_inplace(handle, n, x, incx, y, incy, result):
-    _libcublas.cublasZdotc_v2(
-        handle, n, int(x), incx, int(y), incy, int(result)
-    )   
+    _libcublas.cublasZdotc_v2(handle, n, int(x), incx, int(y), incy, int(result))
+
 
 def cublasCdotc_inplace(handle, n, x, incx, y, incy, result):
-    _libcublas.cublasCdotc_v2(
-        handle, n, int(x), incx, int(y), incy,
-        int(result)
-    )
+    _libcublas.cublasCdotc_v2(handle, n, int(x), incx, int(y), incy, int(result))
 
 
 class _CuBLASCommon:
@@ -48,7 +46,7 @@ class _CuBLASCommon:
         self.z = gpuarray.to_gpu(self._z)
         self.h = cublasCreate()
 
-        if self._z.dtype.name == 'complex128':
+        if self._z.dtype.name == "complex128":
             self.gemm = cublasZgemm
             self.herk = cublasZherk
             self.dotc = cublasZdotc_inplace
@@ -58,6 +56,7 @@ class _CuBLASCommon:
             self.herk = cublasCherk
             self.dotc = cublasCdotc_inplace
             self.gemv = cublasCgemv
+
 
 class _CuBLAS(_CuBLASCommon, Solver):
     def setup(self):
@@ -90,14 +89,14 @@ __global__ void TakeAlongFirstAxis2D(
     int k,
     {{ TYPE }} *out_matrix
 ){
-    const uint i    = blockIdx.x * blockDim.x + threadIdx.x;  
+    const uint i    = blockIdx.x * blockDim.x + threadIdx.x;
     const uint j    = blockIdx.y * blockDim.y + threadIdx.y;
-    
+
     const uint outel = j*n + i;
-    
+
     // exit if we're out of scope
     if (j >= k || i >= n) return;
-    
+
     int idx = indices[j];
     out_matrix[outel] = in_matrix[idx*n+i];
 }
@@ -111,13 +110,13 @@ __global__ void TakeAlongSecondAxis2D(
     int k,
     {{ TYPE }} *out_matrix
 ){
-    const uint i    = blockIdx.x * blockDim.x + threadIdx.x;  
+    const uint i    = blockIdx.x * blockDim.x + threadIdx.x;
     const uint j    = blockIdx.y * blockDim.y + threadIdx.y;
-    
-    
+
+
     // exit if we're out of scope
     if (i >= k || j >= m) return;
-    
+
     int idx = indices[i];
     const uint outel = j*k + i;
 
@@ -126,30 +125,36 @@ __global__ void TakeAlongSecondAxis2D(
 """
 
 if HAVE_PYCUDA:
+
     def compile_take(dtype):
         take_along_axis_template = Template(take_along_axis_kernel_code)
         take_along_axis_code = take_along_axis_template.render(TYPE=dtype)
         return (
-            compiler.SourceModule(take_along_axis_code).get_function(f"TakeAlongFirstAxis2D"),
-            compiler.SourceModule(take_along_axis_code).get_function(f"TakeAlongSecondAxis2D"),
+            compiler.SourceModule(take_along_axis_code).get_function(
+                f"TakeAlongFirstAxis2D"
+            ),
+            compiler.SourceModule(take_along_axis_code).get_function(
+                f"TakeAlongSecondAxis2D"
+            ),
         )
 
-
-    take_along_first_axis_z, take_along_second_axis_z = compile_take('cuDoubleComplex')
-    take_along_first_axis_c, take_along_second_axis_c = compile_take('cuFloatComplex')
+    take_along_first_axis_z, take_along_second_axis_z = compile_take("cuDoubleComplex")
+    take_along_first_axis_c, take_along_second_axis_c = compile_take("cuFloatComplex")
 
     @cache
-    def _cudatake_blocksize(n: int,k: int):
+    def _cudatake_blocksize(n: int, k: int):
         nthreads_max = 1024
-        threadsx = min(nthreads_max, n) 
+        threadsx = min(nthreads_max, n)
         threadsy = min(k, nthreads_max // threadsx)
         block = (threadsx, threadsy, 1)
         grid = (int(np.ceil(n / threadsx)), int(np.ceil(k / threadsy)), 1)
         return block, grid
 
-    def cuda_take_along_axis(x: gpuarray.GPUArray, idx: gpuarray.GPUArray, axis=0) -> gpuarray.GPUArray:
+    def cuda_take_along_axis(
+        x: gpuarray.GPUArray, idx: gpuarray.GPUArray, axis=0
+    ) -> gpuarray.GPUArray:
         m, n = x.shape
-        if axis==0:
+        if axis == 0:
             out = gpuarray.empty((idx.shape[0], n), dtype=x.dtype)
         else:
             out = gpuarray.empty((m, idx.shape[0]), dtype=x.dtype)
@@ -158,10 +163,18 @@ if HAVE_PYCUDA:
             idx = idx.astype(np.int32)
 
         block, grid = _cudatake_blocksize(n, idx.shape[0])
-        if axis==0:
-            fnc = take_along_first_axis_z if x.dtype.name == 'complex128' else take_along_first_axis_c
+        if axis == 0:
+            fnc = (
+                take_along_first_axis_z
+                if x.dtype.name == "complex128"
+                else take_along_first_axis_c
+            )
         else:
-            fnc = take_along_second_axis_z if x.dtype.name == 'complex128' else take_along_second_axis_c
+            fnc = (
+                take_along_second_axis_z
+                if x.dtype.name == "complex128"
+                else take_along_second_axis_c
+            )
 
         fnc(
             x.gpudata,
@@ -174,5 +187,6 @@ if HAVE_PYCUDA:
             grid=grid,
         )
         return out
+
 else:
     cuda_take_along_axis = None
