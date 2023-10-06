@@ -29,15 +29,17 @@ try:
         )
 
     HAVE_PYCUDA = True
-except:
+except Exception:
     HAVE_PYCUDA = False
 
 
 def cublasZdotc_inplace(handle, n, x, incx, y, incy, result):
+    """In-place Zdotc that doesn't transfer data to the host."""
     _libcublas.cublasZdotc_v2(handle, n, int(x), incx, int(y), incy, int(result))
 
 
 def cublasCdotc_inplace(handle, n, x, incx, y, incy, result):
+    """In-place Cdotc that doesn't transfer data to the host."""
     _libcublas.cublasCdotc_v2(handle, n, int(x), incx, int(y), incy, int(result))
 
 
@@ -126,33 +128,41 @@ __global__ void TakeAlongSecondAxis2D(
 
 if HAVE_PYCUDA:
 
-    def compile_take(dtype):
+    def _compile_take(dtype):
         take_along_axis_template = Template(take_along_axis_kernel_code)
         take_along_axis_code = take_along_axis_template.render(TYPE=dtype)
         return (
             compiler.SourceModule(take_along_axis_code).get_function(
-                f"TakeAlongFirstAxis2D"
+                "TakeAlongFirstAxis2D"
             ),
             compiler.SourceModule(take_along_axis_code).get_function(
-                f"TakeAlongSecondAxis2D"
+                "TakeAlongSecondAxis2D"
             ),
         )
 
-    take_along_first_axis_z, take_along_second_axis_z = compile_take("cuDoubleComplex")
-    take_along_first_axis_c, take_along_second_axis_c = compile_take("cuFloatComplex")
+    take_along_first_axis_z, take_along_second_axis_z = _compile_take("cuDoubleComplex")
+    take_along_first_axis_c, take_along_second_axis_c = _compile_take("cuFloatComplex")
 
     @cache
-    def _cudatake_blocksize(n: int, k: int):
+    def _cudatake_blocksize(m: int, n: int, k: int, axis=0):
         nthreads_max = 1024
-        threadsx = min(nthreads_max, n)
-        threadsy = min(k, nthreads_max // threadsx)
+        if axis == 0:
+            threadsx = min(nthreads_max, n)
+            threadsy = min(k, nthreads_max // threadsx)
+            grid = (int(np.ceil(n / threadsx)), int(np.ceil(k / threadsy)), 1)
+
+        else:
+            threadsx = min(nthreads_max, k)
+            threadsy = min(m, nthreads_max // threadsx)
+            grid = (int(np.ceil(k / threadsx)), int(np.ceil(m / threadsy)), 1)
+
         block = (threadsx, threadsy, 1)
-        grid = (int(np.ceil(n / threadsx)), int(np.ceil(k / threadsy)), 1)
         return block, grid
 
     def cuda_take_along_axis(
         x: gpuarray.GPUArray, idx: gpuarray.GPUArray, axis=0
     ) -> gpuarray.GPUArray:
+        """Create a new GPUArray by taking indices along a given axis."""
         m, n = x.shape
         if axis == 0:
             out = gpuarray.empty((idx.shape[0], n), dtype=x.dtype)
@@ -162,7 +172,7 @@ if HAVE_PYCUDA:
         if idx.dtype.name == "int64":
             idx = idx.astype(np.int32)
 
-        block, grid = _cudatake_blocksize(n, idx.shape[0])
+        block, grid = _cudatake_blocksize(m, n, idx.shape[0], axis=axis)
         if axis == 0:
             fnc = (
                 take_along_first_axis_z
