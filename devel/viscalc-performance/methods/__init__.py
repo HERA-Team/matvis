@@ -14,3 +14,4 @@ from .cublas_vectorloop import CuBLASVectorLoop
 from .cublas_chunkedloop import CuBLASChunkedLoop
 
 from .arrayfire_gemm import ArrayFireGemm
+
