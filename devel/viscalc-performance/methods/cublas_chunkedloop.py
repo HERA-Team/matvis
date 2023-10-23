@@ -26,23 +26,23 @@ class CuBLASChunkedLoop(_CuBLASRed):
         self.ants = {
             k: _cu.gpuarray.to_gpu(np.sort(v).astype(np.int32)) for k, v in ants.items()
         }
-        # most_pairs = max(len(v) for v in ants.values())
+        most_pairs = max(len(v) for v in ants.values())
+        self.out_chunk = _cu.gpuarray.empty((most_pairs,), dtype=self.z.dtype)
 
     def compute(self):
         """Compute it."""
+        out = np.zeros(len(self.pairs), dtype=self.z.dtype)
+        n = 0
+
         if self.transposed:
             nsrc, nant = self.z.shape
-
-            out = np.zeros(len(self.pairs), dtype=self.z.dtype)
             zc = self.z.conj()
 
-            n = 0
             for a, b in self.ants.items():
                 # Make new contiguous array for these antennas.
                 m = cuda_take_along_axis(zc, b, axis=1)
                 thisn = len(b)
-                this = _cu.gpuarray.empty((thisn,), dtype=self.z.dtype)
-
+        
                 self.gemv(
                     self.h,
                     "n",  # conjugate transpose for first (remember fortran order)
@@ -54,10 +54,10 @@ class CuBLASChunkedLoop(_CuBLASRed):
                     self.z[:, a].gpudata,
                     thisn,
                     0.0,
-                    this.gpudata,
+                    self.out_chunk.gpudata,
                     1,
                 )
-                out[n : n + thisn] = this.get()
+                out[n : n + thisn] = self.out_chunk[:thisn].get()
                 n += thisn
         else:
             nant, nsrc = self.z.shape
@@ -69,7 +69,6 @@ class CuBLASChunkedLoop(_CuBLASRed):
                 # Make new contiguous array for these antennas.
                 m = cuda_take_along_axis(self.z, b)
                 thisn = len(b)
-                this = _cu.gpuarray.empty((thisn,), dtype=self.z.dtype)
 
                 self.gemv(
                     self.h,
@@ -82,10 +81,10 @@ class CuBLASChunkedLoop(_CuBLASRed):
                     self.z[a].gpudata,
                     1,
                     0.0,
-                    this.gpudata,
+                    self.out_chunk.gpudata,
                     1,
                 )
-                out[n : n + thisn] = this.get()
+                out[n : n + thisn] = self.out_chunk[:thisn].get()
                 n += thisn
 
         return out

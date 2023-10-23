@@ -10,7 +10,6 @@ from dataclasses import asdict, dataclass
 from methods._lib import RedundantSolver, Solver
 from pathlib import Path
 
-
 @dataclass
 class TimeResult:
     times: list[float]
@@ -178,7 +177,9 @@ def get_solver(solver):
     return solver
 
 
-@click.command
+cli = click.Group()
+
+@cli.command()
 @click.argument("solver", type=str, required=True)
 @click.option("--max-nants", type=int, default=350)
 @click.option("--n-nants", type=int, default=4)
@@ -259,6 +260,62 @@ def main(
         transpose=transpose,
     )
 
+def get_redundancies(bls, ndecimals: int=2):
+    uvbins = set()
+    pairs = []
+
+    # Everything here is in wavelengths
+    bls = np.round(bls, decimals=ndecimals)
+    nant = bls.shape[0]
+
+    # group redundant baselines
+    for i in range(nant):
+        for j in range(i + 1, nant):
+            u, v = bls[i, j]
+            if (u, v) not in uvbins and (-u, -v) not in uvbins:
+                uvbins.add((u, v))
+                pairs.append([i,j])
+
+    return pairs
+
+@cli.command()
+@click.argument("solver", type=str, required=True)
+@click.option("--double/--single", default=True)
+@click.option("--transpose/--no-transpose", default=False)
+@click.option("--outriggers/--core", default=False)
+@click.option("--nside", type=int, default=256)
+@click.option("--ax-moves-first/--ant-moves-first", default=True)
+def hera_profile(solver, double, transpose, outriggers, nside, ax_moves_first):
+    from py21cmsense.antpos import hera
+
+    antpos = hera(hex_num=11, split_core=True, outriggers=2 if outriggers else 0)
+    bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
+    pairs = np.array(get_redundancies(bls.value))
+
+    # We also need the pairs for the pol axis
+    if ax_moves_first:
+        pairs *= 2
+        pairs = np.array([[p, p + 1] for p in pairs]).reshape((2*len(pairs), 2))
+    else:
+        pairs = np.concatenate((pairs, pairs + len(pairs)), axis=0)
+
+    solver = get_solver(solver)
+
+    ctype = complex if double else np.complex64
+    test_solver(solver, 50, 1000, ctype)
+
+    nant = len(antpos)
+    nsrc = 12*nside**2
+
+    # now run the actual computation
+    z = getz((2*nant, 2*nsrc), transpose=transpose, ctype=ctype)
+
+    if solver.is_redundant:
+        sln = solver(z, pairs=pairs)
+    else:
+        sln = solver(z)
+
+    sln()
 
 if __name__ == "__main__":
-    main()
+    cli()

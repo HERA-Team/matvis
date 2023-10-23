@@ -173,6 +173,7 @@ if HAVE_PYCUDA:
             idx = idx.astype(np.int32)
 
         block, grid = _cudatake_blocksize(m, n, idx.shape[0], axis=axis)
+        print(m, n, idx.shape[0], block, grid)
         if axis == 0:
             fnc = (
                 take_along_first_axis_z
