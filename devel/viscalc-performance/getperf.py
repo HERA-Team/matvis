@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from methods._lib import RedundantSolver, Solver
 from pathlib import Path
 
+
 @dataclass
 class TimeResult:
     times: list[float]
@@ -179,6 +180,7 @@ def get_solver(solver):
 
 cli = click.Group()
 
+
 @cli.command()
 @click.argument("solver", type=str, required=True)
 @click.option("--max-nants", type=int, default=350)
@@ -260,7 +262,8 @@ def main(
         transpose=transpose,
     )
 
-def get_redundancies(bls, ndecimals: int=2):
+
+def get_redundancies(bls, ndecimals: int = 2):
     uvbins = set()
     pairs = []
 
@@ -274,9 +277,10 @@ def get_redundancies(bls, ndecimals: int=2):
             u, v = bls[i, j]
             if (u, v) not in uvbins and (-u, -v) not in uvbins:
                 uvbins.add((u, v))
-                pairs.append([i,j])
+                pairs.append([i, j])
 
     return pairs
+
 
 @cli.command()
 @click.argument("solver", type=str, required=True)
@@ -295,7 +299,7 @@ def hera_profile(solver, double, transpose, outriggers, nside, ax_moves_first):
     # We also need the pairs for the pol axis
     if ax_moves_first:
         pairs *= 2
-        pairs = np.array([[p, p + 1] for p in pairs]).reshape((2*len(pairs), 2))
+        pairs = np.array([[p, p + 1] for p in pairs]).reshape((2 * len(pairs), 2))
     else:
         pairs = np.concatenate((pairs, pairs + len(pairs)), axis=0)
 
@@ -305,10 +309,10 @@ def hera_profile(solver, double, transpose, outriggers, nside, ax_moves_first):
     test_solver(solver, 50, 1000, ctype)
 
     nant = len(antpos)
-    nsrc = 12*nside**2
+    nsrc = 12 * nside**2
 
     # now run the actual computation
-    z = getz((2*nant, 2*nsrc), transpose=transpose, ctype=ctype)
+    z = getz((2 * nant, 2 * nsrc), transpose=transpose, ctype=ctype)
 
     if solver.is_redundant:
         sln = solver(z, pairs=pairs)
@@ -316,6 +320,7 @@ def hera_profile(solver, double, transpose, outriggers, nside, ax_moves_first):
         sln = solver(z)
 
     sln()
+
 
 if __name__ == "__main__":
     cli()

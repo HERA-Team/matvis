@@ -42,7 +42,7 @@ class CuBLASChunkedLoop(_CuBLASRed):
                 # Make new contiguous array for these antennas.
                 m = cuda_take_along_axis(zc, b, axis=1)
                 thisn = len(b)
-        
+
                 self.gemv(
                     self.h,
                     "n",  # conjugate transpose for first (remember fortran order)
