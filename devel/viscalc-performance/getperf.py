@@ -194,7 +194,7 @@ cli = click.Group()
 @click.option(
     "--cache", type=click.Path(exists=True, file_okay=False), default=Path(".")
 )
-def main(
+def profile(
     solver,
     max_nants: int,
     n_nants: int,
@@ -298,10 +298,10 @@ def hera_profile(solver, double, transpose, outriggers, nside, ax_moves_first):
 
     # We also need the pairs for the pol axis
     if ax_moves_first:
-        pairs *= 2
-        pairs = np.array([[p, p + 1] for p in pairs]).reshape((2 * len(pairs), 2))
+        pairs *= 4
+        pairs = np.array([[p, p + 1, p+2, p+3] for p in pairs]).reshape((4 * len(pairs), 2))
     else:
-        pairs = np.concatenate((pairs, pairs + len(pairs)), axis=0)
+        pairs = np.concatenate((pairs, pairs + len(pairs), pairs + 2*len(pairs), pairs + 3*len(pairs)), axis=0)
 
     solver = get_solver(solver)
 

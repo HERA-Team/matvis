@@ -426,7 +426,7 @@ def vis_gpu(
                     f"Using {block} = {np.prod(block)} threads in total, in a grid of {grid}, "
                     "for measurement equation."
                 )
-
+                
             meas_eq(
                 A_gpu,
                 Isqrt_lim_gpu,
@@ -440,6 +440,16 @@ def vis_gpu(
                 stream=stream,
             )
             event["meas_eq"].record(stream)
+
+            if t==0:
+                # FOR DEBUGGING, write stuff to file
+                _a = np.zeros(A_gpu.shape[:-1] + (len(Isqrt),), dtype=complex_dtype)
+                _a[..., above_horizon] = A_gpu.get()
+                np.save(f"t0_f{freq}_sky.npy", Isqrt*_a)
+
+                vcpu = np.zeros((nfeed, nant, nax , nsrc), dtype=complex_dtype)
+                vcpu[..., above_horizon] = v_gpu.get().reshape((nfeed, nant, nax, nsrcs_up))
+                np.save(f"t0_f{freq}_v.npy", vcpu)
 
             _logdebug(v_gpu, "vant")
 
