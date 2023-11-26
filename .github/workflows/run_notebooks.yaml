@@ -31,8 +31,8 @@ jobs:
           pip install .[test] papermill jupyter ipykernel
 
       - name: Install ipykernel
-        run: python -m ipykernel install --user --name viscpu --display-name "viscpu"
+        run: python -m ipykernel install --user --name matvis --display-name "matvis"
 
       - name: Run Notebooks
         run: |
-          papermill -k viscpu docs/tutorials/vis_cpu_tutorial.ipynb tmp.ipynb
+          papermill -k matvis docs/tutorials/mativs_tutorial.ipynb tmp.ipynb

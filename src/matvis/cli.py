@@ -22,16 +22,16 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 
-from vis_cpu import DATA_PATH, HAVE_GPU, conversions, simulate_vis, vis_cpu, vis_gpu
+from matvis import DATA_PATH, HAVE_GPU, conversions, simulate_vis, matvis_cpu, matvis_gpu
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("vis_cpu")
+logger = logging.getLogger("matvis")
 
 
 # These specify which line(s) in the code correspond to which algorithmic step.
-VIS_CPU_STEPS = {
+CPU_STEPS = {
     "eq2top": ("np.dot(eq2top",),
     "beam_interp": ("_evaluate_beam_cpu(",),
     "get_tau": ("np.dot(antpos",),
@@ -39,7 +39,7 @@ VIS_CPU_STEPS = {
     "get_baseline_vis": ("vis[t] =",),
 }
 
-VIS_GPU_STEPS = {
+GPU_STEPS = {
     "eq2top": ("# compute crdtop",),
     "beam_interp": ("do_beam_interpolation(",),
     "get_tau": ("# compute tau",),
@@ -144,12 +144,12 @@ def profile(
     print("---------------------------------")
 
     if gpu:
-        profiler.add_function(vis_gpu)
+        profiler.add_function(matvis_gpu)
         kw = {
             "nthreads": gpu_nthreads,
         }
     else:
-        profiler.add_function(vis_cpu)
+        profiler.add_function(matvis_cpu)
         kw = {}
 
     profiler.runcall(
@@ -184,7 +184,7 @@ def profile(
 
     line_stats, total_time = get_line_based_stats(profiler.get_stats())
     thing_stats = get_summary_stats(
-        line_stats, total_time, VIS_GPU_STEPS if gpu else VIS_CPU_STEPS
+        line_stats, total_time, GPU_STEPS if gpu else CPU_STEPS
     )
 
     print()
@@ -356,12 +356,12 @@ def get_standard_sim_params(
     # Source locations and frequencies
     freqs = np.unique(uvdata.freq_array)
 
-    # Correct source locations so that vis_cpu uses the right frame
+    # Correct source locations so that matvis uses the right frame
     ra, dec = conversions.equatorial_to_eci_coords(
         ra, dec, obstime, location, unit="rad", frame="icrs"
     )
 
-    # Calculate source fluxes for vis_cpu
+    # Calculate source fluxes for matvis
     flux = ((freqs[:, np.newaxis] / freqs[0]) ** spec_indx.T * flux0.T).T
 
     return (

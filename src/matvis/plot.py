@@ -1,4 +1,4 @@
-"""Plotting convenience functions to help in analyzing vis_cpu output."""
+"""Plotting convenience functions to help in analyzing matvis output."""
 import numpy as np
 
 from . import conversions

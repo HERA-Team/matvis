@@ -1,13 +1,13 @@
-"""Simple example wrapper for basic usage of vis_cpu."""
+"""Simple example wrapper for basic usage of matvis."""
 from __future__ import annotations
 
 import logging
 import numpy as np
 
-from . import HAVE_GPU, conversions, vis_cpu
+from . import HAVE_GPU, conversions, matvis_cpu
 
 if HAVE_GPU:
-    from . import vis_gpu
+    from . import matvis_gpu
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def simulate_vis(
     **backend_kwargs,
 ):
     """
-    Run a basic simulation using ``vis_cpu``.
+    Run a basic simulation using ``matvis``.
 
     This wrapper handles the necessary coordinate conversions etc.
 
@@ -64,7 +64,7 @@ def simulate_vis(
         polarized visibilities, e.g. V_nn, V_ne, V_en, V_ee.
         Default: False (only uses the 'ee' polarization).
     precision : int, optional
-        Which precision setting to use for :func:`~vis_cpu`. If set to ``1``,
+        Which precision setting to use for :func:`~matvis`. If set to ``1``,
         uses the (``np.float32``, ``np.complex64``) dtypes. If set to ``2``,
         uses the (``np.float64``, ``np.complex128``) dtypes.
     latitude : float, optional
@@ -96,7 +96,7 @@ def simulate_vis(
             """
         )
 
-    fnc = vis_gpu if use_gpu else vis_cpu
+    fnc = matvis_gpu if use_gpu else matvis_cpu
 
     assert fluxes.shape == (
         ra.size,
@@ -133,7 +133,7 @@ def simulate_vis(
     else:
         vis = np.zeros((freqs.size, lsts.size, nants, nants), dtype=complex_dtype)
 
-    # Loop over frequencies and call vis_cpu/gpu
+    # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
         vis[i] = fnc(
             antpos=antpos,

@@ -173,10 +173,10 @@ def point_source_crd_eq(ra, dec):
 
 
 def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs"):
-    """Convert RA and Dec coordinates into the ECI system used by vis_cpu.
+    """Convert RA and Dec coordinates into the ECI system used by  matvis.
 
     Convert RA and Dec coordinates into the ECI (Earth-Centered Inertial)
-    system used by vis_cpu. This ECI system is aligned with the celestial pole,
+    system used by  matvis. This ECI system is aligned with the celestial pole,
     not the Earth's axis.
 
     To ensure that all corrections are properly taken into account, this
@@ -184,14 +184,14 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     specified reference time and location. These are then transformed back to
     ENU (East-North-Up) coordinates, and then to Cartesian ECI coordinates,
     using the inverses of the same transforms that are used to do the forward
-    transforms when running ``vis_cpu``. The ECI coordinates are then finally
+    transforms when running `` matvis``. The ECI coordinates are then finally
     converted back into adjusted RA and Dec coordinates in the ECI system.
 
     While the time-dependent corrections are determined for the reference time,
     the adjusted coordinates are expected to yield a good approximation to the
     true Azimuth and Zenith angle of the sources at other times (but the same
-    location) when passed into the ``vis_cpu`` function via the ``crd_eq``
-    array and then converted using the standard conversions within ``vis_cpu``.
+    location) when passed into the `` matvis`` function via the ``crd_eq``
+    array and then converted using the standard conversions within `` matvis``.
 
     The following example code shows how to set up the Astropy ``Time`` and
     ``EarthLocation`` objects that are required by this function::
@@ -229,7 +229,7 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     -------
     eci_ra, eci_dec : array_like
         Arrays of RA and Dec coordinates with respect to the ECI system used
-        by vis_cpu.
+        by  matvis.
     """
     if not isinstance(obstime, Time):
         raise TypeError("obstime must be an astropy.Time object")
@@ -271,7 +271,7 @@ def prepare_beam(
 
     The point of this function is to take an arbitrary UVBeam (or AnalyticBeam) and
     do the necessary checks and conversions to convert it to a format that can be
-    interpolated to an (l,m) grid, or passed to vis_cpu. The output beam type is
+    interpolated to an (l,m) grid, or passed to  matvis. The output beam type is
     dependent on the input parameters ``polarized`` and ``use_feed``.
     """
     use_feed = use_feed.lower()

@@ -4,7 +4,7 @@ import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-from vis_cpu.gpu import _get_3d_block_grid
+from matvis.gpu import _get_3d_block_grid
 
 
 class Test_GetBlockGrid:

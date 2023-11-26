@@ -1,5 +1,5 @@
 """Test the utils module."""
-from vis_cpu import _utils
+from matvis import _utils
 
 
 def test_human_readable_size():

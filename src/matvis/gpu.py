@@ -20,7 +20,7 @@ from .cpu import (
     _log_progress,
     _validate_inputs,
     _wrangle_beams,
-    vis_cpu,
+    matvis_cpu,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def _logdebug(xgpu: gpuarray.GPUArray, name: str):
 
 
 @profile
-def vis_gpu(
+def matvis_gpu(
     *,
     antpos: np.ndarray,
     freq: float,
@@ -184,7 +184,7 @@ def vis_gpu(
     use_uvbeam = isinstance(beam_list[0], UVBeam)
     if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
         raise ValueError(
-            "vis_gpu only support beam_lists with either all UVBeam or all AnalyticBeam objects."
+            "matvis_gpu only support beam_lists with either all UVBeam or all AnalyticBeam objects."
         )
 
     cuda_params = {
@@ -280,13 +280,13 @@ def vis_gpu(
     # will be set on GPU
     crdtop_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
     # will be set on GPU
-    vis_gpus = [
+    matvis_gpus = [
         gpuarray.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
         for _ in range(nchunks)
     ]
 
     # output CPU buffers for downloading answers
-    vis_cpus = [
+    matvis_cpus = [
         np.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
         for _ in range(nchunks)
     ]
@@ -461,18 +461,18 @@ def vis_gpu(
                 v_gpu.gpudata,
                 nax * nsrcs_up,
                 0.0,
-                vis_gpus[c].gpudata,
+                matvis_gpus[c].gpudata,
                 nfeed * nant,
             )
 
-            _logdebug(vis_gpus[c], "Vis")
+            _logdebug(matvis_gpus[c], "Vis")
 
             event["vis"].record(stream)
 
-            vis_gpus[c].get(ary=vis_cpus[c], stream=stream)
+            matvis_gpus[c].get(ary=matvis_cpus[c], stream=stream)
             event["end"].record(stream)
         events[nchunks - 1]["end"].synchronize()
-        vis[t] = sum(vis_cpus)
+        vis[t] = sum(matvis_cpus)
 
         if not (t % report_chunk or t == ntimes - 1):
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
@@ -684,7 +684,7 @@ def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
     return block, grid
 
 
-vis_gpu.__doc__ += vis_cpu.__doc__
+matvis_gpu.__doc__ += matvis_cpu.__doc__
 
 
 def _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, nbeampix, precision):
@@ -702,7 +702,7 @@ def _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, nbeampix, precision):
             3 * nsrc // ch * size,  # complex beam data
             3 * nsrc // ch * size,  # crd_eq_gpu
             nfeed * nant * nax * nant * ch * size * 2,  # crdtop
-            nax * nfeed * nbeam * nsrc // ch // 2 * size * 2,  # vis_gpus
+            nax * nfeed * nbeam * nsrc // ch // 2 * size * 2,  # matvis_gpus
             nant * nsrc // ch // 2 * size * 2,  # interpolated beam  # ant-vis
         ]
         logger.debug(

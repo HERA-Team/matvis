@@ -1,9 +1,9 @@
 Tutorials and FAQs
 ==================
 
-The following introductory tutorial will help you get started with ``vis_cpu``:
+The following introductory tutorial will help you get started with ``matvis``:
 
 .. toctree::
    :maxdepth: 2
 
-   tutorials/vis_cpu_tutorial
+   tutorials/matvis_tutorial

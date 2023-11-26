@@ -9,7 +9,7 @@ High-Level Wrapper
    :template: custom-module.rst
    :toctree: _autosummary
 
-   vis_cpu.wrapper
+   matvis.wrapper
 
 
 Simulator implementations
@@ -18,8 +18,8 @@ Simulator implementations
    :template: custom-module.rst
    :toctree: _autosummary
 
-   vis_cpu.cpu
-   vis_cpu.gpu
+   matvis.cpu
+   matvis.gpu
 
 Other Utilities
 ---------------
@@ -27,5 +27,5 @@ Other Utilities
    :template: custom-module.rst
    :toctree: _autosummary
 
-   vis_cpu.plot
-   vis_cpu.conversions
+   matvis.plot
+   matvis.conversions

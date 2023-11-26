@@ -1,5 +1,5 @@
 <!--
-Thank you for creating a PR on vis_cpu!
+Thank you for creating a PR on matvis!
 
 Please read through the following and check the boxes to ensure
 your PR meets our coding standards and that it follows the

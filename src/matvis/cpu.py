@@ -1,4 +1,4 @@
-"""CPU-based implementation of the visibility simulator."""
+"""CPU-based implementation of the matvis visibility simulator."""
 from __future__ import annotations
 
 import datetime
@@ -197,7 +197,7 @@ def _validate_inputs(precision, polarized, antpos, eq2tops, crd_eq, I_sky):
 
 
 @profile
-def vis_cpu(
+def matvis_cpu(
     *,
     antpos: np.ndarray,
     freq: float,

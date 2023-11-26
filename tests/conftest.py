@@ -3,7 +3,7 @@ import pytest
 
 from pyuvdata.uvbeam import UVBeam
 
-from vis_cpu import DATA_PATH
+from matvis import DATA_PATH
 
 
 @pytest.fixture(scope="session")

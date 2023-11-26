@@ -124,7 +124,7 @@ def uvbeam_to_azza_grid(
 
     if not covers_sky_weak:
         raise ValueError(
-            "The beam data does not cover the full sky. Cannot use in vis_cpu."
+            "The beam data does not cover the full sky. Cannot use in matvis."
         )
 
     if not uvbeam.future_array_shapes:
