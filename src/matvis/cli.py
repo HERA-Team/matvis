@@ -22,7 +22,14 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 
-from matvis import DATA_PATH, HAVE_GPU, conversions, simulate_vis, matvis_cpu, matvis_gpu
+from matvis import (
+    DATA_PATH,
+    HAVE_GPU,
+    conversions,
+    matvis_cpu,
+    matvis_gpu,
+    simulate_vis,
+)
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 

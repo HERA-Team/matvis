@@ -158,7 +158,9 @@ def test_mixed_beams(uvbeam):
     anl = AnalyticBeam("gaussian", diameter=14.0)
     cpu_beams = [uvbeam, anl, anl]
 
-    with pytest.raises(ValueError, match="matvis_gpu only support beam_lists with either"):
+    with pytest.raises(
+        ValueError, match="matvis_gpu only support beam_lists with either"
+    ):
         simulate_vis(
             ants=ants,
             fluxes=flux,
