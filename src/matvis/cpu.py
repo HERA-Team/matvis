@@ -197,7 +197,7 @@ def _validate_inputs(precision, polarized, antpos, eq2tops, crd_eq, I_sky):
 
 
 @profile
-def matvis_cpu(
+def simulate(
     *,
     antpos: np.ndarray,
     freq: float,

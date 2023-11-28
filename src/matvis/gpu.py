@@ -15,13 +15,8 @@ from typing import Callable, Optional
 from . import conversions
 from ._utils import ceildiv
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
-from .cpu import (
-    _evaluate_beam_cpu,
-    _log_progress,
-    _validate_inputs,
-    _wrangle_beams,
-    matvis_cpu,
-)
+from .cpu import _evaluate_beam_cpu, _log_progress, _validate_inputs, _wrangle_beams
+from .cpu import simulate as simcpu
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +97,7 @@ def _logdebug(xgpu: gpuarray.GPUArray, name: str):
 
 
 @profile
-def matvis_gpu(
+def simulate(
     *,
     antpos: np.ndarray,
     freq: float,
@@ -184,7 +179,7 @@ def matvis_gpu(
     use_uvbeam = isinstance(beam_list[0], UVBeam)
     if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
         raise ValueError(
-            "matvis_gpu only support beam_lists with either all UVBeam or all AnalyticBeam objects."
+            "gpu.simulate only support beam_lists with either all UVBeam or all AnalyticBeam objects."
         )
 
     cuda_params = {
@@ -684,7 +679,7 @@ def _get_3d_block_grid(nthreads: int, a: int, b: int, c: int):
     return block, grid
 
 
-matvis_gpu.__doc__ += matvis_cpu.__doc__
+simulate.__doc__ += simcpu.__doc__
 
 
 def _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, nbeampix, precision):

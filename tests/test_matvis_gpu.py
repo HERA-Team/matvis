@@ -159,7 +159,7 @@ def test_mixed_beams(uvbeam):
     cpu_beams = [uvbeam, anl, anl]
 
     with pytest.raises(
-        ValueError, match="matvis_gpu only support beam_lists with either"
+        ValueError, match="gpu.simulate only support beam_lists with either"
     ):
         simulate_vis(
             ants=ants,

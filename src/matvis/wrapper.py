@@ -4,10 +4,10 @@ from __future__ import annotations
 import logging
 import numpy as np
 
-from . import HAVE_GPU, conversions, matvis_cpu
+from . import HAVE_GPU, conversions, cpu
 
 if HAVE_GPU:
-    from . import matvis_gpu
+    from . import gpu
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def simulate_vis(
             """
         )
 
-    fnc = matvis_gpu if use_gpu else matvis_cpu
+    fnc = gpu.simulate if use_gpu else cpu.simulate
 
     assert fluxes.shape == (
         ra.size,

@@ -22,14 +22,10 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 
-from matvis import (
-    DATA_PATH,
-    HAVE_GPU,
-    conversions,
-    matvis_cpu,
-    matvis_gpu,
-    simulate_vis,
-)
+from matvis import DATA_PATH, HAVE_GPU, conversions, cpu, gpu, simulate_vis
+
+simcpu = cpu.simulate
+simgpu = gpu.simulate
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
@@ -151,12 +147,12 @@ def profile(
     print("---------------------------------")
 
     if gpu:
-        profiler.add_function(matvis_gpu)
+        profiler.add_function(simgpu)
         kw = {
             "nthreads": gpu_nthreads,
         }
     else:
-        profiler.add_function(matvis_cpu)
+        profiler.add_function(simcpu)
         kw = {}
 
     profiler.runcall(
