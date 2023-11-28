@@ -35,4 +35,4 @@ jobs:
 
       - name: Run Notebooks
         run: |
-          papermill -k matvis docs/tutorials/mativs_tutorial.ipynb tmp.ipynb
+          papermill -k matvis docs/tutorials/matvis_tutorial.ipynb tmp.ipynb
