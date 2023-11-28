@@ -9,9 +9,9 @@ from pyuvdata.data import DATA_PATH
 from pyuvsim import AnalyticBeam
 from typing import List
 
-from matvis import conversions, simulate, simulate_vis
+from matvis import conversions, simulate_vis
 from matvis._uvbeam_to_raw import uvbeam_to_azza_grid
-from matvis.cpu import _evaluate_beam_cpu
+from matvis.cpu import _evaluate_beam_cpu, simulate
 
 np.random.seed(0)
 NTIMES = 3
