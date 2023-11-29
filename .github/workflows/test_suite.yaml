@@ -76,7 +76,7 @@ jobs:
         with:
           node-version: 16
 
-      - uses: actions/checkout@main
+      - uses: actions/checkout@v3.6.0
         with:
           fetch-depth: 0
 
