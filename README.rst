@@ -1,5 +1,5 @@
 =======
- matvis
+matvis
 =======
 .. image:: https://github.com/hera-team/ matvis/workflows/Tests/badge.svg
     :target: https://github.com/hera-team/ matvis
@@ -17,23 +17,25 @@ Fast matrix-based visibility simulator capable of running on CPU and GPU.
 Description
 ===========
 
-`` matvis`` is a Python/numpy-based simulator for interferometer visibilities.
+``matvis`` is a Python/numpy-based simulator for interferometer visibilities.
 It models the sky as an ensemble of point sources, each with their own frequency
 spectrum. Diffuse emission can be modelled by treating (e.g.) each pixel of a Healpix
 map as a separate source. The code is capable of modelling polarized visibilities
 and primary beams, but currently only a Stokes I sky model.
 
-`` matvis`` includes a separate ``pycuda``-based implementation called ``vis_gpu``.
+``matvis`` includes a separate ``pycuda``-based implementation called ``vis_gpu``.
 This is intended to keep feature parity with the `` matvis`` code to the greatest
 extent possible.
 
-An example wrapper for the main `` matvis`` simulator function is provided in this
-package (`` matvis.wrapper.simulate_vis()``).
+An example wrapper for the main ``matvis`` simulator function is provided in this
+package (``matvis.simulate_vis()``).
 
 Installation
 ============
-Merely do ``pip install  matvis``. If you want to use the GPU functions, install
-with ``pip install  matvis[gpu]``.
+``pip install matvis``.
+
+If you want to use the GPU functions, install
+with ``pip install matvis[gpu]``.
 
 Developers
 ==========
