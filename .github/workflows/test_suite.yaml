@@ -72,6 +72,10 @@ jobs:
           echo "/home/locoadmin/bin" >> $GITHUB_PATH
           echo "/usr/local/cuda/bin" >> $GITHUB_PATH
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+
       - uses: actions/checkout@main
         with:
           fetch-depth: 0
