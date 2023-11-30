@@ -7,7 +7,7 @@ from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
 
-from vis_cpu import conversions
+from matvis import conversions
 
 np.random.seed(0)
 NTIMES = 24
@@ -158,7 +158,7 @@ def test_equatorial_to_enu():
 
 
 def test_equatorial_to_eci_coords():
-    """Test correction of ICRS coords to vis_cpu implicit coord system."""
+    """Test correction of ICRS coords to matvis implicit coord system."""
     nsrcs = 200  # no. of sources to transform
 
     # Point source equatorial coords in ICRS (randomly distributed)

@@ -43,12 +43,12 @@ jobs:
 
       - name: Run Tests
         run: |
-          python -m pytest --ignore tests/test_plot.py --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL}}
+          python -m pytest --ignore tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL}}
 
       - name: Run Plotting Tests
         if: matrix.python-version != '3.9' || matrix.os == 'macos-latest'
         run: |
-          python -m pytest tests/test_plot.py --cov=vis_cpu --cov-config=.coveragerc --cov-append --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
+          python -m pytest tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-append --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v3.1.3
@@ -92,7 +92,7 @@ jobs:
 
       - name: Run Tests
         run: |
-          python -m pytest -k "gpu" --cov=vis_cpu --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
+          python -m pytest -k "gpu" --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v3.1.3

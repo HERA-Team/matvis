@@ -1,4 +1,4 @@
-name: viscpu
+name: matvis
 channels:
   - conda-forge
   - defaults

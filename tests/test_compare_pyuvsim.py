@@ -1,11 +1,11 @@
-"""Compare vis_cpu with pyuvsim visibilities."""
+"""Compare matvis with pyuvsim visibilities."""
 import pytest
 
 import numpy as np
 from pathlib import Path
 from pyuvsim import simsetup, uvsim
 
-from vis_cpu import simulate_vis
+from matvis import simulate_vis
 
 from . import get_standard_sim_params, nants
 
@@ -13,7 +13,7 @@ from . import get_standard_sim_params, nants
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
 @pytest.mark.parametrize("polarized", (True, False))
 def test_compare_pyuvsim(polarized, use_analytic_beam):
-    """Compare vis_cpu and pyuvsim simulated visibilities."""
+    """Compare matvis and pyuvsim simulated visibilities."""
     print("Polarized=", polarized, "Analytic Beam =", use_analytic_beam)
     (
         sky_model,
@@ -30,9 +30,9 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         uvdata,
     ) = get_standard_sim_params(use_analytic_beam, polarized)
     # ---------------------------------------------------------------------------
-    # (1) Run vis_cpu
+    # (1) Run matvis
     # ---------------------------------------------------------------------------
-    vis_vc = simulate_vis(
+    vis_matvis = simulate_vis(
         ants=ants,
         fluxes=flux,
         ra=ra,
@@ -73,14 +73,14 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
                     d_uvsim = uvd_uvsim.get_data(
                         (i, j, feed1 + feed2)
                     ).T  # pyuvsim visibility
-                    d_viscpu = (
-                        vis_vc[:, :, if1, if2, i, j]
+                    d_matvis = (
+                        vis_matvis[:, :, if1, if2, i, j]
                         if polarized
-                        else vis_vc[:, :, i, j]
+                        else vis_matvis[:, :, i, j]
                     )
 
                     # Keep track of maximum difference
-                    delta = d_uvsim - d_viscpu
+                    delta = d_uvsim - d_matvis
                     if np.max(np.abs(delta.real)) > diff_re:
                         diff_re = np.max(np.abs(delta.real))
                     if np.max(np.abs(delta.imag)) > diff_im:
@@ -90,16 +90,16 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
                     err += f"Baseline: ({i},{j},{feed1}{feed2})\n"
                     err += f"Avg. diff: {delta.mean():10.10e}\n"
                     err += f"Max values: \n    uvsim={d_uvsim.max():10.10e}"
-                    err += f"\n    viscpu={d_viscpu.max():10.10e}"
+                    err += f"\n    matvis={d_matvis.max():10.10e}"
                     assert np.allclose(
                         d_uvsim.real,
-                        d_viscpu.real,
+                        d_matvis.real,
                         rtol=rtol if feed1 == feed2 else rtol * 100,
                         atol=atol,
                     ), err
                     assert np.allclose(
                         d_uvsim.imag,
-                        d_viscpu.imag,
+                        d_matvis.imag,
                         rtol=rtol if feed1 == feed2 else rtol * 100,
                         atol=atol,
                     ), err

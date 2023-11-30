@@ -10,7 +10,7 @@ from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 from pyuvsim.telescope import BeamList
 
-from vis_cpu import DATA_PATH, conversions
+from matvis import DATA_PATH, conversions
 
 nfreq = 1
 ntime = 5  # 20
@@ -119,12 +119,12 @@ def get_standard_sim_params(
     ra_dec = np.deg2rad(sources[:, :2])
     freqs = np.unique(uvdata.freq_array)
 
-    # Correct source locations so that vis_cpu uses the right frame
+    # Correct source locations so that matvis uses the right frame
     ra_new, dec_new = conversions.equatorial_to_eci_coords(
         ra_dec[:, 0], ra_dec[:, 1], obstime, location, unit="rad", frame="icrs"
     )
 
-    # Calculate source fluxes for vis_cpu
+    # Calculate source fluxes for matvis
     flux = ((freqs[:, np.newaxis] / freqs[0]) ** sources[:, 3].T * sources[:, 2].T).T
 
     # Stokes for the first frequency only. Stokes for other frequencies

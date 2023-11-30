@@ -1,4 +1,4 @@
-"""Tests of functionality of vis_gpu."""
+"""Tests of functionality of matvis_gpu."""
 import pytest
 
 pytest.importorskip("pycuda")
@@ -6,14 +6,14 @@ pytest.importorskip("pycuda")
 import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
 
-from vis_cpu import simulate_vis
-from vis_cpu.gpu import _get_3d_block_grid
+from matvis import simulate_vis
+from matvis.gpu import _get_3d_block_grid
 
 from . import get_standard_sim_params
 
 
 def test_gpu_with_spline_opts():
-    """Compare vis_cpu and pyuvsim simulated visibilities."""
+    """Ensure that spline options are working although these are not used."""
     (
         sky_model,
         ants,
@@ -51,7 +51,7 @@ def test_gpu_with_spline_opts():
 
 
 def test_antizenith():
-    """Compare vis_cpu and pyuvsim simulated visibilities."""
+    """Ensure that anti-zenith source produce 0."""
     (
         sky_model,
         ants,
@@ -158,7 +158,9 @@ def test_mixed_beams(uvbeam):
     anl = AnalyticBeam("gaussian", diameter=14.0)
     cpu_beams = [uvbeam, anl, anl]
 
-    with pytest.raises(ValueError, match="vis_gpu only support beam_lists with either"):
+    with pytest.raises(
+        ValueError, match="gpu.simulate only support beam_lists with either"
+    ):
         simulate_vis(
             ants=ants,
             fluxes=flux,

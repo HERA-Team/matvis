@@ -1,11 +1,11 @@
-"""Compare vis_cpu with pyuvsim visibilities."""
+"""Compare matvis CPU and GPU visibilities."""
 import pytest
 
 pytest.importorskip("pycuda")
 
 import numpy as np
 
-from vis_cpu import simulate_vis
+from matvis import simulate_vis
 
 from . import get_standard_sim_params, nants
 
@@ -14,7 +14,7 @@ from . import get_standard_sim_params, nants
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
 @pytest.mark.parametrize("precision", (2,))
 def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
-    """Compare vis_cpu and pyuvsim simulated visibilities."""
+    """Compare matvis CPU and GPU isibilities."""
     (
         sky_model,
         ants,
@@ -32,9 +32,9 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
     print("Polarized=", polarized, "Analytic Beam =", use_analytic_beam)
 
     # ---------------------------------------------------------------------------
-    # (1) Run vis_cpu
+    # (1) Run matvis
     # ---------------------------------------------------------------------------
-    vis_vc = simulate_vis(
+    vis_cpu = simulate_vis(
         ants=ants,
         fluxes=flux,
         ra=ra,
@@ -53,7 +53,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
     # ---------------------------------------------------------------------------
     # (2) Run pyuvsim
     # ---------------------------------------------------------------------------
-    vis_vg = simulate_vis(
+    vis_gpu = simulate_vis(
         ants=ants,
         fluxes=flux,
         ra=ra,
@@ -73,5 +73,5 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
     # ---------------------------------------------------------------------------
     rtol = 2e-4 if use_analytic_beam else 0.01
     atol = 5e-4
-    np.testing.assert_allclose(vis_vg.real, vis_vc.real, rtol=rtol, atol=atol)
-    np.testing.assert_allclose(vis_vg.imag, vis_vc.imag, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(vis_gpu.real, vis_cpu.real, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(vis_gpu.imag, vis_cpu.imag, rtol=rtol, atol=atol)

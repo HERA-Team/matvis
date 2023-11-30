@@ -9,9 +9,9 @@ from pyuvdata.data import DATA_PATH
 from pyuvsim import AnalyticBeam
 from typing import List
 
-from vis_cpu import conversions, simulate_vis, vis_cpu
-from vis_cpu._uvbeam_to_raw import uvbeam_to_azza_grid
-from vis_cpu.cpu import _evaluate_beam_cpu
+from matvis import conversions, simulate_vis
+from matvis._uvbeam_to_raw import uvbeam_to_azza_grid
+from matvis.cpu import _evaluate_beam_cpu, simulate
 
 np.random.seed(0)
 NTIMES = 3
@@ -232,7 +232,7 @@ def antpos():
 def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, antpos):
     """Test that when doing polarized sim, error is raised if beams aren't efield."""
     with pytest.raises(ValueError, match="beam type must be efield"):
-        vis_cpu(
+        simulate(
             antpos=antpos,
             freq=freq[0],
             eq2tops=eq2tops,
@@ -247,7 +247,7 @@ def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, 
 def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antpos):
     """Test that when doing unpolarized sim, error is raised if beams aren't power."""
     with pytest.raises(ValueError, match="beam type must be power"):
-        vis_cpu(
+        simulate(
             antpos=antpos,
             freq=freq[0],
             eq2tops=eq2tops,
@@ -320,7 +320,7 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
 
     for i in range(freq.size):
         # Analytic beams
-        vis_analytic = vis_cpu(
+        vis_analytic = simulate(
             antpos=antpos,
             freq=freq[i],
             eq2tops=eq2tops,
@@ -340,7 +340,7 @@ def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops)
 
     # Pixel beams
     with pytest.raises(ValueError, match="beam_idx must be provided"):
-        vis_cpu(
+        simulate(
             antpos=antpos,
             freq=freq[0],
             eq2tops=eq2tops,

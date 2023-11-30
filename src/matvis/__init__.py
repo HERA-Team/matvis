@@ -20,9 +20,7 @@ except ImportError:
     HAVE_GPU = False
 
 
-from . import plot
-from .cpu import vis_cpu
-from .gpu import vis_gpu
+from . import cpu, gpu, plot
 from .wrapper import simulate_vis
 
 DATA_PATH = Path(__file__).parent / "data"

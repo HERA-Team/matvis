@@ -1,8 +1,8 @@
-"""Compare vis_cpu with pyuvsim visibilities."""
+"""Test source conversion and plotting functions."""
 import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
 
-from vis_cpu import conversions, plot
+from matvis import conversions, plot
 
 nsource = 10
 

@@ -1,10 +1,10 @@
-"""Tests of vis_cpu."""
+"""Tests of matvis_cpu."""
 import pytest
 
 import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
 
-from vis_cpu import simulate_vis
+from matvis import simulate_vis
 
 np.random.seed(0)
 NTIMES = 10
@@ -19,7 +19,7 @@ ants = {0: (0.0, 0.0, 0.0), 1: (20.0, 20.0, 0.0)}
     [True, False],
 )
 def test_simulate_vis(polarized):
-    """Test basic operation of simple wrapper around vis_cpu, `simulate_vis`."""
+    """Test basic operation of simple wrapper around matvis, `simulate_vis`."""
     # Point source equatorial coords (radians)
     ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
     dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
@@ -37,7 +37,7 @@ def test_simulate_vis(polarized):
     # Create beam models
     beam = AnalyticBeam("gaussian", diameter=14.0)
 
-    # Run vis_cpu with pixel beams
+    # Run matvis on CPUs with pixel beams
     vis = simulate_vis(
         ants,
         I_sky,
