@@ -12,6 +12,7 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from typing import Callable, Optional
 
+from . import _cublas as cb
 from . import conversions
 from ._utils import ceildiv
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
@@ -106,12 +107,14 @@ def simulate(
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | Callable] | None,
     polarized: bool = False,
+    antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     beam_idx: np.ndarray | None = None,
     nthreads: int = 1024,
     max_memory: int = 2**29,
     min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
+    use_loop_over_antpairs: bool = False,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
@@ -132,12 +135,12 @@ def simulate(
 
     if precision == 1:
         real_dtype, complex_dtype = np.float32, np.complex64
-        cublas_real_mm = cublasSgemm
-        cublas_complex_mm = cublasCgemm
+        # cublas_real_mm = cublasSgemm
+        # cublas_complex_mm = cublasCgemm
     else:
         real_dtype, complex_dtype = np.float64, np.complex128
-        cublas_real_mm = cublasDgemm
-        cublas_complex_mm = cublasZgemm
+        # cublas_real_mm = cublasDgemm
+        # cublas_complex_mm = cublasZgemm
 
     DTYPE, CDTYPE = TYPE_MAP[real_dtype], TYPE_MAP[complex_dtype]
 
@@ -254,7 +257,9 @@ def simulate(
     # define GPU buffers and transfer initial values
     # never changes, transpose happens in copy so cuda bm_tex is (BEAM_PX,BEAM_PX,NANT)
     # bm_texref.set_array(numpy3d_to_array(beams))
-    antpos_gpu = gpuarray.to_gpu(antpos)  # never changes, set to -2*pi*antpos/c
+    antpos_gpu = (
+        gpuarray.to_gpu(antpos) * ONE_OVER_C
+    )  # never changes, set to -2*pi*antpos/c
     beam_idx = gpuarray.to_gpu(beam_idx.astype(np.uint))
     Isqrt_gpu = gpuarray.empty(shape=(npixc,), dtype=real_dtype)
 
@@ -275,16 +280,26 @@ def simulate(
     # will be set on GPU
     crdtop_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
     # will be set on GPU
-    matvis_gpus = [
-        gpuarray.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
-        for _ in range(nchunks)
-    ]
+    if antpairs is None or not use_loop_over_antpairs:
+        matvis_gpus = [
+            gpuarray.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+            for _ in range(nchunks)
+        ]
+        matvis_cpus = [
+            np.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+            for _ in range(nchunks)
+        ]
+    else:
+        matvis_gpus = [
+            gpuarray.empty(shape=(nfeed, nfeed, len(antpairs)), dtype=complex_dtype)
+            for _ in range(nchunks)
+        ]
+        matvis_cpus = [
+            np.zeros(shape=(nfeed, nfeed, len(antpairs)), dtype=complex_dtype)
+            for _ in range(nchunks)
+        ]
 
     # output CPU buffers for downloading answers
-    matvis_cpus = [
-        np.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
-        for _ in range(nchunks)
-    ]
     streams = [driver.Stream() for _ in range(nchunks)]
     event_order = [
         "start",
@@ -299,7 +314,10 @@ def simulate(
     if use_uvbeam:
         event_order.insert(4, "interpolation")
 
-    vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
+    if antpairs is None:
+        vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
+    else:
+        vis = np.full((ntimes, nfeed, nfeed, len(antpairs)), 0.0, dtype=complex_dtype)
 
     logger.info(f"Running With {nchunks} chunks")
 
@@ -323,22 +341,23 @@ def simulate(
 
             # cublas arrays are in Fortran order, so P=M*N is actually
             # peformed as P.T = N.T * M.T
-            cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
-                h,
-                "n",
-                "n",
-                npixc,
-                3,
-                3,
-                1.0,
-                crd_eq_gpu.gpudata,
-                npixc,
-                eq2top_gpu.gpudata,
-                3,
-                0.0,
-                crdtop_gpu.gpudata,
-                npixc,
-            )
+            cb.gemm(crd_eq_gpu, eq2top_gpu, crdtop_gpu)
+            # cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
+            #     h,
+            #     "n",
+            #     "n",
+            #     npixc,
+            #     3,
+            #     3,
+            #     1.0,
+            #     crd_eq_gpu.gpudata,
+            #     npixc,
+            #     eq2top_gpu.gpudata,
+            #     3,
+            #     0.0,
+            #     crdtop_gpu.gpudata,
+            #     npixc,
+            # )
             event["eq2top"].record(stream)
 
             tx, ty, tz = crdtop_gpu.get_async(stream=stream)
@@ -357,22 +376,23 @@ def simulate(
 
             tau_gpu = gpuarray.empty(shape=(nant, nsrcs_up), dtype=real_dtype)
 
-            cublas_real_mm(  # compute tau = dot(antpos,crdtop) / speed_of_light
-                h,
-                "n",
-                "n",
-                nsrcs_up,
-                nant,
-                3,
-                ONE_OVER_C,
-                crdtop_lim_gpu.gpudata,
-                nsrcs_up,
-                antpos_gpu.gpudata,
-                3,
-                0.0,
-                tau_gpu.gpudata,
-                nsrcs_up,
-            )
+            cb.gemm(crdtop_lim_gpu, antpos_gpu, tau_gpu)
+            # cublas_real_mm(  # compute tau = dot(antpos,crdtop) / speed_of_light
+            #     h,
+            #     "n",
+            #     "n",
+            #     nsrcs_up,
+            #     nant,
+            #     3,
+            #     ONE_OVER_C,
+            #     crdtop_lim_gpu.gpudata,
+            #     nsrcs_up,
+            #     antpos_gpu.gpudata,
+            #     3,
+            #     0.0,
+            #     tau_gpu.gpudata,
+            #     nsrcs_up,
+            # )
             event["tau"].record(stream)
 
             # Need to do this in polar coordinates, NOT (l,m), at least for
@@ -443,22 +463,29 @@ def simulate(
             # E-field components, and integrate over the sky.
             # Remember cublas is in fortran order...
             # v_gpu is (nfeed * nant, nax * nsrcs_up)
-            cublas_complex_mm(
-                h,
-                "c",  # conjugate transpose for first (remember fortran order)
-                "n",  # no transpose for second.
-                nfeed * nant,
-                nfeed * nant,
-                nax * nsrcs_up,
-                1.0,
-                v_gpu.gpudata,
-                nax * nsrcs_up,
-                v_gpu.gpudata,
-                nax * nsrcs_up,
-                0.0,
-                matvis_gpus[c].gpudata,
-                nfeed * nant,
-            )
+            if use_loop_over_antpairs:
+                for j in range(nfeed):
+                    for k in range(nfeed):
+                        for i, (ai, aj) in enumerate(antpairs):
+                            cb.dotc(v_gpu[j, ai], v_gpu[k, aj], matvis_gpus[c][j, k, i])
+            else:
+                cb.zz(v_gpu, matvis_gpus[c])
+                # cublas_complex_mm(
+                #     h,
+                #     "c",  # conjugate transpose for first (remember fortran order)
+                #     "n",  # no transpose for second.
+                #     nfeed * nant,
+                #     nfeed * nant,
+                #     nax * nsrcs_up,
+                #     1.0,
+                #     v_gpu.gpudata,
+                #     nax * nsrcs_up,
+                #     v_gpu.gpudata,
+                #     nax * nsrcs_up,
+                #     0.0,
+                #     matvis_gpus[c].gpudata,
+                #     nfeed * nant,
+                # )
 
             _logdebug(matvis_gpus[c], "Vis")
 
@@ -474,8 +501,12 @@ def simulate(
 
     # teardown GPU configuration
     cublasDestroy(h)
-    vis = vis.conj().reshape((ntimes, nfeed, nant, nfeed, nant))
-    return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+
+    if antpairs is None:
+        vis = vis.conj().reshape((ntimes, nfeed, nant, nfeed, nant))
+        return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+    else:
+        return vis if polarized else vis[:, 0, 0, :]
 
 
 def do_beam_interpolation(

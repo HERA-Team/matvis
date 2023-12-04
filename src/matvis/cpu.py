@@ -205,11 +205,13 @@ def simulate(
     crd_eq: np.ndarray,
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | Callable] | None,
+    antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     precision: int = 1,
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
+    use_loop_over_antpairs: bool = False,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -246,6 +248,10 @@ def simulate(
         ``beam_list`` should be provided.Note that if `polarized` is True,
         these beams must be efield beams, and conversely if `polarized` is False they
         must be power beams with a single polarization (either XX or YY).
+    antpairs : array_like, optional
+        Either a 2D array, shape ``(Npairs, 2)``, or list of 2-tuples of ints, with
+        the list of antenna-pairs to return as visibilities (all feed-pairs are always
+        calculated). If None, all feed-pairs are returned.
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
@@ -264,13 +270,21 @@ def simulate(
     max_progress_reports : int, optional
         Maximum number of progress reports to print to the screen (if logging level
         allows). Default is 100.
+    use_loop_over_antpairs : bool, optional
+        Whether to calculate visibilities for each antpair in antpairs as a vector
+        dot-product instead of using a full matrix-matrix multiplication for all
+        possible pairs. Default is False. Setting to True can be faster for large
+        arrays where `antpairs` is small (possibly from high redundancy). You should
+        run a performance test before using this.
 
     Returns
     -------
     vis : array_like
         Simulated visibilities. If `polarized = True`, the output will have
         shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
-        shape (NTIMES, NANTS, NANTS).
+        shape (NTIMES, NANTS, NANTS). If ``antpairs`` is provided, the shape will have
+        ``(NANTS, NANTS)`` replaced by ``(NPAIRS,)``.
+
     """
     if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
         tm.start()
@@ -296,12 +310,17 @@ def simulate(
     # negative sky. Factor of 0.5 accounts for splitting Stokes I between
     # polarization channels
     Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
-    antpos = antpos.astype(real_dtype)
 
     ang_freq = real_dtype(2.0 * np.pi * freq)
 
+    antpos_u = antpos.astype(real_dtype) * ang_freq / c.value
+
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
-    vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
+    if antpairs is None:
+        vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
+    else:
+        vis = np.full((ntimes, nfeed, nfeed, len(antpairs)), 0.0, dtype=complex_dtype)
+
     logger.info(f"Visibility Array takes {vis.nbytes/1024**2:.1f} MB")
 
     crd_eq = crd_eq.astype(real_dtype)
@@ -343,8 +362,8 @@ def simulate(
 
         _log_array("beam", A_s)
 
-        # Calculate delays, where tau = (b * s) / c
-        tau = np.dot(antpos / c.value, crd_top[:, above_horizon])
+        # Calculate delays, where tau = 2pi*nu*(b * s) / c
+        tau = np.dot(antpos_u, crd_top[:, above_horizon])
         _log_array("tau", tau)
 
         v = _get_antenna_vis(
@@ -353,32 +372,48 @@ def simulate(
         _log_array("vant", v)
 
         # Compute visibilities using product of complex voltages (upper triangle).
-        vis[t] = v.conj().dot(v.T)
+        if antpairs is None:
+            vis[t] = v.conj().dot(v.T)
+        else:
+            if use_loop_over_antpairs:
+                v = v.reshape((nfeed, nant, -1))
+
+                for i, (ai, aj) in enumerate(antpairs):
+                    vis[t, :, :, i] = v[:, ai].conj().dot(v[:, aj].T)
+
+            else:
+                _x = (v.conj().dot(v.T)).reshape((nfeed, nant, nfeed, nant))
+                for i, (ai, aj) in enumerate(antpairs):
+                    vis[t, :, :, i] = _x[:, ai, :, aj]
+
         _log_array("vis", vis[t])
 
         if not (t % report_chunk or t == ntimes - 1):
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
             highest_peak = _memtrace(highest_peak)
 
-    vis.shape = (ntimes, nfeed, nant, nfeed, nant)
+    if antpairs is None:
+        vis.shape = (ntimes, nfeed, nant, nfeed, nant)
 
-    # Return visibilities with or without multiple polarization channels
-    return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+        # Return visibilities with or without multiple polarization channels
+        return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+    else:
+        return vis if polarized else vis[:, 0, 0]
 
 
 def _get_antenna_vis(
-    A_s, ang_freq, tau, Isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
+    A_s, tau, Isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
 ) -> np.ndarray:
     """Compute the antenna-wise visibility integrand."""
     # Component of complex phase factor for one antenna
     # (actually, b = (antpos1 - antpos2) * crd_top / c; need dot product
     # below to build full phase factor for a given baseline)
-    v = np.exp(1.0j * (ang_freq * tau)) * Isqrt
+    v = np.exp(1.0j * tau) * Isqrt
 
     # A_s has shape (Nfeed, Nbeams, Nax, Nsources)
     # v has shape (Nants, Nsources) and is sqrt(I)*exp(1j tau*nu)
     # Here we expand A_s to all ants (from its beams), then broadcast to v, so we
-    # end up with shape (Nax, Nfeed, Nants, Nsources)
+    # end up with shape (Nfeed, Nant, Nax, Nsources)
     v = A_s[:, beam_idx] * v[np.newaxis, :, np.newaxis, :]  # ^ but Nbeam -> Nant
     return v.reshape((nfeed * nant, nax * nsrcs_up))  # reform into matrix
 
