@@ -3,15 +3,15 @@
 
 import pytest
 
+pytest.importorskip("pycuda")
+
 import numpy as np
 from pycuda.gpuarray import to_gpu
 
 from matvis import _cublas as cb
 
 
-@pytest.mark.parameterize(
-    "dtype", [np.float32, np.float64, np.complex64, np.complex128]
-)
+@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])
 def test_dotc(dtype):
     """Test the dotc function."""
     a = np.random.randn(10).astype(dtype)
@@ -24,9 +24,7 @@ def test_dotc(dtype):
     assert np.allclose(c, np.vdot(a, b))
 
 
-@pytest.mark.parameterize(
-    "dtype", [np.float32, np.float64, np.complex64, np.complex128]
-)
+@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])
 def test_gemm(dtype):
     """Test the gemm function."""
     a = np.random.randn(10, 12).astype(dtype)
@@ -39,9 +37,7 @@ def test_gemm(dtype):
     assert np.allclose(c, np.dot(a, b))
 
 
-@pytest.mark.parameterize(
-    "dtype", [np.float32, np.float64, np.complex64, np.complex128]
-)
+@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])
 def test_zz(dtype):
     """Test the zz function."""
     a = np.random.randn(10, 15).astype(dtype)

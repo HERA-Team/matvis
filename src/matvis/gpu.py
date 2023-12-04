@@ -12,7 +12,6 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from typing import Callable, Optional
 
-from . import _cublas as cb
 from . import conversions
 from ._utils import ceildiv
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
@@ -45,6 +44,8 @@ try:
         cublasSgemm,
         cublasZgemm,
     )
+
+    from . import _cublas as cb
 
     HAVE_CUDA = True
 
