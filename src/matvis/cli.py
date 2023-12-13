@@ -47,51 +47,7 @@ profiler = LineProfiler()
 main = click.Group()
 
 
-@main.command()
-@click.option("-A/-I", "--analytic-beam/--interpolated-beam", default=True)
-@click.option("-f", "--nfreq", default=1)
-@click.option(
-    "-t",
-    "--ntimes",
-    default=1,
-)
-@click.option(
-    "-a",
-    "--nants",
-    default=1,
-)
-@click.option(
-    "-b",
-    "--nbeams",
-    default=1,
-)
-@click.option(
-    "-s",
-    "--nsource",
-    default=1,
-)
-@click.option(
-    "-g/-c",
-    "--gpu/--cpu",
-    default=False,
-)
-@click.option(
-    "--method",
-    default="MatMul",
-    type=click.Choice(["MatMul", "VectorDot"]),
-)
-@click.option(
-    "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
-)
-@click.option(
-    "-l",
-    "--log-level",
-    default="INFO",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
-)
-@click.option("-o", "--outdir", default=".")
-@click.option("--double-precision/--single-precision", default=True)
-def profile(
+def run_profile(
     analytic_beam,
     nfreq,
     ntimes,
@@ -104,6 +60,7 @@ def profile(
     verbose,
     log_level,
     method,
+    pairs=None,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -134,6 +91,7 @@ def profile(
     print(f"  DOUBLE-PRECISION: {double_precision:>7}")
     print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
     print(f"  METHOD:           {method:>7}")
+    print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
     print("---------------------------------")
 
     if gpu:
@@ -156,6 +114,7 @@ def profile(
         use_gpu=gpu,
         beam_idx=beam_idx,
         matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
+        antpairs=pairs,
     )
 
     outdir = Path(outdir).expanduser().absolute()
@@ -181,6 +140,116 @@ def profile(
 
     with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
         pickle.dump(thing_stats, fl)
+
+
+common_profile_options = [
+    click.option("-A/-I", "--analytic-beam/--interpolated-beam", default=True),
+    click.option("-f", "--nfreq", default=1),
+    click.option(
+        "-t",
+        "--ntimes",
+        default=1,
+    ),
+    click.option(
+        "-b",
+        "--nbeams",
+        default=1,
+    ),
+    click.option(
+        "-g/-c",
+        "--gpu/--cpu",
+        default=False,
+    ),
+    click.option(
+        "--method",
+        default="MatMul",
+        type=click.Choice(["MatMul", "VectorDot"]),
+    ),
+    click.option(
+        "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
+    ),
+    click.option(
+        "-l",
+        "--log-level",
+        default="INFO",
+        type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+    ),
+    click.option("-o", "--outdir", default="."),
+    click.option("--double-precision/--single-precision", default=True),
+]
+
+
+def add_common_options(func):
+    """Add common profiling options to a function."""
+    for option in reversed(common_profile_options):
+        func = option(func)
+    return func
+
+
+@main.command()
+@click.option(
+    "-s",
+    "--nsource",
+    default=1,
+)
+@click.option(
+    "-a",
+    "--nants",
+    default=1,
+)
+@add_common_options
+def profile(**kwargs):
+    """Run the script."""
+    run_profile(**kwargs)
+
+
+def get_redundancies(bls, ndecimals: int = 2):
+    """Find redundant baselines."""
+    uvbins = set()
+    pairs = []
+
+    # Everything here is in wavelengths
+    bls = np.round(bls, decimals=ndecimals)
+    nant = bls.shape[0]
+
+    # group redundant baselines
+    for i in range(nant):
+        for j in range(i + 1, nant):
+            u, v = bls[i, j]
+            if (u, v) not in uvbins and (-u, -v) not in uvbins:
+                uvbins.add((u, v))
+                pairs.append([i, j])
+
+    return pairs
+
+
+@main.command()
+@click.option(
+    "-a",
+    "--hex-num",
+    default=11,
+)
+@click.option(
+    "-s",
+    "--nside",
+    default=64,
+)
+@click.option("-k", "--keep-ants", type=str, default="")
+@click.option("--outriggers/--no-outriggers", default=False)
+@add_common_options
+def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
+    """Run profiling of matvis with a HERA-like array."""
+    from py21cmsense.antpos import hera
+
+    antpos = hera(hex_num=hex_num, split_core=True, outriggers=2 if outriggers else 0)
+    if keep_ants:
+        keep_ants = [int(i) for i in keep_ants.split(",")]
+        antpos = antpos[keep_ants]
+
+    bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
+    pairs = np.array(get_redundancies(bls.value))
+
+    run_profile(nsource=12 * nside**2, nants=antpos.shape[0], pairs=pairs, **kwargs)
 
 
 def get_line_based_stats(lstats) -> tuple[dict, float]:

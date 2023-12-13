@@ -27,6 +27,7 @@ def simulate_vis(
     use_gpu: bool = False,
     beam_spline_opts: dict | None = None,
     beam_idx: np.ndarray | None = None,
+    antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     **backend_kwargs,
 ):
     """
@@ -126,12 +127,13 @@ def simulate_vis(
         for beam in beams
     ]
 
+    npairs = len(antpairs) if antpairs is not None else nants * nants
     if polarized:
         vis = np.zeros(
-            (freqs.size, lsts.size, nfeeds, nfeeds, nants * nants), dtype=complex_dtype
+            (freqs.size, lsts.size, nfeeds, nfeeds, npairs), dtype=complex_dtype
         )
     else:
-        vis = np.zeros((freqs.size, lsts.size, nants * nants), dtype=complex_dtype)
+        vis = np.zeros((freqs.size, lsts.size, npairs), dtype=complex_dtype)
 
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
@@ -146,6 +148,7 @@ def simulate_vis(
             polarized=polarized,
             beam_spline_opts=beam_spline_opts,
             beam_idx=beam_idx,
+            antpairs=antpairs,
             **backend_kwargs,
         )
     return vis
