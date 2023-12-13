@@ -13,7 +13,7 @@ finally:
     del get_distribution, DistributionNotFound
 
 try:
-    import pycuda
+    import cupy
 
     HAVE_GPU = True
 except ImportError:

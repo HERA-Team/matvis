@@ -22,7 +22,7 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 
-from matvis import DATA_PATH, HAVE_GPU, conversions, cpu, gpu, simulate_vis
+from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, gpu, simulate_vis
 
 simcpu = cpu.simulate
 simgpu = gpu.simulate
@@ -117,11 +117,6 @@ def profile(
 
     logger.setLevel(log_level.upper())
 
-    if gpu:
-        from pycuda import driver
-
-        driver.start_profiler()
-
     (
         ants,
         flux,
@@ -148,12 +143,15 @@ def profile(
 
     if gpu:
         profiler.add_function(simgpu)
-        kw = {
-            "nthreads": gpu_nthreads,
-        }
+        kw = {}
+        # kw = {
+        #     "nthreads": gpu_nthreads,
+        # }
     else:
         profiler.add_function(simcpu)
         kw = {}
+
+    print("ABOUT TO START")
 
     profiler.runcall(
         simulate_vis,
@@ -171,9 +169,6 @@ def profile(
         beam_idx=beam_idx,
         **kw,
     )
-
-    if gpu:
-        driver.stop_profiler()
 
     outdir = Path(outdir).expanduser().absolute()
 
@@ -360,7 +355,7 @@ def get_standard_sim_params(
     freqs = np.unique(uvdata.freq_array)
 
     # Correct source locations so that matvis uses the right frame
-    ra, dec = conversions.equatorial_to_eci_coords(
+    ra, dec = coordinates.equatorial_to_eci_coords(
         ra, dec, obstime, location, unit="rad", frame="icrs"
     )
 

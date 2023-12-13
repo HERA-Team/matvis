@@ -7,11 +7,11 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvdata.data import DATA_PATH
 from pyuvsim import AnalyticBeam
-from typing import List
 
-from matvis import conversions, simulate_vis
+from matvis import coordinates
 from matvis._uvbeam_to_raw import uvbeam_to_azza_grid
-from matvis.cpu import _evaluate_beam_cpu, simulate
+from matvis.cpu import simulate
+from matvis.cpu.beams import UVBeamInterpolator
 
 np.random.seed(0)
 NTIMES = 3
@@ -164,7 +164,7 @@ def beam_list_unpol() -> list[EllipticalBeam]:
     """Get Gaussian beam and transform into an elliptical version."""
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-    beam_analytic = conversions.prepare_beam(
+    beam_analytic = coordinates.prepare_beam(
         beam_analytic, polarized=False, use_feed="x"
     )
 
@@ -176,7 +176,7 @@ def beam_list_pol() -> list[EllipticalBeam]:
     """Get Gaussian beam and transform into an elliptical version with polarization."""
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-    beam_analytic = conversions.prepare_beam(
+    beam_analytic = coordinates.prepare_beam(
         beam_analytic, polarized=True, use_feed="x"
     )
 
@@ -186,7 +186,7 @@ def beam_list_pol() -> list[EllipticalBeam]:
 @pytest.fixture(scope="function")
 def beam_cube(beam_list_unpol, freq) -> np.ndarray:
     """Construct pixel beam from analytic beam."""
-    beam_pix = conversions.uvbeam_to_lm(
+    beam_pix = coordinates.uvbeam_to_lm(
         beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
     )
     return np.array([beam_pix, beam_pix])
@@ -212,7 +212,7 @@ def sky_flux(freq):
 def crd_eq(point_source_pos):
     """Equatorial coordinates for the point sources."""
     ra, dec = point_source_pos
-    return conversions.point_source_crd_eq(ra, dec)
+    return coordinates.point_source_crd_eq(ra, dec)
 
 
 @pytest.fixture(scope="module")
@@ -220,7 +220,7 @@ def eq2tops():
     """Get coordinate transforms as a function of LST."""
     hera_lat = -30.7215 * np.pi / 180.0
     lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
-    return np.array([conversions.eci_to_enu_matrix(lst, lat=hera_lat) for lst in lsts])
+    return np.array([coordinates.eci_to_enu_matrix(lst, lat=hera_lat) for lst in lsts])
 
 
 @pytest.fixture(scope="module")
@@ -264,7 +264,7 @@ def test_prepare_beams_wrong_feed():
     base_beam = AnalyticBeam("gaussian", diameter=14.0)
     beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
     with pytest.raises(ValueError, match="use_feed must be"):
-        conversions.prepare_beam(beam_analytic, polarized=False, use_feed="z")
+        coordinates.prepare_beam(beam_analytic, polarized=False, use_feed="z")
 
 
 def test_prepare_beams_pol_power():
@@ -274,13 +274,13 @@ def test_prepare_beams_pol_power():
     beam_analytic.efield_to_power()
 
     with pytest.raises(ValueError, match="Beam type must be efield"):
-        conversions.prepare_beam(beam_analytic, polarized=True, use_feed="x")
+        coordinates.prepare_beam(beam_analytic, polarized=True, use_feed="x")
 
 
 def test_prepare_beam_unpol_uvbeam():
     """Test that prepare_beam correctly handles an efield beam input to unpol sim."""
     beam = make_cst_beam("efield")
-    new_beam = conversions.prepare_beam(beam, polarized=False, use_feed="x")
+    new_beam = coordinates.prepare_beam(beam, polarized=False, use_feed="x")
 
     assert new_beam.beam_type == "power"
     assert len(new_beam.polarization_array) == 1
@@ -292,7 +292,7 @@ def test_prepare_beam_unpol_uvbeam():
 def test_prepare_beam_unpol_uvbeam_npols():
     """Test that prepare_beam correctly handles multiple pols to unpol simulation."""
     beam = make_cst_beam("power")
-    new_beam = conversions.prepare_beam(beam, polarized=False, use_feed="x")
+    new_beam = coordinates.prepare_beam(beam, polarized=False, use_feed="x")
 
     assert new_beam.beam_type == "power"
     assert len(new_beam.polarization_array) == 1
@@ -311,7 +311,7 @@ def test_prepare_beam_unpol_uvbeam_pol_no_exist():
     with pytest.raises(
         ValueError, match="You want to use x feed, but it does not exist in the UVBeam"
     ):
-        conversions.prepare_beam(beam, polarized=False, use_feed="x")
+        coordinates.prepare_beam(beam, polarized=False, use_feed="x")
 
 
 def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
@@ -396,21 +396,20 @@ def test_nan_in_cpu_beam(uvbeam):
     tx = np.linspace(-1, 1, 100)
     ty = tx
 
-    freq = np.array([beam.freq_array[0, 0]])
+    freq = beam.freq_array[0, 0]
 
-    A_s = np.zeros((2, 2, 1, 100))
+    bmfunc = UVBeamInterpolator(
+        beam_list=[beam],
+        beam_idx=np.zeros(1, dtype=int),
+        polarized=True,
+        nant=1,
+        freq=freq,
+    )
+
     with pytest.raises(
         ValueError, match="Beam interpolation resulted in an invalid value"
     ):
-        _evaluate_beam_cpu(
-            A_s,
-            [beam],
-            tx,
-            ty,
-            polarized=True,
-            check=True,
-            freq=freq,
-        )
+        bmfunc(tx, ty, check=True)
 
 
 def test_covers_sky_almost_strong(uvbeam):

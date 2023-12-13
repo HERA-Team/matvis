@@ -1,7 +1,7 @@
 """Plotting convenience functions to help in analyzing matvis output."""
 import numpy as np
 
-from . import conversions
+from . import coordinates
 
 
 def _source_az_za_beam(
@@ -34,11 +34,11 @@ def _source_az_za_beam(
         only the power beam) for each source.
     """
     # Get coordinate transforms as a function of LST
-    eq2top = conversions.eci_to_enu_matrix(lst, latitude)
+    eq2top = coordinates.eci_to_enu_matrix(lst, latitude)
 
     # Get source az, za (note the azimuth convention used by UVBeam)
     tx, ty, tz = np.dot(eq2top, crd_eq)
-    az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+    az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
     # Get beam values
     interp_beam = beam.interp(az, za, np.atleast_1d(ref_freq))[0]
@@ -95,7 +95,7 @@ def animate_source_map(
     from matplotlib import animation, rc
 
     # Point source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
+    crd_eq = coordinates.point_source_crd_eq(ra, dec)
 
     # Calculate source positions for all LSTs
     y = np.array(

@@ -3,46 +3,24 @@
 
 import pytest
 
-pytest.importorskip("pycuda")
+pytest.importorskip("cupy")
 
+import cupy as cp
 import numpy as np
-from pycuda.gpuarray import to_gpu
 
-from matvis import _cublas as cb
-
-
-@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])
-def test_dotc(dtype):
-    """Test the dotc function."""
-    a = np.random.randn(10).astype(dtype)
-    b = np.random.randn(10).astype(dtype)
-    if np.iscomplex(a):
-        a += 1j * np.random.randn(10).astype(dtype)
-        b += 1j * np.random.randn(10).astype(dtype)
-
-    c = cb.dotc(to_gpu(a), to_gpu(b))
-    assert np.allclose(c, np.vdot(a, b))
+from matvis.gpu import _cublas as cb
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])
-def test_gemm(dtype):
+@pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
+def test_zdotz(dtype):
     """Test the gemm function."""
-    a = np.random.randn(10, 12).astype(dtype)
-    b = np.random.randn(12, 10).astype(dtype)
-    if np.iscomplex(a):
-        a += 1j * np.random.randn(10, 12).astype(dtype)
-        b += 1j * np.random.randn(12, 10).astype(dtype)
-
-    c = cb.gemm(to_gpu(a), to_gpu(b))
-    assert np.allclose(c, np.dot(a, b))
-
-
-@pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])
-def test_zz(dtype):
-    """Test the zz function."""
-    a = np.random.randn(10, 15).astype(dtype)
-    if np.iscomplex(a):
-        a += 1j * np.random.randn(10, 15).astype(dtype)
-
-    c = cb.zz(to_gpu(a))
-    assert np.allclose(c, np.dot(a.conj(), a.T))
+    a = np.arange(6).reshape((2, 3)).astype(dtype)
+    a += 1j
+    # agpu = cp.asarray(a, order='F')
+    # c = cp.cublas.gemm('N', 'H', agpu, agpu)#
+    c = cb.zdotz(cp.asarray(a))
+    np.testing.assert_allclose(
+        c.get(),
+        np.dot(a.conj(), a.T),
+        rtol=1e-5 if dtype in [np.float32, np.complex64] else 1e-10,
+    )

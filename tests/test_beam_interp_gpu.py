@@ -1,16 +1,14 @@
 """Test the GPU beam interpolation routine."""
 import pytest
 
-pytest.importorskip("pycuda")
+pytest.importorskip("cupy")
 
 import numpy as np
-from pathlib import Path
-from pycuda.driver import Stream
 from pyuvdata import UVBeam
 
 from matvis import DATA_PATH
 from matvis._uvbeam_to_raw import uvbeam_to_azza_grid
-from matvis.gpu import gpu_beam_interpolation
+from matvis.gpu.beams import gpu_beam_interpolation
 
 
 def test_identity():
@@ -25,17 +23,15 @@ def test_identity():
     dza = za[1] - za[0]
     daz = az[1] - az[0]
 
-    print(beam[0].flatten())
-    new_beam = gpu_beam_interpolation(beam, daz, dza, AZ.flatten(), ZA.flatten())
+    new_beam = gpu_beam_interpolation(beam, daz, dza, AZ.flatten(), ZA.flatten()).get()
 
-    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[0, 0])):
+    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[0, :, 0])):
         print(f"Beam {i}")
-        assert np.allclose(np.sqrt(b1.flatten()), b2)
+        np.testing.assert_allclose(np.sqrt(b1.flatten()), b2)
 
     assert np.allclose(new_beam[0, 0, 0, 0], 1)
     assert np.allclose(new_beam[0, 0, 0, -1], 0)
-
-    assert np.allclose(new_beam[0, 0, 1, -1], 1)
+    assert np.allclose(new_beam[0, 1, 0, -1], 1)
 
 
 def test_non_identity_linear():
@@ -59,10 +55,9 @@ def test_non_identity_linear():
         dza * 2,
         AZ.flatten(),
         ZA.flatten(),
-        stream=Stream(),
-    )
+    ).get()
 
-    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[0, 0])):
+    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[0, :, 0])):
         print(f"Beam {i}", b2)
         assert np.allclose(np.sqrt(b1.flatten()), b2)
 
@@ -75,9 +70,7 @@ def test_identity_beamfile(polarized):
     beam.read_beamfits(beam_file)
     beam = beam.interp(freq_array=np.array([1e8]), new_object=True, run_check=False)
 
-    beam.interp(
-        freq_array=beam.freq_array[0],
-    )
+    beam.interp(freq_array=beam.freq_array[0])
     if not polarized:
         beam.efield_to_power(calc_cross_pols=False, inplace=True)
         beam.select(polarizations=["xx"], inplace=True)
@@ -100,23 +93,21 @@ def test_identity_beamfile(polarized):
 
     AZ, ZA = np.meshgrid(az, za, indexing="xy")
 
-    # Shape (nax, nfeed, nbeam, nsrc)
-
-    new_beam = gpu_beam_interpolation(beam_raw, daz, dza, AZ.flatten(), ZA.flatten())
+    # Shape (nfeed, nbeam, nax, nsrc)
+    new_beam = gpu_beam_interpolation(
+        beam_raw, daz, dza, AZ.flatten(), ZA.flatten()
+    ).get()
 
     if not polarized:
         beam_raw = np.sqrt(beam_raw)
 
     assert new_beam.dtype.name.startswith("complex")
 
-    for (
-        iax,
-        axx,
-    ) in enumerate(new_beam):
-        for ifd, feed in enumerate(axx):
-            for ibeam, bm in enumerate(feed):
-                print(iax, ifd, ibeam)
-                assert np.allclose(beam_raw[ibeam, iax, ifd].flatten(), bm)
+    for ifd, ibeam, iax in np.ndindex(*new_beam.shape[:-1]):
+        print(f"ax={iax}, feed={ifd}, beam={ibeam}")
+        np.testing.assert_allclose(
+            new_beam[ifd, ibeam, iax].flatten(), beam_raw[ibeam, iax, ifd].flatten()
+        )
 
 
 @pytest.mark.parametrize("polarized", [True, False])
@@ -127,9 +118,7 @@ def test_non_identity_beamfile(polarized):
     beam.read_beamfits(beam_file)
     beam = beam.interp(freq_array=np.array([1e8]), new_object=True, run_check=False)
 
-    beam.interp(
-        freq_array=beam.freq_array[0],
-    )
+    beam.interp(freq_array=beam.freq_array[0])
     if not polarized:
         beam.efield_to_power(calc_cross_pols=False, inplace=True)
         beam.select(polarizations=["xx"], inplace=True)
@@ -162,7 +151,7 @@ def test_non_identity_beamfile(polarized):
     print("dAZ", daz)
 
     # Shape (nax, nfeed, nbeam, nsrc)
-    new_beam_gpu = gpu_beam_interpolation(beam_raw, daz, dza, AZ, ZA)
+    new_beam_gpu = gpu_beam_interpolation(beam_raw, daz, dza, AZ, ZA).get()
     new_beam_uvb = beam.interp(
         az_array=AZ, za_array=ZA, spline_opts={"kx": 1, "ky": 1}
     )[0]
@@ -170,19 +159,13 @@ def test_non_identity_beamfile(polarized):
     if not polarized:
         new_beam_uvb = np.sqrt(new_beam_uvb)
 
-    for (
-        iax,
-        axx,
-    ) in enumerate(new_beam_gpu):
-        for ifd, feed in enumerate(axx):
-            for ibeam, bm in enumerate(feed):
-                print(iax, ifd, ibeam)
-                np.testing.assert_allclose(
-                    new_beam_uvb[iax, ifd, 0].real, bm.real, rtol=1e-6
-                )
-                np.testing.assert_allclose(
-                    new_beam_uvb[iax, ifd, 0].imag, bm.imag, rtol=1e-6
-                )
+    for ifd, ibeam, iax in np.ndindex(*new_beam_gpu.shape[:-1]):
+        print(f"ax={iax}, feed={ifd}, beam={ibeam}")
+        np.testing.assert_allclose(
+            new_beam_gpu[ifd, ibeam, iax].flatten(),
+            new_beam_uvb[iax, ifd].flatten(),
+            rtol=1e-6,
+        )
 
 
 def test_wrong_beamtype():

@@ -14,7 +14,7 @@ from . import get_standard_sim_params, nants
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
 @pytest.mark.parametrize("precision", (2,))
 def test_cpu_vs_gpu(polarized, use_analytic_beam, precision):
-    """Compare matvis CPU and GPU isibilities."""
+    """Compare matvis CPU and GPU visibilities."""
     (
         sky_model,
         ants,
