@@ -34,20 +34,12 @@ logger = logging.getLogger("matvis")
 
 
 # These specify which line(s) in the code correspond to which algorithmic step.
-CPU_STEPS = {
-    "eq2top": ("np.dot(eq2top",),
-    "beam_interp": ("_evaluate_beam_cpu(",),
-    "get_tau": ("np.dot(antpos",),
-    "get_antenna_vis": ("v = _get_antenna_vis(",),
-    "get_baseline_vis": ("vis[t] =",),
-}
-
-GPU_STEPS = {
-    "eq2top": ("# compute crdtop",),
-    "beam_interp": ("do_beam_interpolation(",),
-    "get_tau": ("# compute tau",),
-    "get_antenna_vis": ("meas_eq(",),
-    "get_baseline_vis": ("cublas_complex_mm(",),
+STEPS = {
+    "Coordinate Rotation": ("coords.rotate()",),
+    "Beam Interpolation": ("bmfunc(",),
+    "Compute exp(tau)": ("exptau =",),
+    "Compute Z": ("zcalc.compute(",),
+    "Compute V": ("matprod(z, c)",),
 }
 
 profiler = LineProfiler()
@@ -84,7 +76,9 @@ main = click.Group()
     default=False,
 )
 @click.option(
-    "-n", "--gpu-nthreads", default=1024, help="Number of threads to use for GPU"
+    "--method",
+    default="MatMul",
+    type=click.Choice(["MatMul", "VectorDot"]),
 )
 @click.option(
     "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
@@ -109,7 +103,7 @@ def profile(
     outdir,
     verbose,
     log_level,
-    gpu_nthreads,
+    method,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -139,19 +133,13 @@ def profile(
     print(f"  GPU:              {gpu:>7}")
     print(f"  DOUBLE-PRECISION: {double_precision:>7}")
     print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
+    print(f"  METHOD:           {method:>7}")
     print("---------------------------------")
 
     if gpu:
         profiler.add_function(simgpu)
-        kw = {}
-        # kw = {
-        #     "nthreads": gpu_nthreads,
-        # }
     else:
         profiler.add_function(simcpu)
-        kw = {}
-
-    print("ABOUT TO START")
 
     profiler.runcall(
         simulate_vis,
@@ -167,12 +155,12 @@ def profile(
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=gpu,
         beam_idx=beam_idx,
-        **kw,
+        matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
     )
 
     outdir = Path(outdir).expanduser().absolute()
 
-    str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}"
+    str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}_{method}"
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
         profiler.print_stats(stream=fl, stripzeros=True)
@@ -181,9 +169,7 @@ def profile(
         profiler.print_stats()
 
     line_stats, total_time = get_line_based_stats(profiler.get_stats())
-    thing_stats = get_summary_stats(
-        line_stats, total_time, GPU_STEPS if gpu else CPU_STEPS
-    )
+    thing_stats = get_summary_stats(line_stats, total_time, STEPS)
 
     print()
     print("------------- Summary of timings -------------")

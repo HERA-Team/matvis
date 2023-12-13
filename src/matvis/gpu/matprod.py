@@ -18,16 +18,20 @@ class GPUMatMul(MatProd):
         expected shape.
         """
         # The shape is required to be like this to use the fortran ordering
-        self.vis = cp.full(
-            (self.nchunks, self.nant, self.nfeed, self.nant, self.nfeed),
-            0.0,
-            dtype=self.ctype,
-            order="F",
-        )
+        self.vis = [
+            cp.full(
+                (self.nant, self.nfeed, self.nant, self.nfeed),
+                0.0,
+                dtype=self.ctype,
+                order="F",
+            )
+            for _ in range(self.nchunks)
+        ]
 
     def compute(self, z: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
         """Perform the source-summing operation for a single time and chunk."""
         zdotz(z, out=out)
+        cp.cuda.Device().synchronize()
         return out
 
     def sum_chunks(self, out: np.ndarray):
@@ -43,7 +47,7 @@ class GPUMatMul(MatProd):
         if self.nchunks == 1:
             cpu = self.vis[0].get()
         else:
-            cpu = self.vis.sum(axis=0).get()
+            cpu = cp.sum(self.vis, axis=0).get()
 
         # cpu = cpu.transpose((0, 2, 1, 3))
         cpu = cpu.transpose((1, 3, 0, 2))
@@ -53,6 +57,8 @@ class GPUMatMul(MatProd):
             out[:] = cpu
         else:
             out[:] = cpu[:, :, self.ant1_idx, self.ant2_idx]
+
+        cp.cuda.Device().synchronize()
 
 
 class GPUVectorDot(MatProd):
@@ -73,6 +79,7 @@ class GPUVectorDot(MatProd):
                 for i, (ai, aj) in enumerate(self.antpairs):
                     dotc(z[j, ai], z[k, aj], out=out[j, k, i])
 
+        cp.cuda.Device().synchronize()
         return out
 
     def sum_chunks(self, out: np.ndarray):
@@ -82,3 +89,4 @@ class GPUVectorDot(MatProd):
         else:
             gsum = cp.sum(self.vis, axis=0)
             out[:] = gsum.get()
+        cp.cuda.Device().synchronize()

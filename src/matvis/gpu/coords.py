@@ -49,4 +49,5 @@ class GPUCoordinateRotation(CoordinateRotation):
         crdtop_lim = self.coords_topo[:, above_horizon]
         flux = self.flux_chunk[above_horizon]
 
+        cp.cuda.Device().synchronize()
         return crdtop_lim, flux

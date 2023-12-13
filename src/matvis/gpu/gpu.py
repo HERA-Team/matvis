@@ -14,7 +14,6 @@ from typing import Callable
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
 from ..cpu.cpu import simulate as simcpu
-from . import _utils as utils
 from . import beams
 from . import matprod as mp
 from .coords import GPUCoordinateRotation
@@ -171,12 +170,12 @@ def simulate(
             logdebug("exptau", exptau)
             event["tau"].record(stream)
 
-            Z = zcalc.compute(Isqrt, A_gpu, exptau, bmfunc.beam_idx)
+            z = zcalc.compute(Isqrt, A_gpu, exptau, bmfunc.beam_idx)
             event["meas_eq"].record(stream)
-            logdebug("Z", Z)
+            logdebug("Z", z)
 
             # compute vis = Z.Z^dagger
-            matprod(Z, c)
+            matprod(z, c)
             event["vis"].record(stream)
             event["end"].record(stream)
 

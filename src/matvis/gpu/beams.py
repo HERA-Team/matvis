@@ -155,4 +155,5 @@ def gpu_beam_interpolation(
         cp.sqrt(beam_at_src, out=beam_at_src)
         beam_at_src = beam_at_src.astype(ctype)
 
+    cp.cuda.Device().synchronize()
     return beam_at_src

@@ -39,4 +39,7 @@ class GPUZMatrixCalc:
         Z = cp.empty(shape=(nfeed, nant, nax, nsrc), dtype=exptau.dtype)
         cp.multiply(exptau[None, :, None, :], beam[:, beam_idx], out=Z)
         Z *= sqrt_flux
-        return Z.reshape((nfeed * nant, nax * nsrc))
+        out = Z.reshape((nfeed * nant, nax * nsrc))
+
+        cp.cuda.Device().synchronize()
+        return out
