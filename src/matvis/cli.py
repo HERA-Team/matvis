@@ -21,6 +21,7 @@ from line_profiler import LineProfiler
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
+from typing import Literal
 
 from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, gpu, simulate_vis
 
@@ -45,6 +46,21 @@ STEPS = {
 profiler = LineProfiler()
 
 main = click.Group()
+
+
+def get_label(
+    analytic_beam: bool,
+    nfreq: int,
+    ntimes: int,
+    nants: int,
+    nbeams: int,
+    nsource: int,
+    gpu: bool,
+    double_precision: Literal[1, 2],
+    method: str,
+):
+    """Get a label for the output profile files."""
+    return f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}_{method}"
 
 
 def run_profile(
@@ -81,7 +97,7 @@ def run_profile(
     ) = get_standard_sim_params(analytic_beam, nfreq, ntimes, nants, nsource, nbeams)
 
     print("---------------------------------")
-    print("Running vc-profile with:")
+    print("Running matvis profile with:")
     print(f"  NANTS:            {nants:>7}")
     print(f"  NTIMES:           {ntimes:>7}")
     print(f"  NFREQ:            {nfreq:>7}")
@@ -119,7 +135,17 @@ def run_profile(
 
     outdir = Path(outdir).expanduser().absolute()
 
-    str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}_{method}"
+    str_id = get_label(
+        analytic_beam,
+        nfreq,
+        ntimes,
+        nants,
+        nbeams,
+        nsource,
+        gpu,
+        double_precision,
+        method,
+    )
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
         profiler.print_stats(stream=fl, stripzeros=True)
