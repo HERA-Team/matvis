@@ -20,13 +20,13 @@ class CPUMatMul(MatProd):
         v = z.conj().dot(z.T)
 
         # Separate feed/ant axes to make indexing easier
-        v.shape = (self.nfeed, self.nant, self.nfeed, self.nant)
+        v.shape = (self.nant, self.nfeed, self.nant, self.nfeed)
         v = v.transpose((0, 2, 1, 3))  # transpose always returns a view
 
         if self.all_pairs:
-            out[:] = v.reshape((self.nfeed, self.nfeed, self.nant * self.nant))
+            out[:] = v.reshape((self.nant * self.nant, self.nfeed, self.nfeed))
         else:
-            out[:] = v[:, :, self.ant1_idx, self.ant2_idx]
+            out[:] = v[self.ant1_idx, self.ant2_idx]
 
         return out
 
@@ -44,9 +44,9 @@ class CPUVectorDot(MatProd):
         out
             Output array, shaped as (Nfeed, Nfeed, Npairs).
         """
-        z = z.reshape((self.nfeed, self.nant, -1))
+        z = z.reshape((self.nant, self.nfeed, -1))
 
         for i, (ai, aj) in enumerate(self.antpairs):
-            out[:, :, i] = z[:, ai].conj().dot(z[:, aj].T)
+            out[i] = z[ai].conj().dot(z[aj].T)
 
         return out

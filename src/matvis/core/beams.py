@@ -152,7 +152,7 @@ class BeamInterpolator(ABC):
     def interp(self, tx: np.ndarray, ty: np.ndarray) -> np.ndarray:
         """Perform the beam interpolation.
 
-        This method must return an array of shape ``(nax, nfeed, nbeam, nsrcs_up)``.
+        This method must return an array of shape ``(nbeam, nfeed, nax, nsrcs_up)``.
         """
         pass
 
@@ -171,11 +171,11 @@ class BeamInterpolator(ABC):
         Returns
         -------
         out
-            The interpolated beam values, shape (nfeed, nbeam, nax, nsrc)
+            The interpolated beam values, shape (nbeam, nfeed, nax, nsrc)
         """
         out = self.interp(tx, ty)
         if check:
-            required_shape = (self.nfeed, self.nbeam, self.nax, len(tx))
+            required_shape = (self.nbeam, self.nfeed, self.nax, len(tx))
             if out.shape != required_shape:
                 raise ValueError(
                     "The beam interpolation returned an array with wrong shape. "

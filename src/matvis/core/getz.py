@@ -31,7 +31,7 @@ class ZMatrixCalc:
         sqrt_flux
             Square root of the flux. Shape=(Nsrcs,).
         beam
-            Beam. Shape=(Nfeed, Nbeams, Nax, Nsrcs).
+            Beam. Shape=(Nbeams, Nfeed, Nax, Nsrcs).
         exptau
             Complex exponential of the delay (i.e. exp(-2π*i*nu*D.X)).
             Shape=(Nant, Nsrcs).
@@ -46,7 +46,7 @@ class ZMatrixCalc:
         exptau *= sqrt_flux
 
         # Here we expand the beam to all ants (from its beams), then broadcast to
-        # the shape of exptau, so we end up with shape (Nfeed, Nant, Nax, Nsources)
-        v = beam[:, beam_idx] * exptau[None, :, None, :]
+        # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
+        v = beam[beam_idx] * exptau[:, None, None, :]
         nfeed, nant, nax, nsrcs = v.shape
-        return v.reshape((nfeed * nant, nax * nsrcs))  # reform into matrix
+        return v.reshape((nant * nfeed, nax * nsrcs))  # reform into matrix

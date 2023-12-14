@@ -3,7 +3,7 @@ import cupy as cp
 import numpy as np
 
 from ..core.matprod import MatProd
-from ._cublas import dotc, zdotz
+from ._cublas import complex_matmul, dotc, zdotz
 
 
 class GPUMatMul(MatProd):
@@ -20,7 +20,7 @@ class GPUMatMul(MatProd):
         # The shape is required to be like this to use the fortran ordering
         self.vis = [
             cp.full(
-                (self.nant, self.nfeed, self.nant, self.nfeed),
+                (self.nfeed, self.nant, self.nfeed, self.nant),
                 0.0,
                 dtype=self.ctype,
                 order="F",
@@ -53,10 +53,10 @@ class GPUMatMul(MatProd):
         cpu = cpu.transpose((1, 3, 0, 2))
 
         if self.all_pairs:
-            cpu = cpu.reshape((self.nfeed, self.nfeed, self.nant * self.nant))
+            cpu = cpu.reshape((self.nant * self.nant, self.nfeed, self.nfeed))
             out[:] = cpu
         else:
-            out[:] = cpu[:, :, self.ant1_idx, self.ant2_idx]
+            out[:] = cpu[self.ant1_idx, self.ant2_idx]
 
         cp.cuda.Device().synchronize()
 
@@ -66,18 +66,19 @@ class GPUVectorDot(MatProd):
 
     def allocate_vis(self):
         """Allocate memory for the visibilities."""
-        self.vis = cp.full(
-            (self.nchunks, self.nfeed, self.nfeed, self.npairs), 0.0, dtype=self.ctype
-        )
+        self.vis = [
+            cp.full(
+                (self.nfeed, self.nfeed, self.npairs), 0.0, dtype=self.ctype, order="F"
+            )
+            for _ in range(self.nchunks)
+        ]
 
     def compute(self, z: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
         """Perform the source-summing operation for a single time and chunk."""
-        z = z.reshape((self.nfeed, self.nant, -1))
+        z = z.reshape((self.nant, self.nfeed, -1))
 
-        for j in range(self.nfeed):
-            for k in range(self.nfeed):
-                for i, (ai, aj) in enumerate(self.antpairs):
-                    dotc(z[j, ai], z[k, aj], out=out[j, k, i])
+        for i, (ai, aj) in enumerate(self.antpairs):
+            complex_matmul(z[ai], z[aj], out=out[:, :, i])
 
         cp.cuda.Device().synchronize()
         return out
@@ -85,8 +86,8 @@ class GPUVectorDot(MatProd):
     def sum_chunks(self, out: np.ndarray):
         """Sum the chunks into the output array."""
         if self.nchunks == 1:
-            out[:] = self.vis[0].get()
+            out[:] = self.vis[0].transpose((2, 0, 1)).get()
         else:
             gsum = cp.sum(self.vis, axis=0)
-            out[:] = gsum.get()
+            out[:] = gsum.transpose((2, 0, 1)).get()
         cp.cuda.Device().synchronize()

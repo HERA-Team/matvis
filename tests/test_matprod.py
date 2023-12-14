@@ -46,7 +46,7 @@ def test_matprod(nfeed, antpairs, precision, method):
     if method.startswith("GPU"):
         z = cp.asarray(z)
 
-    out = np.zeros((nfeed, nfeed, obj.npairs), dtype=ctype)
+    out = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
 
     obj(z, chunk=0)
     obj.sum_chunks(out)
@@ -54,13 +54,13 @@ def test_matprod(nfeed, antpairs, precision, method):
     # Use a simple method to get the true answer
     true = (
         simple_matprod(z)
-        .reshape((nfeed, nant, nfeed, nant))
+        .reshape((nant, nfeed, nant, nfeed))
         .transpose((0, 2, 1, 3))
-        .reshape((nfeed, nfeed, -1))
+        .reshape((-1, nfeed, nfeed))
     )
     if method.startswith("GPU"):
         true = true.get()
 
     assert out.dtype.type == ctype
-    assert out.shape == (nfeed, nfeed, obj.npairs)
+    assert out.shape == (obj.npairs, nfeed, nfeed)
     np.testing.assert_allclose(out, true)

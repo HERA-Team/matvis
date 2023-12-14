@@ -33,13 +33,13 @@ class GPUZMatrixCalc:
         Z
             The Z matrix. Shape=(Nfeed*Nant, Nax*Nsrcs).
         """
-        nfeed, _, nax, _ = beam.shape
+        _, nfeed, nax, _ = beam.shape
         nant, nsrc = exptau.shape
 
-        Z = cp.empty(shape=(nfeed, nant, nax, nsrc), dtype=exptau.dtype)
-        cp.multiply(exptau[None, :, None, :], beam[:, beam_idx], out=Z)
+        Z = cp.empty(shape=(nant, nfeed, nax, nsrc), dtype=exptau.dtype)
+        cp.multiply(exptau[:, None, None, :], beam[beam_idx], out=Z)
         Z *= sqrt_flux
-        out = Z.reshape((nfeed * nant, nax * nsrc))
+        out = Z.reshape((nant * nfeed, nax * nsrc))
 
         cp.cuda.Device().synchronize()
         return out

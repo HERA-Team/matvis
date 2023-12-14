@@ -116,7 +116,7 @@ def gpu_beam_interpolation(
     -------
     beam_at_src
         The beam interpolated at the sources. The shape of the array is
-        ``(nfeed, nbeam, nax, nsrc)``. The array is always complex (at single or
+        ``(nbeam, nfeed, nax, nsrc)``. The array is always complex (at single or
         double precision, depending on the input).
     """
     beam = cp.asarray(beam)
@@ -140,14 +140,14 @@ def gpu_beam_interpolation(
     nbeam, nax, nfeed, nza, naz = beam.shape
     nsrc = len(az)
 
-    beam_at_src = cp.zeros((nfeed, nbeam, nax, nsrc), dtype=beam.dtype)
+    beam_at_src = cp.zeros((nbeam, nfeed, nax, nsrc), dtype=beam.dtype)
 
-    for ax, fd, bm in itertools.product(range(nax), range(nfeed), range(nbeam)):
+    for bm, fd, ax in itertools.product(range(nbeam), range(nfeed), range(nax)):
         ndimage.map_coordinates(
             beam[bm, ax, fd],
             cp.asarray([za, az]),
             order=1,
-            output=beam_at_src[fd, bm, ax],
+            output=beam_at_src[bm, fd, ax],
             mode="nearest",  # controls the end-point behavior, no-op
         )
 

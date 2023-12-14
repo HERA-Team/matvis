@@ -6,6 +6,12 @@ from cupy_backends.cuda.libs import cublas
 
 def zdotz(a, out=None, alpha=1.0, beta=0.0):
     """Computes a.conj() @ a.T."""
+    return complex_matmul(a, a, out=out, alpha=alpha, beta=beta)
+
+
+def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
+    """Computes a.conj() @ b.T."""
+    assert a.shape == b.shape
     if a.dtype == "complex64":
         func = cublas.cgemm
     elif a.dtype == "complex128":
@@ -48,7 +54,7 @@ def zdotz(a, out=None, alpha=1.0, beta=0.0):
         alpha_ptr,
         a.data.ptr,
         lda,
-        a.data.ptr,
+        b.data.ptr,
         ldb,
         beta_ptr,
         c.data.ptr,

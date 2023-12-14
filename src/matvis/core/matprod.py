@@ -57,7 +57,7 @@ class MatProd(ABC):
         used throughout the class.
         """
         self.vis = np.full(
-            (self.nchunks, self.nfeed, self.nfeed, self.npairs), 0.0, dtype=self.ctype
+            (self.nchunks, self.npairs, self.nfeed, self.nfeed), 0.0, dtype=self.ctype
         )
 
     def setup(self):
@@ -72,7 +72,7 @@ class MatProd(ABC):
         Parameters
         ----------
         z
-            Complex integrand. Shape=(Nfeed, Nant, Nax, Nsrc).
+            Complex integrand. Shape=(Nant, Nfeed, Nax, Nsrc).
         out
             Output array, shaped like the visibilities set in `allocate_vis`, but
             without the first chunk axis.
@@ -86,7 +86,7 @@ class MatProd(ABC):
         Parameters
         ----------
         z
-            Complex integrand. Shape=(Nfeed, Nant, Nax, Nsrc).
+            Complex integrand. Shape=(Nant, Nfeed, Nax, Nsrc).
         chunk
             The chunk index.
 

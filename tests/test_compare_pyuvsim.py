@@ -66,8 +66,6 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
 
     # If it passes this test, but fails the following tests, then its probably an
     # ordering issue.
-    vis_matvis = vis_matvis.reshape(vis_matvis.shape[:-1] + (nants, nants))
-
     for i in range(nants):
         for j in range(i, nants):
             for if1, feed1 in enumerate(("X", "Y") if polarized else ("X",)):
@@ -76,9 +74,9 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
                         (i, j, feed1 + feed2)
                     ).T  # pyuvsim visibility
                     d_matvis = (
-                        vis_matvis[:, :, if1, if2, i, j]
+                        vis_matvis[:, :, i * nants + j, if1, if2]
                         if polarized
-                        else vis_matvis[:, :, i, j]
+                        else vis_matvis[:, :, i * nants + j]
                     )
 
                     # Keep track of maximum difference

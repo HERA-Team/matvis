@@ -133,7 +133,7 @@ def simulate(
         "end",
     ]
 
-    vis = np.full((ntimes, nfeed, nfeed, matprod.npairs), 0.0, dtype=ctype)
+    vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
 
     logger.info(f"Running With {nchunks} chunks")
 
@@ -186,7 +186,7 @@ def simulate(
         if not t % report_chunk and t != ntimes - 1:
             plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
-    return vis if polarized else vis[:, 0, 0, :]
+    return vis if polarized else vis[:, :, 0, 0]
 
 
 simulate.__doc__ += simcpu.__doc__

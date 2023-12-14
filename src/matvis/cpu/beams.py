@@ -23,7 +23,7 @@ class UVBeamInterpolator(BeamInterpolator):
         # Primary beam pattern using direct interpolation of UVBeam object
         az, za = enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
         A_s = np.full(
-            (self.nax, self.nfeed, self.nbeam, len(tx)), 0.0, dtype=self.complex_dtype
+            (self.nbeam, self.nfeed, self.nax, len(tx)), 0.0, dtype=self.complex_dtype
         )
 
         for i, bm in enumerate(self.beam_list):
@@ -47,12 +47,12 @@ class UVBeamInterpolator(BeamInterpolator):
             )[0]
 
             if self.polarized:
-                interp_beam = interp_beam[:, :, 0, :]
+                interp_beam = interp_beam[:, :, 0, :].transpose((1, 0, 2))
             else:
                 # Here we have already asserted that the beam is a power beam and
                 # has only one polarization, so we just evaluate that one.
                 interp_beam = np.sqrt(interp_beam[0, 0, 0, :])
 
-            A_s[:, :, i] = interp_beam
+            A_s[i] = interp_beam
 
-        return A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
+        return A_s  # Now (Nbeam, Nfeed, Nax, Nsrc)

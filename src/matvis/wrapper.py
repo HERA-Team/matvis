@@ -77,8 +77,8 @@ def simulate_vis(
     Returns
     -------
     vis : array_like
-        Complex array of shape (NFREQS, NTIMES, NFEED, NFEED, NANTS, NANTS)
-        if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
+        Complex array of shape (NFREQS, NTIMES, NBLS, NFEED, NFEED)
+        if ``polarized == True``, or (NFREQS, NBLS, NTIMES) otherwise.
     """
     if use_gpu:
         if not HAVE_GPU:
@@ -130,7 +130,7 @@ def simulate_vis(
     npairs = len(antpairs) if antpairs is not None else nants * nants
     if polarized:
         vis = np.zeros(
-            (freqs.size, lsts.size, nfeeds, nfeeds, npairs), dtype=complex_dtype
+            (freqs.size, lsts.size, npairs, nfeeds, nfeeds), dtype=complex_dtype
         )
     else:
         vis = np.zeros((freqs.size, lsts.size, npairs), dtype=complex_dtype)

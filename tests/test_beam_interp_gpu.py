@@ -23,15 +23,16 @@ def test_identity():
     dza = za[1] - za[0]
     daz = az[1] - az[0]
 
+    # output shape is (nbeam, nfeed, nax, nsrc)
     new_beam = gpu_beam_interpolation(beam, daz, dza, AZ.flatten(), ZA.flatten()).get()
 
-    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[0, :, 0])):
+    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[:, 0, 0])):
         print(f"Beam {i}")
         np.testing.assert_allclose(np.sqrt(b1.flatten()), b2)
 
     assert np.allclose(new_beam[0, 0, 0, 0], 1)
     assert np.allclose(new_beam[0, 0, 0, -1], 0)
-    assert np.allclose(new_beam[0, 1, 0, -1], 1)
+    assert np.allclose(new_beam[1, 0, 0, -1], 1)
 
 
 def test_non_identity_linear():
@@ -57,7 +58,7 @@ def test_non_identity_linear():
         ZA.flatten(),
     ).get()
 
-    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[0, :, 0])):
+    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[:, 0, 0])):
         print(f"Beam {i}", b2)
         assert np.allclose(np.sqrt(b1.flatten()), b2)
 
@@ -103,10 +104,10 @@ def test_identity_beamfile(polarized):
 
     assert new_beam.dtype.name.startswith("complex")
 
-    for ifd, ibeam, iax in np.ndindex(*new_beam.shape[:-1]):
+    for ibeam, ifd, iax in np.ndindex(*new_beam.shape[:-1]):
         print(f"ax={iax}, feed={ifd}, beam={ibeam}")
         np.testing.assert_allclose(
-            new_beam[ifd, ibeam, iax].flatten(), beam_raw[ibeam, iax, ifd].flatten()
+            new_beam[ibeam, ifd, iax].flatten(), beam_raw[ibeam, iax, ifd].flatten()
         )
 
 
@@ -159,10 +160,10 @@ def test_non_identity_beamfile(polarized):
     if not polarized:
         new_beam_uvb = np.sqrt(new_beam_uvb)
 
-    for ifd, ibeam, iax in np.ndindex(*new_beam_gpu.shape[:-1]):
+    for ibeam, ifd, iax in np.ndindex(*new_beam_gpu.shape[:-1]):
         print(f"ax={iax}, feed={ifd}, beam={ibeam}")
         np.testing.assert_allclose(
-            new_beam_gpu[ifd, ibeam, iax].flatten(),
+            new_beam_gpu[ibeam, ifd, iax].flatten(),
             new_beam_uvb[iax, ifd].flatten(),
             rtol=1e-6,
         )

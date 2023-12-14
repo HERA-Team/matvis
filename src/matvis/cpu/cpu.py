@@ -120,7 +120,7 @@ def simulate(
     -------
     vis : array_like
         Simulated visibilities. If `polarized = True`, the output will have
-        shape (NTIMES, NFEED, NFEED, NBLS), otherwise it will have
+        shape (NTIMES, NBLS, NFEED, NFEED), otherwise it will have
         shape (NTIMES, NBLS).
 
     """
@@ -173,7 +173,7 @@ def simulate(
     ang_freq = rtype(2.0 * np.pi * freq)
     antpos_u = antpos.astype(rtype) * ang_freq / speed_of_light.value
 
-    vis = np.full((ntimes, nfeed, nfeed, matprod.npairs), 0.0, dtype=ctype)
+    vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
 
     bmfunc.setup()
     coords.setup()
@@ -217,4 +217,4 @@ def simulate(
         matprod.sum_chunks(vis[t])
         logdebug("vis", vis[t])
 
-    return vis if polarized else vis[:, 0, 0, :]
+    return vis if polarized else vis[:, :, 0, 0]
