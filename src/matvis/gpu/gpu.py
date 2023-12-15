@@ -50,7 +50,7 @@ def simulate(
     polarized: bool = False,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     beam_idx: np.ndarray | None = None,
-    max_memory: int = 2**29,
+    max_memory: int = np.inf,
     min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
