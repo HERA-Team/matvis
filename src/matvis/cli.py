@@ -148,6 +148,8 @@ def run_profile(
         gpu=gpu,
         double_precision=double_precision,
         method=method,
+        naz=naz,
+        nza=nza,
     )
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
