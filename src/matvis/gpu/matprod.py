@@ -86,9 +86,9 @@ class GPUVectorDot(MatProd):
 
     def sum_chunks(self, out: np.ndarray):
         """Sum the chunks into the output array."""
-        if self.nchunks == 1:
-            out[:] = self.vis[0].transpose((2, 0, 1)).get()
-        else:
-            gsum = cp.sum(self.vis, axis=0)
-            out[:] = gsum.transpose((2, 0, 1)).get()
+        if self.nchunks > 1:
+            for i in range(1, len(self.vis)):
+                self.vis[0] += self.vis[i]
+
+        out[:] = self.vis[0].transpose((2, 0, 1)).get()
         cp.cuda.Device().synchronize()
