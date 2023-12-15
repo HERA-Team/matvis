@@ -23,10 +23,15 @@ from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 from typing import Literal
 
-from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, gpu, simulate_vis
+from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, simulate_vis
+
+if HAVE_GPU:
+    from matvis import gpu
 
 simcpu = cpu.simulate
-simgpu = gpu.simulate
+
+if HAVE_GPU:
+    simgpu = gpu.simulate
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
