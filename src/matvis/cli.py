@@ -55,8 +55,9 @@ main = click.Group()
 
 def get_label(**kwargs):
     """Get a label for the output profile files."""
-    return "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}_{method}".format(
-        **kwargs
+    precision = 2 if kwargs["double_precision"] else 1
+    return "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{precision}_{method}".format(
+        precision=precision, **kwargs
     )
 
 
