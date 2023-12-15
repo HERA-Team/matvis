@@ -56,9 +56,10 @@ main = click.Group()
 def get_label(**kwargs):
     """Get a label for the output profile files."""
     precision = 2 if kwargs["double_precision"] else 1
-    return "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{precision}_{method}".format(
-        precision=precision, **kwargs
-    )
+    return (
+        "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_"
+        "naz{naz}_nza{nza}_g{gpu}_pr{precision}_{method}"
+    ).format(precision=precision, **kwargs)
 
 
 def run_profile(
@@ -74,6 +75,8 @@ def run_profile(
     verbose,
     log_level,
     method,
+    naz=360,
+    nza=180,
     pairs=None,
 ):
     """Run the script."""
@@ -92,7 +95,9 @@ def run_profile(
         cpu_beams,
         hera_lat,
         beam_idx,
-    ) = get_standard_sim_params(analytic_beam, nfreq, ntimes, nants, nsource, nbeams)
+    ) = get_standard_sim_params(
+        analytic_beam, nfreq, ntimes, nants, nsource, nbeams, naz=naz, nza=nza
+    )
 
     print("---------------------------------")
     print("Running matvis profile with:")
@@ -200,6 +205,8 @@ common_profile_options = [
     ),
     click.option("-o", "--outdir", default="."),
     click.option("--double-precision/--single-precision", default=True),
+    click.option("--naz", default=360, type=int),
+    click.option("--nza", default=180, type=int),
 ]
 
 
@@ -355,7 +362,7 @@ def get_stats_and_lines(filename, start_lineno, timings, time_unit):
 
 
 def get_standard_sim_params(
-    use_analytic_beam: bool, nfreq, ntime, nants, nsource, nbeams
+    use_analytic_beam: bool, nfreq, ntime, nants, nsource, nbeams, naz=360, nza=180
 ):
     """Create some standard random simulation parameters for use in profiling.
 
@@ -380,7 +387,18 @@ def get_standard_sim_params(
         # This is a peak-normalized e-field beam file at 100 and 101 MHz,
         # downsampled to roughly 4 square-degree resolution.
         beam = UVBeam()
-        beam.read_beamfits(beam_file)
+        beam.read_beamfits(beam_file, use_future_array_shapes=True)
+
+        # Up/down sample the beam
+        beam.interpolation_function = "az_za_simple"
+        beam = beam.interp(
+            az_array=np.linspace(0, 2 * np.pi, naz + 1)[:-1],
+            za_array=np.linspace(0, np.pi, nza + 1),
+            freq_array=beam.freq_array,
+            reuse_spline=True,
+            new_object=True,
+            az_za_grid=True,
+        )
 
     beams = [beam] * nbeams
 
