@@ -53,19 +53,11 @@ profiler = LineProfiler()
 main = click.Group()
 
 
-def get_label(
-    analytic_beam: bool,
-    nfreq: int,
-    ntimes: int,
-    nants: int,
-    nbeams: int,
-    nsource: int,
-    gpu: bool,
-    double_precision: Literal[1, 2],
-    method: str,
-):
+def get_label(**kwargs):
     """Get a label for the output profile files."""
-    return f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}_{method}"
+    return "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}_{method}".format(
+        **kwargs
+    )
 
 
 def run_profile(
@@ -141,15 +133,15 @@ def run_profile(
     outdir = Path(outdir).expanduser().absolute()
 
     str_id = get_label(
-        analytic_beam,
-        nfreq,
-        ntimes,
-        nants,
-        nbeams,
-        nsource,
-        gpu,
-        double_precision,
-        method,
+        analytic_beam=analytic_beam,
+        nfreq=nfreq,
+        ntimes=ntimes,
+        nants=nants,
+        nbeams=nbeams,
+        nsource=nsource,
+        gpu=gpu,
+        double_precision=double_precision,
+        method=method,
     )
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
