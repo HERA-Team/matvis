@@ -44,10 +44,11 @@ class GPUMatMul(MatProd):
         out
             The output visibilities, with shape (Nfeed, Nfeed, Npairs).
         """
-        if self.nchunks == 1:
-            cpu = self.vis[0].get()
-        else:
-            cpu = cp.sum(self.vis, axis=0).get()
+        if self.nchunks > 1:
+            for i in range(1, len(self.vis)):
+                self.vis[0] += self.vis[i]
+
+        cpu = self.vis[0].get()
 
         # cpu = cpu.transpose((0, 2, 1, 3))
         cpu = cpu.transpose((1, 3, 0, 2))

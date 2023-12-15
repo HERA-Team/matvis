@@ -114,7 +114,7 @@ def simulate(
     logger.debug("Starting GPU allocations...")
 
     # antpos here is imaginary and in wavelength units
-    antpos = 2 * np.pi * freq * 1j * cp.asarray(antpos, order="F") * ONE_OVER_C
+    antpos = 2 * np.pi * freq * 1j * cp.asarray(antpos) * ONE_OVER_C
 
     bmfunc.setup()
     coords.setup()
