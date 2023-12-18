@@ -112,13 +112,41 @@ def simulate(
     npixc = nsrc // nchunks
 
     logger.debug("Starting GPU allocations...")
-
+    init_mem = cp.cuda.Device().mem_info[0]
+    logger.debug(f"Before GPU allocations, GPU mem avail is: {init_mem / 1024**3} GB")
     # antpos here is imaginary and in wavelength units
     antpos = 2 * np.pi * freq * 1j * cp.asarray(antpos) * ONE_OVER_C
+    memnow = cp.cuda.Device().mem_info[0]
+    logger.debug(
+        f"After antpos, GPU mem avail is: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+        f"Expected {(init_mem - antpos.nbytes)/1024**3} GB"
+    )
+    init_mem = memnow
 
     bmfunc.setup()
+    memnow = cp.cuda.Device().mem_info[0]
+    if bmfunc.use_interp:
+        logger.debug(
+            f"After bmfunc, GPU mem avail is: {memnow / 1024**3} GB."
+            f"Expected {(init_mem - bmfunc.beam_data.nbytes - beam_idx.nbytes)/1024**3} GB"
+        )
+        init_mem = memnow
+
     coords.setup()
+    memnow = cp.cuda.Device().mem_info[0]
+    logger.debug(
+        f"After coords, GPU mem avail is: {memnow / 1024**3} GB."
+        f"Expected {(init_mem - coords.eq2top_t.nbytes - coords.coords_eq_chunk.nbytes - coords.coords_topo.nbytes - coords.flux.nbytes)/1024**3} GB"
+    )
+    init_mem = memnow
+
     matprod.setup()
+    memnow = cp.cuda.Device().mem_info[0]
+    logger.debug(
+        f"After matprod, GPU mem avail is: {memnow / 1024**3} GB."
+        f"Expected {(init_mem - sum(v.nbytes for v in matprod.vis))/1024**3} GB"
+    )
+    init_mem = memnow
 
     # output CPU buffers for downloading answers
     streams = [cp.cuda.Stream() for _ in range(nchunks)]
@@ -159,24 +187,40 @@ def simulate(
                 continue
 
             event["eq2top"].record(stream)
+            logger.debug(
+                f"After coords, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+            )
 
             # Get beam. Shape is (nax, nfeed, nbeam, nsrcs_up)
             A_gpu = bmfunc(crdtop[0], crdtop[1], check=t == 0)
             event["beam"].record(stream)
             logdebug("Beam", A_gpu)
+            logger.debug(
+                f"After beam, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+            )
 
             # exptau has shape (nant, nsrc)
             exptau = cp.exp(cp.matmul(antpos, crdtop))
             logdebug("exptau", exptau)
+            logger.debug(
+                f"After exptau, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+            )
             event["tau"].record(stream)
 
             del crdtop
             z = zcalc.compute(Isqrt, A_gpu, exptau, bmfunc.beam_idx)
             event["meas_eq"].record(stream)
             logdebug("Z", z)
+            logger.debug(
+                f"After Z, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+            )
 
             # compute vis = Z.Z^dagger
             matprod(z, c)
+            logger.debug(
+                f"After matprod, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+            )
+
             event["vis"].record(stream)
             event["end"].record(stream)
 
