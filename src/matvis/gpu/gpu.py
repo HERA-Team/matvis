@@ -170,6 +170,7 @@ def simulate(
             logdebug("exptau", exptau)
             event["tau"].record(stream)
 
+            del crdtop
             z = zcalc.compute(Isqrt, A_gpu, exptau, bmfunc.beam_idx)
             event["meas_eq"].record(stream)
             logdebug("Z", z)

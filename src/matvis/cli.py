@@ -78,6 +78,7 @@ def run_profile(
     naz=360,
     nza=180,
     pairs=None,
+    nchunks=1,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -134,6 +135,7 @@ def run_profile(
         beam_idx=beam_idx,
         matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
         antpairs=pairs,
+        min_chunks=nchunks,
     )
 
     outdir = Path(outdir).expanduser().absolute()
@@ -204,6 +206,10 @@ common_profile_options = [
         "--log-level",
         default="INFO",
         type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+    ),
+    click.option(
+        "--nchunks",
+        default=1,
     ),
     click.option("-o", "--outdir", default="."),
     click.option("--double-precision/--single-precision", default=True),
