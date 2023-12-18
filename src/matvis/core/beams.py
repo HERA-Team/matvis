@@ -111,6 +111,7 @@ class BeamInterpolator(ABC):
         polarized: bool,
         nant: int,
         freq: float,
+        nsrc: int,
         spline_opts: dict | None = None,
         precision: int = 1,
     ):
@@ -141,15 +142,19 @@ class BeamInterpolator(ABC):
             self.complex_dtype = np.complex128
             self.real_dtype = np.float64
 
+        self.nsrc = nsrc
+
     def setup(self):  # noqa: B027
         """Perform any necessary setup steps.
 
         Accepts no inputs and returns nothing.
         """
-        pass
+        self.interpolated_beam = np.zeros(
+            (self.nbeam, self.nfeed, self.nax, self.nsrc), dtype=self.complex_dtype
+        )
 
     @abstractmethod
-    def interp(self, tx: np.ndarray, ty: np.ndarray) -> np.ndarray:
+    def interp(self, tx: np.ndarray, ty: np.ndarray, out: np.ndarray) -> np.ndarray:
         """Perform the beam interpolation.
 
         This method must return an array of shape ``(nbeam, nfeed, nax, nsrcs_up)``.
@@ -173,17 +178,11 @@ class BeamInterpolator(ABC):
         out
             The interpolated beam values, shape (nbeam, nfeed, nax, nsrc)
         """
-        out = self.interp(tx, ty)
+        self.interp(tx, ty, self.interpolated_beam)
         if check:
-            required_shape = (self.nbeam, self.nfeed, self.nax, len(tx))
-            if out.shape != required_shape:
-                raise ValueError(
-                    "The beam interpolation returned an array with wrong shape. "
-                    f"Got {out.shape} instead of {required_shape}"
-                )
-
             # Check for invalid beam values
-            sm = out.sum()
+            sm = self.interpolated_beam.sum()
             if np.isinf(sm) or np.isnan(sm):
                 raise ValueError("Beam interpolation resulted in an invalid value")
-        return out
+
+        return self.interpolated_beam

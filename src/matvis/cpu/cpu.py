@@ -40,6 +40,7 @@ def simulate(
     matprod_method: str = "CPUMatMul",
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
+    source_buffer: float = 1.0,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -115,6 +116,12 @@ def simulate(
         chunks. Default is 512 MB.
     min_chunks : int, optional
         The minimum number of chunks to break the source axis into. Default is 1.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+        Default is 0.55, which allows for 10% variance around half the sources
+        (since half should be below the horizon). If you have a particular sky model in
+        which you expect more or less sources to appear above the horizon at any time,
+        set this to a different value.
 
     Returns
     -------
@@ -135,16 +142,6 @@ def simulate(
 
     rtype, ctype = get_dtypes(precision)
 
-    bmfunc = UVBeamInterpolator(
-        beam_list=beam_list,
-        beam_idx=beam_idx,
-        polarized=polarized,
-        nant=nant,
-        freq=freq,
-        spline_opts=beam_spline_opts,
-        precision=precision,
-    )
-
     nchunks, npixc = get_desired_chunks(
         min(max_memory, psutil.virtual_memory().available),
         min_chunks,
@@ -154,6 +151,19 @@ def simulate(
         nant,
         len(I_sky),
         precision,
+        source_buffer=source_buffer,
+    )
+    nsrc_alloc = int(npixc * source_buffer)
+
+    bmfunc = UVBeamInterpolator(
+        beam_list=beam_list,
+        beam_idx=beam_idx,
+        polarized=polarized,
+        nant=nant,
+        freq=freq,
+        spline_opts=beam_spline_opts,
+        precision=precision,
+        nsrc=nsrc_alloc,
     )
 
     coords = CPUCoordinateRotation(
@@ -162,10 +172,17 @@ def simulate(
         eq2top=eq2tops,
         chunk_size=npixc,
         precision=precision,
+        source_buffer=source_buffer,
     )
     mpcls = getattr(mp, matprod_method)
     matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
-    zcalc = ZMatrixCalc()
+    zcalc = ZMatrixCalc(
+        nsrc=nsrc_alloc,
+        nfeed=nfeed,
+        nant=nant,
+        nax=nax,
+        ctype=ctype,
+    )
 
     # Intensity distribution (sqrt) and antenna positions. Does not support
     # negative sky. Factor of 0.5 accounts for splitting Stokes I between
@@ -178,6 +195,7 @@ def simulate(
     bmfunc.setup()
     coords.setup()
     matprod.setup()
+    zcalc.setup()
 
     logger.info(f"Visibility Array takes {vis.nbytes/1024**2:.1f} MB")
 
@@ -192,23 +210,24 @@ def simulate(
 
     # Loop over time samples
     for t in range(ntimes):
-        coords.set_rotation_matrix(t)
+        coords.rotate(t)
 
         for c in range(nchunks):
-            coords.set_chunk(c)
-            crd_top, flux_sqrt = coords.rotate()
+            crd_top, flux_sqrt, nn = coords.select_chunk(c)
+            logdebug("crdtop", crd_top[:, :nn])
+            logdebug("Isqrt", flux_sqrt[:nn])
 
-            A_s = bmfunc(crd_top[0], crd_top[1], check=t == 0)
-            logdebug("beam", A_s)
+            A = bmfunc(crd_top[0], crd_top[1], check=t == 0)
+            logdebug("beam", bmfunc.interpolated_beam[..., :nn])
 
             # Calculate delays, where tau = 2pi*nu*(b * s) / c
             exptau = np.exp(1j * np.dot(antpos_u, crd_top))
-            logdebug("exptau", exptau)
+            logdebug("exptau", exptau[:, :nn])
 
-            z = zcalc.compute(flux_sqrt, A_s, exptau, bmfunc.beam_idx)
-            logdebug("Z", z)
+            zcalc.compute(flux_sqrt, A, exptau, bmfunc.beam_idx)
+            logdebug("Z", zcalc.z[..., :nn])
 
-            matprod(z, c)
+            matprod(zcalc.z, c)
 
             if not (t % report_chunk or t == ntimes - 1):
                 plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)

@@ -129,6 +129,7 @@ def get_required_chunks(
     nbeam: int,
     nbeampix: int,
     precision: int,
+    source_buffer: float = 0.55,
 ) -> int:
     """
     Compute number of chunks (over sources) required to fit data into available memory.
@@ -162,29 +163,36 @@ def get_required_chunks(
     >>> get_required_chunks(1024, 2, 4, 8, 16, 32, 64, 32)
     1
     """
-    size = 4 * precision
+    rsize = 4 * precision
+    csize = 2 * rsize
 
-    gpusize = [freemem]
+    gpusize = {"a": freemem}
     ch = 0
-    while sum(gpusize) >= freemem and ch < 100:
+    while sum(gpusize.values()) >= freemem and ch < 100:
         ch += 1
-        gpusize = [
-            nant * 3 * size,  # antpos
-            nsrc // ch * size,  # Isqrt
-            nbeampix * nfeed * nax * size * 2,  # complex beam data
-            3 * nsrc // ch * size,  # crd_eq_gpu
-            3 * nsrc // ch * size,  # crdtop
-            nfeed * nant * nfeed * nant * ch * size,  # matvis_gpus
-            nax * nfeed * nbeam * nsrc // ch // 2 * size * 2,  # interpolated beam
-            nant * nsrc // ch // 2 * size * 2 * nax * nfeed,  # ant-vis
-        ]
+        nchunk = int(nsrc // ch * source_buffer)
+
+        gpusize = {
+            "antpos": nant * 3 * rsize,
+            "flux": nsrc * rsize,
+            "beam": nbeampix * nfeed * nax * csize,
+            "crd_eq": 3 * nsrc * rsize,
+            "eq2top": 3 * 3 * rsize,
+            "crd_top": 3 * nsrc * rsize,
+            "crd_chunk": 3 * nchunk * rsize,
+            "flux_chunk": nchunk * rsize,
+            "exptau": nant * nchunk * csize,
+            "beam_interp": nbeam * nfeed * nax * nchunk * csize,
+            "zmat": nchunk * nfeed * nant * nax * csize,
+            "vis": ch * nfeed * nant * nfeed * nant * csize,
+        }
         logger.debug(
-            f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize)}"
+            f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize.values())}"
         )
 
     logger.info(
         f"Total free mem: {freemem/(1024**3):.2f} GB. Requires {ch} chunks "
-        f"(estimate {sum(gpusize) / 1024**3:.2f} GB)"
+        f"(estimate {sum(gpusize.values()) / 1024**3:.2f} GB)"
     )
     return ch
 
@@ -198,6 +206,7 @@ def get_desired_chunks(
     nant: int,
     nsrc: int,
     precision: int,
+    source_buffer: float = 0.55,
 ) -> tuple[int, int]:
     """Get the desired number of chunks.
 
@@ -242,13 +251,21 @@ def get_desired_chunks(
         max(
             min_chunks,
             get_required_chunks(
-                freemem, nax, nfeed, nant, nsrc, len(beam_list), nbeampix, precision
+                freemem,
+                nax,
+                nfeed,
+                nant,
+                nsrc,
+                len(beam_list),
+                nbeampix,
+                precision,
+                source_buffer,
             ),
         ),
         nsrc,
     )
 
-    return nchunks, nsrc // nchunks
+    return nchunks, int(np.ceil(nsrc / nchunks))
 
 
 def get_dtypes(precision: int):

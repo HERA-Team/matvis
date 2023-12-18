@@ -32,33 +32,52 @@ class CoordinateRotation(ABC):
         crd_eq: np.ndarray,
         eq2top: np.ndarray,
         chunk_size: int | None = None,
+        source_buffer: float = 0.55,
         precision: int = 1,
     ):
         self.rtype, _ = get_dtypes(precision)
         self.flux = flux.astype(self.rtype)
         self.coords_eq = crd_eq.astype(self.rtype)
         self.eq2top = eq2top.astype(self.rtype)
-
         self.nsrc = len(flux)
+
         assert flux.ndim == 1
+        assert crd_eq.ndim == 2
+        assert eq2top.ndim == 3
         self.chunk_size = chunk_size or self.nsrc
+        self.source_buffer = source_buffer
+        self.nsrc_alloc = int(self.chunk_size * self.source_buffer)
 
     def setup(self):
         """Allocate memory for the rotation."""
-        self.coords_topo = np.empty((3, self.chunk_size), dtype=self.rtype)
+        self.all_coords_topo = np.empty((3, self.nsrc), dtype=self.rtype)
+        self.coords_above_horizon = np.empty((3, self.nsrc_alloc), dtype=self.rtype)
+        self.flux_above_horizon = np.empty((self.nsrc_alloc,), dtype=self.rtype)
+        self.xp = np
 
-    def set_rotation_matrix(self, t: int):
-        """Set the rotation matrix for the given time index."""
-        self.eq2top_t = self.eq2top[t]
-
-    def set_chunk(self, chunk: int):
+    def select_chunk(self, chunk: int):
         """Set the chunk of coordinates to rotate."""
+        # The last index can be larger than the actual size of the array without error.
         slc = slice(chunk * self.chunk_size, (chunk + 1) * self.chunk_size)
-        self.coords_eq_chunk = self.coords_eq[:, slc]
-        self.flux_chunk = self.flux[slc]
+
+        topo = self.all_coords_topo[:, slc]
+
+        above_horizon = self.xp.where(topo[2] > 0)[0]
+        n = len(above_horizon)
+        if n > self.nsrc_alloc:
+            raise ValueError(
+                f"nsrc_alloc ({self.nsrc_alloc}) is too small for the number of "
+                f"sources above horizon ({n}). Try increasing source_buffer."
+            )
+
+        self.coords_above_horizon[:, :n] = topo[:, above_horizon]
+        self.flux_above_horizon[:n] = self.flux[above_horizon]
+        self.flux_above_horizon[n:] = 0
+
+        return self.coords_above_horizon, self.flux_above_horizon, n
 
     @abstractmethod
-    def rotate(self) -> tuple[np.ndarray, np.ndarray]:
+    def rotate(self, t: int) -> tuple[np.ndarray, np.ndarray]:
         """Rotate the given coordinates with the given 3x3 rotation matrix.
 
         Parameters

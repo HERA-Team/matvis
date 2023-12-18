@@ -1,0 +1,975 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.5, pytest-7.1.2, pluggy-1.0.0 -- /home/steven/miniconda3/envs/hera-gpu/bin/python
+cachedir: .pytest_cache
+hypothesis profile 'default' -> database=DirectoryBasedExampleDatabase(PosixPath('/home/steven/work/hera/matvis/.hypothesis/examples'))
+rootdir: /home/steven/work/hera/matvis, configfile: setup.cfg
+plugins: cov-3.0.0, hypothesis-6.91.0
+collecting ... collected 4 items / 3 deselected / 1 selected
+
+tests/test_compare_pyuvsim.py::test_compare_pyuvsim[True-True]
+-------------------------------- live log call ---------------------------------
+INFO     pyuvsim.simsetup:simsetup.py:1705 Starting SimSetup
+INFO     pyuvsim.simsetup:simsetup.py:1721 Finished reading obsparams
+INFO     pyuvsim.simsetup:simsetup.py:1727 Finished reading frequency info
+INFO     pyuvsim.simsetup:simsetup.py:1743 Finished Setup of BeamList
+INFO     pyuvsim.simsetup:simsetup.py:1767 Finished Setup of Time Dict
+INFO     pyuvsim.simsetup:simsetup.py:1810 Initialized UVData object
+INFO     pyuvsim.simsetup:simsetup.py:1828 BLT-ORDER: ('time', 'ant1')
+INFO     pyuvsim.simsetup:simsetup.py:1846 Set Metadata
+INFO     pyuvsim.simsetup:simsetup.py:1847   Baseline Array: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1848       Time Array: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1849 Integration Time: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1850        Ant1Array: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1853 BLT-ORDER: ('time', 'ant1')
+INFO     pyuvsim.simsetup:simsetup.py:1854 Set UVWs
+INFO     pyuvsim.simsetup:simsetup.py:1875 After Select
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+INFO     pyuvsim.simsetup:simsetup.py:1889 BLT-ORDER: ('time', 'baseline')
+INFO     pyuvsim.simsetup:simsetup.py:1890 After Re-order BLTS
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+INFO     pyuvsim.simsetup:simsetup.py:1896 After Check
+INFO     pyuvsim.simsetup:simsetup.py:1897 BLT-ORDER: ('time', 'baseline')
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:189 nchunks=1. Array Sizes (bytes)={'antpos': 72, 'flux': 120, 'beam': 0, 'crd_eq': 360, 'eq2top': 72, 'crd_top': 360, 'crd_chunk': 360, 'flux_chunk': 120, 'exptau': 720, 'beam_interp': 960, 'zmat': 2880, 'vis': 576}. Total=6600
+INFO     matvis._utils:_utils.py:193 Total free mem: 9.78 GB. Requires 1 chunks (estimate 0.00 GB)
+INFO     matvis.cpu.cpu:cpu.py:201 Visibility Array takes 0.0 MB
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7757174115920632
+	(-1, 0): 0.578927818159351
+	(0, -1): 0.7173318503696601
+	(-1, -1): 0.6942658390888021
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (1.2222766009128556e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (1.2222766009128556e-12+0j)
+	(-1, -1, 0, 0): (1.2222766009128556e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (1.2222766009128556e-12+0j)
+	(0, -1, 0, -1): (3.472034787138361e-09+0j)
+	(0, 0, -1, -1): (3.472034787138361e-09+0j)
+	(-1, -1, 0, -1): (3.472034787138361e-09+0j)
+	(-1, 0, -1, -1): (3.472034787138361e-09+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.9839022078072029+0.17870770960457083j)
+	(-1, 0): (0.8666956020551745-0.49883738169689995j)
+	(0, -1): (-0.9493252609603718-0.3142953211591318j)
+	(-1, -1): (-0.2450103104313164+0.9695204731115017j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (1.0593417545061195e-12-6.097172593087556e-13j)
+	(0, -1): 0j
+	(-1, -1): (-3.295033481243074e-11+1.3038644839187552e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [1/5 times (20.0%)]
+            -> Update Time:   0:00:00.002956
+            -> Total Time:    0:00:00.002956 [0:00:00.002956 per integration]
+            -> Expected Time: 0:00:00.014780 [0:00:00.011824 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (0.6225489799145146+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (0.6225489799145144-6.027245520685451e-18j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (0.6225489799145146+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (0.6225489799145144-6.027245520685451e-18j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7707473781084805
+	(-1, 0): 0.5877498457875907
+	(0, -1): 0.709745016697643
+	(-1, -1): 0.7024068013872891
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (2.2754257542067196e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (2.2754257542067196e-12+0j)
+	(-1, -1, 0, 0): (2.2754257542067196e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (2.2754257542067196e-12+0j)
+	(0, -1, 0, -1): (6.003630451246315e-09+0j)
+	(0, 0, -1, -1): (6.003630451246315e-09+0j)
+	(-1, -1, 0, -1): (6.003630451246315e-09+0j)
+	(-1, 0, -1, -1): (6.003630451246315e-09+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.9738710117085977-0.22710185502032407j)
+	(-1, 0): (0.993175261007661-0.11663147483576043j)
+	(0, -1): (-0.44780347381732977+0.8941320086190473j)
+	(-1, -1): (-0.5820991833095529+0.8131177902311273j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (2.2598965673378124e-12-2.6538626159240223e-13j)
+	(0, -1): (-0+0j)
+	(-1, -1): (-1.353637400281372e-10+1.8908575776263828e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [2/5 times (40.0%)]
+            -> Update Time:   0:00:00.003409
+            -> Total Time:    0:00:00.006365 [0:00:00.003182 per integration]
+            -> Expected Time: 0:00:00.015910 [0:00:00.009545 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (0.7408970717119662+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (0.7408970717119661+1.5703505094636314e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (0.7408970717119662+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (0.7408970717119661+1.5703505094636314e-17j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7656415908413475
+	(-1, 0): 0.5965143925308044
+	(0, -1): 0.7020331744153226
+	(-1, -1): 0.7104604884399349
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (4.2094389973102e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (4.2094389973102e-12+0j)
+	(-1, -1, 0, 0): (4.2094389973102e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (4.2094389973102e-12+0j)
+	(0, -1, 0, -1): (1.0302846723604153e-08+0j)
+	(0, 0, -1, -1): (1.0302846723604153e-08+0j)
+	(-1, -1, 0, -1): (1.0302846723604153e-08+0j)
+	(-1, 0, -1, -1): (1.0302846723604153e-08+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.7686985687889479-0.6396112181175554j)
+	(-1, 0): (0.9594351568434517+0.281929387990648j)
+	(0, -1): (0.8514506656505045+0.5244347089612897j)
+	(-1, -1): (-0.8366064193937474+0.5478044350214529j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (4.038683764607254e-12+1.1867645602956316e-12j)
+	(0, -1): 0j
+	(-1, -1): (-3.338641865349672e-10+2.1861209505327352e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [3/5 times (60.0%)]
+            -> Update Time:   0:00:00.003421
+            -> Total Time:    0:00:00.009786 [0:00:00.003262 per integration]
+            -> Expected Time: 0:00:00.016310 [0:00:00.006524 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (0.8906549545290872+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (0.8906549545290868-1.0197537428360186e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (0.8906549545290872+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (0.8906549545290868-1.0197537428360186e-17j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.76040094683672
+	(-1, 0): 0.6052199185280678
+	(0, -1): 0.6941976784318242
+	(-1, -1): 0.7184254852781857
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (7.738110303905036e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (7.738110303905036e-12+0j)
+	(-1, -1, 0, 0): (7.738110303905036e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (7.738110303905036e-12+0j)
+	(0, -1, 0, -1): (1.754697031983192e-08+0j)
+	(0, 0, -1, -1): (1.754697031983192e-08+0j)
+	(-1, -1, 0, -1): (1.754697031983192e-08+0j)
+	(-1, 0, -1, -1): (1.754697031983192e-08+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.34841153060216934-0.9373416694799467j)
+	(-1, 0): (0.773926308227761+0.6332756662251825j)
+	(0, -1): (0.5507031067385788-0.8347011969731908j)
+	(-1, -1): (-0.9771725412749616+0.21244722774899533j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (5.988727140160422e-12+4.900356958029411e-12j)
+	(0, -1): 0j
+	(-1, -1): (-6.641478937621528e-10+1.4439249250803626e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [4/5 times (80.0%)]
+            -> Update Time:   0:00:00.003479
+            -> Total Time:    0:00:00.013265 [0:00:00.003316 per integration]
+            -> Expected Time: 0:00:00.016580 [0:00:00.003315 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (1.0725256867375885+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (1.0725256867375883-2.236056183198898e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (1.0725256867375885+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (1.0725256867375883-2.236056183198898e-17j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7550263714674781
+	(-1, 0): 0.6138648865908427
+	(0, -1): 0.6862399123090809
+	(-1, -1): 0.7263003854733092
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (1.4134345178519391e-11+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (1.4134345178519391e-11+0j)
+	(-1, -1, 0, 0): (1.4134345178519391e-11+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (1.4134345178519391e-11+0j)
+	(0, -1, 0, -1): (2.965766406596001e-08+0j)
+	(0, 0, -1, -1): (2.965766406596001e-08+0j)
+	(-1, -1, 0, -1): (2.965766406596001e-08+0j)
+	(-1, 0, -1, -1): (2.965766406596001e-08+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (-0.219201985709018-0.9756795014046485j)
+	(-1, 0): (0.4687212211672506+0.88334614779682j)
+	(0, -1): (-0.8482919877884163-0.5295287560217834j)
+	(-1, -1): (-0.9891527714702526-0.14689041729370314j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (6.62506753247505e-12+1.248551936507566e-11j)
+	(0, -1): 0j
+	(-1, -1): (-1.1362966262890903e-09-1.6874146281462565e-10j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (1.2859147589541606+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (1.2859147589541604+2.2246132283788197e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (1.2859147589541606+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (1.2859147589541604+2.2246132283788197e-17j)
+
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+FAILED                                                                   [100%]Couldn't parse '/home/steven/work/hera/matvis/src/matvis/conversions.py': No source for code: '/home/steven/work/hera/matvis/src/matvis/conversions.py'. (couldnt-parse)
+Couldn't parse '/home/steven/work/hera/matvis/src/matvis/cpu.py': No source for code: '/home/steven/work/hera/matvis/src/matvis/cpu.py'. (couldnt-parse)
+Couldn't parse '/home/steven/work/hera/matvis/src/matvis/gpu.py': No source for code: '/home/steven/work/hera/matvis/src/matvis/gpu.py'. (couldnt-parse)
+
+
+=================================== FAILURES ===================================
+_______________________ test_compare_pyuvsim[True-True] ________________________
+
+polarized = True, use_analytic_beam = True
+
+    @pytest.mark.parametrize("use_analytic_beam", (True, False))
+    @pytest.mark.parametrize("polarized", (True, False))
+    def test_compare_pyuvsim(polarized, use_analytic_beam):
+        """Compare matvis and pyuvsim simulated visibilities."""
+        print("Polarized=", polarized, "Analytic Beam =", use_analytic_beam)
+        (
+            sky_model,
+            ants,
+            flux,
+            ra,
+            dec,
+            freqs,
+            lsts,
+            cpu_beams,
+            uvsim_beams,
+            beam_dict,
+            hera_lat,
+            uvdata,
+        ) = get_standard_sim_params(use_analytic_beam, polarized)
+        # ---------------------------------------------------------------------------
+        # (1) Run matvis
+        # ---------------------------------------------------------------------------
+        vis_matvis = simulate_vis(
+            ants=ants,
+            fluxes=flux,
+            ra=ra,
+            dec=dec,
+            freqs=freqs,
+            lsts=lsts,
+            beams=cpu_beams,
+            polarized=polarized,
+            precision=2,
+            latitude=hera_lat * np.pi / 180.0,
+        )
+
+        # ---------------------------------------------------------------------------
+        # (2) Run pyuvsim
+        # ---------------------------------------------------------------------------
+        uvd_uvsim = uvsim.run_uvdata_uvsim(
+            uvdata,
+            uvsim_beams,
+            beam_dict=beam_dict,
+            catalog=simsetup.SkyModelData(sky_model),
+        )
+
+        # ---------------------------------------------------------------------------
+        # Compare
+        # ---------------------------------------------------------------------------
+        # Loop over baselines and compare
+        diff_re = 0.0
+        diff_im = 0.0
+        rtol = 2e-4 if use_analytic_beam else 0.01
+        atol = 5e-4
+
+        # If it passes this test, but fails the following tests, then its probably an
+        # ordering issue.
+        for i in range(nants):
+            for j in range(i, nants):
+                for if1, feed1 in enumerate(("X", "Y") if polarized else ("X",)):
+                    for if2, feed2 in enumerate(("X", "Y") if polarized else ("X",)):
+                        d_uvsim = uvd_uvsim.get_data(
+                            (i, j, feed1 + feed2)
+                        ).T  # pyuvsim visibility
+                        d_matvis = (
+                            vis_matvis[:, :, i * nants + j, if1, if2]
+                            if polarized
+                            else vis_matvis[:, :, i * nants + j]
+                        )
+
+                        # Keep track of maximum difference
+                        delta = d_uvsim - d_matvis
+                        if np.max(np.abs(delta.real)) > diff_re:
+                            diff_re = np.max(np.abs(delta.real))
+                        if np.max(np.abs(delta.imag)) > diff_im:
+                            diff_im = np.abs(np.max(delta.imag))
+
+                        err = f"\nMax diff: {diff_re:10.10e} + 1j*{diff_im:10.10e}\n"
+                        err += f"Baseline: ({i},{j},{feed1}{feed2})\n"
+                        err += f"Avg. diff: {delta.mean():10.10e}\n"
+                        err += f"Max values: \n    uvsim={d_uvsim.max():10.10e}"
+                        err += f"\n    matvis={d_matvis.max():10.10e}"
+>                       assert np.allclose(
+                            d_uvsim.real,
+                            d_matvis.real,
+                            rtol=rtol if feed1 == feed2 else rtol * 100,
+                            atol=atol,
+                        ), err
+E                       AssertionError:
+E                         Max diff: 5.1634043966e-01 + 1j*0.0000000000e+00
+E                         Baseline: (0,0,XX)
+E                         Avg. diff: -3.6778677578e-01+0.0000000000e+00j
+E                         Max values:
+E                             uvsim=7.6957431930e-01+0.0000000000e+00j
+E                             matvis=1.2859147590e+00+0.0000000000e+00j
+E                       assert False
+E                        +  where False = <function allclose at 0x7fd7ec6a80d0>(array([[0.37534146, 0.44722572, 0.5369073 , 0.64455878, 0.76957432]]), array([[0.62254898, 0.74089707, 0.89065495, 1.07252569, 1.28591476]]), rtol=0.0002, atol=0.0005)
+E                        +    where <function allclose at 0x7fd7ec6a80d0> = np.allclose
+E                        +    and   array([[0.37534146, 0.44722572, 0.5369073 , 0.64455878, 0.76957432]]) = array([[0.37534146+0.j, 0.44722572+0.j, 0.5369073 +0.j, 0.64455878+0.j,\n        0.76957432+0.j]]).real
+E                        +    and   array([[0.62254898, 0.74089707, 0.89065495, 1.07252569, 1.28591476]]) = array([[0.62254898+0.j, 0.74089707+0.j, 0.89065495+0.j, 1.07252569+0.j,\n        1.28591476+0.j]]).real
+
+tests/test_compare_pyuvsim.py:94: AssertionError
+----------------------------- Captured stdout call -----------------------------
+Polarized= True Analytic Beam = True
+USING SOURCE BUFFER 1.0 NSRC 15 NSRC_ALLOC 15 NCHUNKS 1 NPIX 15
+nsrc_alloc 15 npixc 15
+Nbls: 6
+Ntimes: 5
+Nfreqs: 1
+Nsrcs: 15
+Tasks:  30.0
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+3.33% completed. 0:00:00.029277  elapsed. 0:00:00.849022 remaining.
+
+(2, 2, 1, 10)
+6.67% completed. 0:00:00.031955  elapsed. 0:00:00.447370 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+10.00% completed. 0:00:00.033666  elapsed. 0:00:00.302991 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+13.33% completed. 0:00:00.035948  elapsed. 0:00:00.233664 remaining.
+
+(2, 2, 1, 10)
+16.67% completed. 0:00:00.037601  elapsed. 0:00:00.188005 remaining.
+
+(2, 2, 1, 10)
+20.00% completed. 0:00:00.053313  elapsed. 0:00:00.213252 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+23.33% completed. 0:00:00.054958  elapsed. 0:00:00.180575 remaining.
+
+(2, 2, 1, 10)
+26.67% completed. 0:00:00.056411  elapsed. 0:00:00.155130 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+30.00% completed. 0:00:00.058001  elapsed. 0:00:00.135336 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+33.33% completed. 0:00:00.059611  elapsed. 0:00:00.119223 remaining.
+
+(2, 2, 1, 10)
+36.67% completed. 0:00:00.061019  elapsed. 0:00:00.105397 remaining.
+
+(2, 2, 1, 10)
+40.00% completed. 0:00:00.077649  elapsed. 0:00:00.116473 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+43.33% completed. 0:00:00.079262  elapsed. 0:00:00.103650 remaining.
+
+(2, 2, 1, 10)
+46.67% completed. 0:00:00.080840  elapsed. 0:00:00.092389 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+50.00% completed. 0:00:00.082399  elapsed. 0:00:00.082399 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+53.33% completed. 0:00:00.083952  elapsed. 0:00:00.073458 remaining.
+
+(2, 2, 1, 10)
+56.67% completed. 0:00:00.085516  elapsed. 0:00:00.065395 remaining.
+
+(2, 2, 1, 10)
+60.00% completed. 0:00:00.100632  elapsed. 0:00:00.067088 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+63.33% completed. 0:00:00.102227  elapsed. 0:00:00.059184 remaining.
+
+(2, 2, 1, 10)
+66.67% completed. 0:00:00.103696  elapsed. 0:00:00.051848 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+70.00% completed. 0:00:00.105286  elapsed. 0:00:00.045123 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+73.33% completed. 0:00:00.107079  elapsed. 0:00:00.038938 remaining.
+
+(2, 2, 1, 10)
+76.67% completed. 0:00:00.108494  elapsed. 0:00:00.033020 remaining.
+
+(2, 2, 1, 10)
+80.00% completed. 0:00:00.123373  elapsed. 0:00:00.030843 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+83.33% completed. 0:00:00.125018  elapsed. 0:00:00.025004 remaining.
+
+(2, 2, 1, 10)
+86.67% completed. 0:00:00.126538  elapsed. 0:00:00.019467 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+90.00% completed. 0:00:00.128113  elapsed. 0:00:00.014235 remaining.
+
+(2, 2, 1, 10)
+(2, 2, 1, 10)
+93.33% completed. 0:00:00.129668  elapsed. 0:00:00.009262 remaining.
+
+(2, 2, 1, 10)
+96.67% completed. 0:00:00.131160  elapsed. 0:00:00.004523 remaining.
+
+100.00% completed. 0:00:00.131287  elapsed. 0:00:00 remaining.
+
+Calculations Complete.
+------------------------------ Captured log call -------------------------------
+INFO     pyuvsim.simsetup:simsetup.py:1705 Starting SimSetup
+INFO     pyuvsim.simsetup:simsetup.py:1721 Finished reading obsparams
+INFO     pyuvsim.simsetup:simsetup.py:1727 Finished reading frequency info
+INFO     pyuvsim.simsetup:simsetup.py:1743 Finished Setup of BeamList
+INFO     pyuvsim.simsetup:simsetup.py:1767 Finished Setup of Time Dict
+INFO     pyuvsim.simsetup:simsetup.py:1810 Initialized UVData object
+INFO     pyuvsim.simsetup:simsetup.py:1828 BLT-ORDER: ('time', 'ant1')
+INFO     pyuvsim.simsetup:simsetup.py:1846 Set Metadata
+INFO     pyuvsim.simsetup:simsetup.py:1847   Baseline Array: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1848       Time Array: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1849 Integration Time: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1850        Ant1Array: 0.00 GB
+INFO     pyuvsim.simsetup:simsetup.py:1853 BLT-ORDER: ('time', 'ant1')
+INFO     pyuvsim.simsetup:simsetup.py:1854 Set UVWs
+INFO     pyuvsim.simsetup:simsetup.py:1875 After Select
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+INFO     pyuvsim.simsetup:simsetup.py:1889 BLT-ORDER: ('time', 'baseline')
+INFO     pyuvsim.simsetup:simsetup.py:1890 After Re-order BLTS
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+INFO     pyuvsim.simsetup:simsetup.py:1896 After Check
+INFO     pyuvsim.simsetup:simsetup.py:1897 BLT-ORDER: ('time', 'baseline')
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:189 nchunks=1. Array Sizes (bytes)={'antpos': 72, 'flux': 120, 'beam': 0, 'crd_eq': 360, 'eq2top': 72, 'crd_top': 360, 'crd_chunk': 360, 'flux_chunk': 120, 'exptau': 720, 'beam_interp': 960, 'zmat': 2880, 'vis': 576}. Total=6600
+INFO     matvis._utils:_utils.py:193 Total free mem: 9.78 GB. Requires 1 chunks (estimate 0.00 GB)
+INFO     matvis.cpu.cpu:cpu.py:201 Visibility Array takes 0.0 MB
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7757174115920632
+	(-1, 0): 0.578927818159351
+	(0, -1): 0.7173318503696601
+	(-1, -1): 0.6942658390888021
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (1.2222766009128556e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (1.2222766009128556e-12+0j)
+	(-1, -1, 0, 0): (1.2222766009128556e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (1.2222766009128556e-12+0j)
+	(0, -1, 0, -1): (3.472034787138361e-09+0j)
+	(0, 0, -1, -1): (3.472034787138361e-09+0j)
+	(-1, -1, 0, -1): (3.472034787138361e-09+0j)
+	(-1, 0, -1, -1): (3.472034787138361e-09+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.9839022078072029+0.17870770960457083j)
+	(-1, 0): (0.8666956020551745-0.49883738169689995j)
+	(0, -1): (-0.9493252609603718-0.3142953211591318j)
+	(-1, -1): (-0.2450103104313164+0.9695204731115017j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (1.0593417545061195e-12-6.097172593087556e-13j)
+	(0, -1): 0j
+	(-1, -1): (-3.295033481243074e-11+1.3038644839187552e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [1/5 times (20.0%)]
+            -> Update Time:   0:00:00.002956
+            -> Total Time:    0:00:00.002956 [0:00:00.002956 per integration]
+            -> Expected Time: 0:00:00.014780 [0:00:00.011824 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (0.6225489799145146+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (0.6225489799145144-6.027245520685451e-18j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (0.6225489799145146+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (0.6225489799145144-6.027245520685451e-18j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7707473781084805
+	(-1, 0): 0.5877498457875907
+	(0, -1): 0.709745016697643
+	(-1, -1): 0.7024068013872891
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (2.2754257542067196e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (2.2754257542067196e-12+0j)
+	(-1, -1, 0, 0): (2.2754257542067196e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (2.2754257542067196e-12+0j)
+	(0, -1, 0, -1): (6.003630451246315e-09+0j)
+	(0, 0, -1, -1): (6.003630451246315e-09+0j)
+	(-1, -1, 0, -1): (6.003630451246315e-09+0j)
+	(-1, 0, -1, -1): (6.003630451246315e-09+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.9738710117085977-0.22710185502032407j)
+	(-1, 0): (0.993175261007661-0.11663147483576043j)
+	(0, -1): (-0.44780347381732977+0.8941320086190473j)
+	(-1, -1): (-0.5820991833095529+0.8131177902311273j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (2.2598965673378124e-12-2.6538626159240223e-13j)
+	(0, -1): (-0+0j)
+	(-1, -1): (-1.353637400281372e-10+1.8908575776263828e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [2/5 times (40.0%)]
+            -> Update Time:   0:00:00.003409
+            -> Total Time:    0:00:00.006365 [0:00:00.003182 per integration]
+            -> Expected Time: 0:00:00.015910 [0:00:00.009545 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (0.7408970717119662+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (0.7408970717119661+1.5703505094636314e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (0.7408970717119662+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (0.7408970717119661+1.5703505094636314e-17j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7656415908413475
+	(-1, 0): 0.5965143925308044
+	(0, -1): 0.7020331744153226
+	(-1, -1): 0.7104604884399349
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (4.2094389973102e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (4.2094389973102e-12+0j)
+	(-1, -1, 0, 0): (4.2094389973102e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (4.2094389973102e-12+0j)
+	(0, -1, 0, -1): (1.0302846723604153e-08+0j)
+	(0, 0, -1, -1): (1.0302846723604153e-08+0j)
+	(-1, -1, 0, -1): (1.0302846723604153e-08+0j)
+	(-1, 0, -1, -1): (1.0302846723604153e-08+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.7686985687889479-0.6396112181175554j)
+	(-1, 0): (0.9594351568434517+0.281929387990648j)
+	(0, -1): (0.8514506656505045+0.5244347089612897j)
+	(-1, -1): (-0.8366064193937474+0.5478044350214529j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (4.038683764607254e-12+1.1867645602956316e-12j)
+	(0, -1): 0j
+	(-1, -1): (-3.338641865349672e-10+2.1861209505327352e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [3/5 times (60.0%)]
+            -> Update Time:   0:00:00.003421
+            -> Total Time:    0:00:00.009786 [0:00:00.003262 per integration]
+            -> Expected Time: 0:00:00.016310 [0:00:00.006524 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (0.8906549545290872+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (0.8906549545290868-1.0197537428360186e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (0.8906549545290872+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (0.8906549545290868-1.0197537428360186e-17j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.76040094683672
+	(-1, 0): 0.6052199185280678
+	(0, -1): 0.6941976784318242
+	(-1, -1): 0.7184254852781857
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (7.738110303905036e-12+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (7.738110303905036e-12+0j)
+	(-1, -1, 0, 0): (7.738110303905036e-12+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (7.738110303905036e-12+0j)
+	(0, -1, 0, -1): (1.754697031983192e-08+0j)
+	(0, 0, -1, -1): (1.754697031983192e-08+0j)
+	(-1, -1, 0, -1): (1.754697031983192e-08+0j)
+	(-1, 0, -1, -1): (1.754697031983192e-08+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (0.34841153060216934-0.9373416694799467j)
+	(-1, 0): (0.773926308227761+0.6332756662251825j)
+	(0, -1): (0.5507031067385788-0.8347011969731908j)
+	(-1, -1): (-0.9771725412749616+0.21244722774899533j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (5.988727140160422e-12+4.900356958029411e-12j)
+	(0, -1): 0j
+	(-1, -1): (-6.641478937621528e-10+1.4439249250803626e-10j)
+
+INFO     matvis._utils:_utils.py:110
+        Progress Info   [4/5 times (80.0%)]
+            -> Update Time:   0:00:00.003479
+            -> Total Time:    0:00:00.013265 [0:00:00.003316 per integration]
+            -> Expected Time: 0:00:00.016580 [0:00:00.003315 remaining]
+            -> Memory Usage:  285.12 MiB  [+0.00 B]
+
+INFO     matvis._utils:_utils.py:68 Starting Memory usage  : 0.000 GB
+INFO     matvis._utils:_utils.py:69 Starting Peak Mem usage: 0.000 GB
+INFO     matvis._utils:_utils.py:70 Traemalloc Peak Memory (tot)(GB): 0.00
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (1.0725256867375885+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (1.0725256867375883-2.236056183198898e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (1.0725256867375885+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (1.0725256867375883-2.236056183198898e-17j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: crdtop <(3, 10)> [float64]:
+	(0, 0): 0.7550263714674781
+	(-1, 0): 0.6138648865908427
+	(0, -1): 0.6862399123090809
+	(-1, -1): 0.7263003854733092
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Isqrt <(10,)> [float64]:
+	(0,): 1.0
+	(-1,): 0.19680933855026836
+
+DEBUG    matvis._utils:_utils.py:85 CPU: beam <(1, 2, 2, 10)> [complex128]:
+	(0, 0, 0, 0): 0j
+	(0, 0, -1, 0): (1.4134345178519391e-11+0j)
+	(0, 0, 0, -1): 0j
+	(-1, 0, 0, 0): 0j
+	(0, -1, 0, 0): (1.4134345178519391e-11+0j)
+	(-1, -1, 0, 0): (1.4134345178519391e-11+0j)
+	(0, -1, -1, 0): 0j
+	(-1, 0, 0, -1): 0j
+	(-1, 0, -1, 0): (1.4134345178519391e-11+0j)
+	(0, -1, 0, -1): (2.965766406596001e-08+0j)
+	(0, 0, -1, -1): (2.965766406596001e-08+0j)
+	(-1, -1, 0, -1): (2.965766406596001e-08+0j)
+	(-1, 0, -1, -1): (2.965766406596001e-08+0j)
+	(0, -1, -1, -1): 0j
+	(-1, -1, -1, 0): 0j
+	(-1, -1, -1, -1): 0j
+
+DEBUG    matvis._utils:_utils.py:85 CPU: exptau <(3, 10)> [complex128]:
+	(0, 0): (-0.219201985709018-0.9756795014046485j)
+	(-1, 0): (0.4687212211672506+0.88334614779682j)
+	(0, -1): (-0.8482919877884163-0.5295287560217834j)
+	(-1, -1): (-0.9891527714702526-0.14689041729370314j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: Z <(6, 10)> [complex128]:
+	(0, 0): 0j
+	(-1, 0): (6.62506753247505e-12+1.248551936507566e-11j)
+	(0, -1): 0j
+	(-1, -1): (-1.1362966262890903e-09-1.6874146281462565e-10j)
+
+DEBUG    matvis._utils:_utils.py:85 CPU: vis <(9, 2, 2)> [complex128]:
+	(0, 0, 0): (1.2859147589541606+0j)
+	(0, 0, -1): 0j
+	(-1, 0, 0): (1.2859147589541604+2.2246132283788197e-17j)
+	(0, -1, 0): 0j
+	(0, -1, -1): (1.2859147589541606+0j)
+	(-1, -1, 0): 0j
+	(-1, 0, -1): 0j
+	(-1, -1, -1): (1.2859147589541604+2.2246132283788197e-17j)
+
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3275 Doing UVBase check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3279 ... Done UVBase Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3348 Doing Antenna Uniqueness Check...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3353 ... Done Antenna Uniqueness Check
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3391 Setting UVWs from antenna positions...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3393 ... Done Setting UVWs
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3423 Checking autos...
+DEBUG    pyuvdata.uvdata.uvdata:uvdata.py:3436 ... Done Checking Autos
+=============================== warnings summary ===============================
+tests/test_compare_pyuvsim.py::test_compare_pyuvsim[True-True]
+  Cannot check consistency of a string-mode BeamList! Set force=True to force consistency checking.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform linux, python 3.10.5-final-0 -----------
+Name                           Stmts   Miss Branch BrPart  Cover   Missing
+--------------------------------------------------------------------------
+src/matvis/__init__.py            13      0      0      0   100%
+src/matvis/_utils.py              71      5     18      5    89%   24, 32, 40->46, 43->40, 66->exit, 98, 286-287
+src/matvis/_uvbeam_to_raw.py      44     38     20      0     9%   60-183
+src/matvis/coordinates.py         74     19     24      7    63%   23-25, 81->83, 83->85, 250, 252, 294, 300, 302-323
+src/matvis/core/__init__.py       14      1      2      1    88%   25
+src/matvis/core/beams.py          57     14     32     10    69%   41-49, 55, 66, 67->exit, 75, 135-136, 139-140, 141->145, 163, 190
+src/matvis/core/coords.py         35      2      4      1    92%   68, 97
+src/matvis/core/getz.py           19      0      6      0   100%
+src/matvis/core/matprod.py        32      4      8      2    85%   39-40, 80, 114
+src/matvis/cpu/__init__.py         1      0      0      0   100%
+src/matvis/cpu/beams.py           16      2      8      2    83%   37, 51
+src/matvis/cpu/coords.py           5      0      2      0   100%
+src/matvis/cpu/cpu.py             66      0      8      1    99%   134->137
+src/matvis/cpu/matprod.py         17      5      8      1    68%   29, 47-52
+src/matvis/gpu/__init__.py         1      0      0      0   100%
+src/matvis/gpu/_cublas.py         48     41     12      0    12%   9, 14-65, 70-88
+src/matvis/gpu/beams.py           60     46     23      0    19%   26-68, 84-88, 97-102, 138-178
+src/matvis/gpu/coords.py          15      9      2      0    47%   13-19, 38-39
+src/matvis/gpu/getz.py            15     10      6      0    33%   12, 42-58
+src/matvis/gpu/gpu.py            108     84     18      0    19%   61-241
+src/matvis/gpu/matprod.py         37     25     20      0    28%   21, 33-35, 47-62, 70, 79-85, 89-94
+src/matvis/plot.py                36     32      2      0    11%   37-50, 93-140
+src/matvis/wrapper.py             30      7     16      2    72%   87-93, 111->115, 136
+--------------------------------------------------------------------------
+TOTAL                            814    344    239     32    54%
+
+=========================== short test summary info ============================
+FAILED tests/test_compare_pyuvsim.py::test_compare_pyuvsim[True-True] - Asser...
+================== 1 failed, 3 deselected, 1 warning in 1.53s ==================

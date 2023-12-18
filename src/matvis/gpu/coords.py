@@ -10,24 +10,15 @@ class GPUCoordinateRotation(CoordinateRotation):
 
     def setup(self):
         """Allocate GPU memory for the rotation."""
-        self.eq2top_t = cp.empty((3, 3), dtype=self.rtype, order="F")
-        self.coords_topo = cp.empty((3, self.chunk_size), dtype=self.rtype, order="F")
-        self.coords_eq_chunk = cp.empty(
-            (3, self.chunk_size), dtype=self.rtype, order="F"
-        )
+        self.eq2top = cp.asarray(self.eq2top)
+        self.coords_eq = cp.asarray(self.coords_eq)
         self.flux = cp.asarray(self.flux)
+        self.all_coords_topo = cp.empty((3, self.nsrc), dtype=self.rtype)
+        self.coords_above_horizon = cp.empty((3, self.nsrc_alloc), dtype=self.rtype)
+        self.flux_above_horizon = cp.empty((self.nsrc_alloc,), dtype=self.rtype)
+        self.xp = cp
 
-    def set_rotation_matrix(self, t: int):
-        """Set the rotation matrix for the given time index."""
-        self.eq2top_t[:].set(self.eq2top[t])
-
-    def set_chunk(self, chunk: int):
-        """Set the chunk of coordinates to rotate."""
-        slc = slice(chunk * self.chunk_size, (chunk + 1) * self.chunk_size)
-        self.coords_eq_chunk[:].set(self.coords_eq[:, slc])
-        self.flux_chunk = self.flux[slc]  # hopefully it's a view
-
-    def rotate(self) -> np.ndarray:
+    def rotate(self, t: int) -> np.ndarray:
         """Rotate the given coordinates with the given 3x3 rotation matrix.
 
         Parameters
@@ -44,10 +35,5 @@ class GPUCoordinateRotation(CoordinateRotation):
         np.ndarray
             Flux. Shape=(Nsrcs_above_horizon,).
         """
-        cp.matmul(self.eq2top_t, self.coords_eq_chunk, out=self.coords_topo)
-        above_horizon = cp.where(self.coords_topo[2] > 0)[0]
-        crdtop_lim = self.coords_topo[:, above_horizon]
-        flux = self.flux_chunk[above_horizon]
-
+        cp.matmul(self.eq2top[t], self.coords_eq, out=self.all_coords_topo)
         cp.cuda.Device().synchronize()
-        return crdtop_lim, flux

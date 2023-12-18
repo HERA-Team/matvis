@@ -60,8 +60,15 @@ class GPUBeamInterpolator(BeamInterpolator):
         else:
             # If doing simply analytic beams, just use the UVBeamInterpolator
             self._eval = UVBeamInterpolator.interp
+            self._np_beam = np.zeros(
+                (self.nbeam, self.nfeed, self.nax, self.nsrc), dtype=self.complex_dtype
+            )
 
-    def interp(self, tx: np.ndarray, ty: np.ndarray) -> np.ndarray:
+        self.interpolated_beam = cp.zeros(
+            (self.nbeam, self.nfeed, self.nax, self.nsrc), dtype=self.complex_dtype
+        )
+
+    def interp(self, tx: cp.ndarray, ty: cp.ndarray, out: cp.ndarray) -> np.ndarray:
         """Evaluate the beam on the GPU.
 
         This function will either interpolate the beam to the given coordinates tx, ty,
@@ -72,21 +79,27 @@ class GPUBeamInterpolator(BeamInterpolator):
         tx, ty
             Coordinates to evaluate the beam at, in sin-projection.
         """
-        return (
-            self._interp(tx, ty)
-            if self.use_interp
-            else cp.asarray(self._eval(self, tx.get(), ty.get()))
-        )
+        if self.use_interp:
+            self._interp(tx, ty, out)
+        else:
+            self._eval(self, tx.get(), ty.get(), self._np_beam)
+            out.set(self._np_beam)
 
     def _interp(
         self,
-        tx: np.ndarray,
-        ty: np.ndarray,
+        tx: cp.ndarray,
+        ty: cp.ndarray,
+        out: cp.ndarray,
     ):
         """Perform the beam interpolation, choosing between CPU and GPU as necessary."""
         az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
-        return gpu_beam_interpolation(self.beam_data, self.daz, self.dza, az, za)
+        # Set all the elements
+        self.interpolated_beam[..., len(az) :] = 0.0
+
+        gpu_beam_interpolation(
+            self.beam_data, self.daz, self.dza, az, za, beam_at_src=out
+        )
 
 
 def gpu_beam_interpolation(
@@ -95,6 +108,7 @@ def gpu_beam_interpolation(
     dza: float,
     az: np.ndarray | cp.ndarray,
     za: np.ndarray | cp.ndarray,
+    beam_at_src: cp.ndarray | None = None,
 ):
     """
     Interpolate beam values from a regular az/za grid using GPU.
@@ -140,7 +154,10 @@ def gpu_beam_interpolation(
     nbeam, nax, nfeed, nza, naz = beam.shape
     nsrc = len(az)
 
-    beam_at_src = cp.zeros((nbeam, nfeed, nax, nsrc), dtype=beam.dtype)
+    if beam_at_src is None:
+        beam_at_src = cp.zeros((nbeam, nfeed, nax, nsrc), dtype=beam.dtype)
+    else:
+        assert beam_at_src.shape == (nbeam, nfeed, nax, nsrc)
 
     for bm, fd, ax in itertools.product(range(nbeam), range(nfeed), range(nax)):
         ndimage.map_coordinates(

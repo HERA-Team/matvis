@@ -319,6 +319,8 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
 
     for i in range(freq.size):
+        print("eq2tops:", np.sum(eq2tops))
+        print("crd_eq:", np.sum(crd_eq))
         # Analytic beams
         vis_analytic = simulate(
             antpos=antpos,
@@ -329,6 +331,7 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
             beam_list=beam_list_unpol[:1],
             precision=2,
             polarized=False,
+            # source_buffer=0.75
         )
 
         assert np.all(~np.isnan(vis_analytic))
@@ -404,8 +407,9 @@ def test_nan_in_cpu_beam(uvbeam):
         polarized=True,
         nant=1,
         freq=freq,
+        nsrc=len(tx),
     )
-
+    bmfunc.setup()
     with pytest.raises(
         ValueError, match="Beam interpolation resulted in an invalid value"
     ):
