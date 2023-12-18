@@ -79,6 +79,7 @@ def run_profile(
     nza=180,
     pairs=None,
     nchunks=1,
+    source_buffer=1.0,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -136,6 +137,7 @@ def run_profile(
         matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
         antpairs=pairs,
         min_chunks=nchunks,
+        source_buffer=source_buffer,
     )
 
     outdir = Path(outdir).expanduser().absolute()
@@ -215,6 +217,7 @@ common_profile_options = [
     click.option("--double-precision/--single-precision", default=True),
     click.option("--naz", default=360, type=int),
     click.option("--nza", default=180, type=int),
+    click.option("--source-buffer", default=1.0, type=float),
 ]
 
 
