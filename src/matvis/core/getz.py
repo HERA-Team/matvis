@@ -36,7 +36,7 @@ class ZMatrixCalc:
         sqrt_flux: np.ndarray,
         beam: np.ndarray,
         exptau: np.ndarray,
-        beam_idx: np.ndarray,
+        beam_idx: np.ndarray | None,
     ) -> np.ndarray:
         """Compute the Z matrix.
 
@@ -67,14 +67,11 @@ class ZMatrixCalc:
             for ax in range(self.nax):
                 self.z[:, fd, ax, :] = exptau
 
-        self.z *= beam[beam_idx]
-        # self.z *= sqrt_flux
+        if beam_idx is None:
+            self.z *= beam
+        else:
+            self.z *= beam[beam_idx]
 
         # Here we expand the beam to all ants (from its beams), then broadcast to
         # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
-        #        v = beam[beam_idx] * exptau[:, None, None, :]
-        #       nfeed, nant, nax, nsrcs = v.shape
         self.z.shape = (self.nant * self.nfeed, self.nax * self.nsrc)
-
-
-#        return v.reshape((nant * nfeed, nax * nsrcs))  # reform into matrix

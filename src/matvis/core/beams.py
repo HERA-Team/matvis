@@ -35,15 +35,10 @@ def _wrangle_beams(
     nbeam = len(beam_list)
 
     # Check the beam indices
-    if beam_idx is None:
-        if nbeam == 1:
-            beam_idx = np.zeros(nant, dtype=int)
-        elif nbeam == nant:
-            beam_idx = np.arange(nant, dtype=int)
-        else:
-            raise ValueError(
-                "If number of beams provided is not 1 or nant, beam_idx must be provided."
-            )
+    if beam_idx is None and nbeam not in (1, nant):
+        raise ValueError(
+            "If number of beams provided is not 1 or nant, beam_idx must be provided."
+        )
     else:
         assert beam_idx.shape == (nant,), "beam_idx must be length nant"
         assert all(

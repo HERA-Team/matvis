@@ -29,6 +29,9 @@ class GPUBeamInterpolator(BeamInterpolator):
                 "GPUBeamInterpolator only supports beam_lists with either all UVBeam or all AnalyticBeam objects."
             )
 
+        if self.beam_idx is not None:
+            self.beam_idx = cp.asarray(self.beam_idx, dtype=np.uint)
+
         if self.use_interp:
             # We need to make sure that each beam "raw" data is on the same grid.
             # There is no advantage to using any other resolution but the native raw
@@ -54,8 +57,6 @@ class GPUBeamInterpolator(BeamInterpolator):
                         uvbeam_to_azza_grid(b, naz=int(naz), dza=self.dza)[0]
                     )
             #                    self.beam_data[i+1] = uvbeam_to_azza_grid(b, naz=int(naz), dza=self.dza)[0]
-
-            self.beam_idx = cp.asarray(self.beam_idx, dtype=np.uint)
 
         else:
             # If doing simply analytic beams, just use the UVBeamInterpolator
