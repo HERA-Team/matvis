@@ -41,11 +41,11 @@ logger = logging.getLogger("matvis")
 
 # These specify which line(s) in the code correspond to which algorithmic step.
 STEPS = {
-    "Coordinate Rotation": ("coords.rotate()",),
+    "Coordinate Rotation": ("coords.rotate(t)", "coords.select_chunk("),
     "Beam Interpolation": ("bmfunc(",),
-    "Compute exp(tau)": ("exptau =",),
+    "Compute exp(tau)": ("exp(",),
     "Compute Z": ("zcalc.compute(",),
-    "Compute V": ("matprod(z, c)",),
+    "Compute V": ("matprod(",),
 }
 
 profiler = LineProfiler()

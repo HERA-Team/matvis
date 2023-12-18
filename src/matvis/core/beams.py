@@ -6,7 +6,7 @@ from typing import Any
 
 
 def _wrangle_beams(
-    beam_idx: np.ndarray,
+    beam_idx: np.ndarray | None,
     beam_list: list[UVBeam],
     polarized: bool,
     nant: int,
@@ -39,7 +39,7 @@ def _wrangle_beams(
         raise ValueError(
             "If number of beams provided is not 1 or nant, beam_idx must be provided."
         )
-    else:
+    if beam_idx is not None:
         assert beam_idx.shape == (nant,), "beam_idx must be length nant"
         assert all(
             0 <= i < nbeam for i in beam_idx

@@ -104,7 +104,6 @@ def simulate(
         nsrc=nsrc_alloc,
         precision=precision,
     )
-
     coords = GPUCoordinateRotation(
         flux=np.sqrt(0.5 * I_sky),
         crd_eq=crd_eq,
