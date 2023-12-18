@@ -421,7 +421,10 @@ def get_standard_sim_params(
 
     # This will make the beam_idx like [0,1,2,3,3,3,3,3,3,3] where nbeams=4 and the
     # array is nants long.
-    beam_idx = np.array(list(range(nbeams)) + [nbeams - 1] * (nants - nbeams))
+    if nbeams in [1, nants]:
+        beam_idx = None
+    else:
+        beam_idx = np.array(list(range(nbeams)) + [nbeams - 1] * (nants - nbeams))
 
     # Observing parameters in a UVData object
     uvdata = simsetup.initialize_uvdata_from_keywords(
