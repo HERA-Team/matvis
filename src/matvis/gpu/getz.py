@@ -21,7 +21,7 @@ class GPUZMatrixCalc:
         sqrt_flux
             Square root of the flux. Shape=(Nsrcs,).
         beam
-            Beam. Shape=(Nfeed, Nbeams, Nax, Nsrcs).
+            Beam. Shape=(Nbeams, Nfeed, Nax, Nsrcs).
         exptau
             Complex exponential of the delay (i.e. exp(-2π*i*nu*D.X)).
             Shape=(Nant, Nsrcs).
@@ -36,10 +36,10 @@ class GPUZMatrixCalc:
         _, nfeed, nax, _ = beam.shape
         nant, nsrc = exptau.shape
 
-        Z = cp.empty(shape=(nant, nfeed, nax, nsrc), dtype=exptau.dtype)
-        cp.multiply(exptau[:, None, None, :], beam[beam_idx], out=Z)
-        Z *= sqrt_flux
-        out = Z.reshape((nant * nfeed, nax * nsrc))
+        exptau *= sqrt_flux
+        beam = beam[beam_idx]
+        beam *= exptau[:, None, None, :]
+        out = beam.reshape((nant * nfeed, nax * nsrc))
 
         cp.cuda.Device().synchronize()
         return out
