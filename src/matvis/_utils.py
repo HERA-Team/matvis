@@ -174,9 +174,9 @@ def get_required_chunks(
             nbeampix * nfeed * nax * size * 2,  # complex beam data
             3 * nsrc // ch * size,  # crd_eq_gpu
             3 * nsrc // ch * size,  # crdtop
-            nfeed * nant * nax * nant * ch * size * 2,  # matvis_gpus
+            nfeed * nant * nfeed * nant * ch * size,  # matvis_gpus
             nax * nfeed * nbeam * nsrc // ch // 2 * size * 2,  # interpolated beam
-            nant * nsrc // ch // 2 * size * 2,  # ant-vis
+            nant * nsrc // ch // 2 * size * 2 * nax * nfeed,  # ant-vis
         ]
         logger.debug(
             f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize)}"
