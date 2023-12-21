@@ -1,12 +1,18 @@
 """Core abstract class for coordinate rotation."""
 
 import numpy as np
-from abc import ABC, abstractmethod
 
 from .._utils import get_dtypes
 
+try:
+    import cupy as cp
 
-class CoordinateRotation(ABC):
+    HAVE_CUDA = True
+except ImportError:
+    HAVE_CUDA = False
+
+
+class CoordinateRotation:
     """
     Abstract class for coordinate rotation.
 
@@ -34,6 +40,7 @@ class CoordinateRotation(ABC):
         chunk_size: int | None = None,
         source_buffer: float = 0.55,
         precision: int = 1,
+        gpu: bool = False,
     ):
         self.rtype, _ = get_dtypes(precision)
         self.flux = flux.astype(self.rtype)
@@ -48,12 +55,25 @@ class CoordinateRotation(ABC):
         self.source_buffer = source_buffer
         self.nsrc_alloc = int(self.chunk_size * self.source_buffer)
 
+        self.gpu = gpu
+        if self.gpu and not HAVE_CUDA:
+            raise ValueError("GPU requested but cupy not installed.")
+
+        self.xp = cp if self.gpu else np
+
     def setup(self):
         """Allocate memory for the rotation."""
-        self.all_coords_topo = np.empty((3, self.nsrc), dtype=self.rtype)
-        self.coords_above_horizon = np.empty((3, self.nsrc_alloc), dtype=self.rtype)
-        self.flux_above_horizon = np.empty((self.nsrc_alloc,), dtype=self.rtype)
-        self.xp = np
+        self.all_coords_topo = self.xp.full((3, self.nsrc), 0.0, dtype=self.rtype)
+        self.coords_above_horizon = self.xp.full(
+            (3, self.nsrc_alloc), 0.0, dtype=self.rtype
+        )
+        self.flux_above_horizon = self.xp.full(
+            (self.nsrc_alloc,), 0.0, dtype=self.rtype
+        )
+
+        self.eq2top = self.xp.asarray(self.eq2top)
+        self.coords_eq = self.xp.asarray(self.coords_eq)
+        self.flux = self.xp.asarray(self.flux)
 
     def select_chunk(self, chunk: int):
         """Set the chunk of coordinates to rotate."""
@@ -61,6 +81,7 @@ class CoordinateRotation(ABC):
         slc = slice(chunk * self.chunk_size, (chunk + 1) * self.chunk_size)
 
         topo = self.all_coords_topo[:, slc]
+        flux = self.flux[slc]
 
         above_horizon = self.xp.where(topo[2] > 0)[0]
         n = len(above_horizon)
@@ -71,12 +92,14 @@ class CoordinateRotation(ABC):
             )
 
         self.coords_above_horizon[:, :n] = topo[:, above_horizon]
-        self.flux_above_horizon[:n] = self.flux[above_horizon]
+        self.flux_above_horizon[:n] = flux[above_horizon]
         self.flux_above_horizon[n:] = 0
+
+        if self.gpu:
+            self.xp.cuda.Device().synchronize()
 
         return self.coords_above_horizon, self.flux_above_horizon, n
 
-    @abstractmethod
     def rotate(self, t: int) -> tuple[np.ndarray, np.ndarray]:
         """Rotate the given coordinates with the given 3x3 rotation matrix.
 
@@ -94,4 +117,7 @@ class CoordinateRotation(ABC):
         np.ndarray
             Flux. Shape=(Nsrcs_above_horizon,).
         """
-        pass
+        self.xp.matmul(self.eq2top[t], self.coords_eq, out=self.all_coords_topo)
+
+        if self.gpu:
+            self.xp.cuda.Device().synchronize()

@@ -13,11 +13,12 @@ from typing import Callable
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
+from ..core.coords import CoordinateRotation
+from ..core.getz import ZMatrixCalc
+from ..core.tau import TauCalculator
 from ..cpu.cpu import simulate as simcpu
 from . import beams
 from . import matprod as mp
-from .coords import GPUCoordinateRotation
-from .getz import GPUZMatrixCalc
 
 try:
     import cupy as cp
@@ -75,12 +76,7 @@ def simulate(
             stacklevel=1,
         )
 
-    nsrc = len(I_sky)
-
     rtype, ctype = get_dtypes(precision)
-
-    # ensure data types
-    antpos = antpos.astype(rtype)
 
     nchunks, npixc = get_desired_chunks(
         min(max_memory, cp.cuda.Device().mem_info[0]),
@@ -104,25 +100,24 @@ def simulate(
         nsrc=nsrc_alloc,
         precision=precision,
     )
-    coords = GPUCoordinateRotation(
+    coords = CoordinateRotation(
         flux=np.sqrt(0.5 * I_sky),
         crd_eq=crd_eq,
         eq2top=eq2tops,
         chunk_size=npixc,
         precision=precision,
         source_buffer=source_buffer,
+        gpu=True,
     )
-    zcalc = GPUZMatrixCalc(
-        nsrc=nsrc_alloc,
-        nfeed=nfeed,
-        nant=nant,
-        nax=nax,
-        ctype=ctype,
+    zcalc = ZMatrixCalc(
+        nsrc=nsrc_alloc, nfeed=nfeed, nant=nant, nax=nax, ctype=ctype, gpu=True
     )
+    taucalc = TauCalculator(
+        antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc, gpu=True
+    )
+
     mpcls = getattr(mp, matprod_method)
     matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
-
-    npixc = nsrc // nchunks
 
     logger.debug("Starting GPU allocations...")
 
@@ -130,7 +125,7 @@ def simulate(
     logger.debug(f"Before GPU allocations, GPU mem avail is: {init_mem / 1024**3} GB")
 
     # antpos here is imaginary and in wavelength units
-    antpos = 2 * np.pi * freq * 1j * cp.asarray(antpos) * ONE_OVER_C
+    taucalc.setup()
     memnow = cp.cuda.Device().mem_info[0]
     logger.debug(f"After antpos, GPU mem avail is: {memnow / 1024**3} GB.")
 
@@ -138,8 +133,6 @@ def simulate(
     memnow = cp.cuda.Device().mem_info[0]
     if bmfunc.use_interp:
         logger.debug(f"After bmfunc, GPU mem avail is: {memnow / 1024**3} GB.")
-
-    exptau = cp.zeros((nant, nsrc_alloc), dtype=ctype)
 
     coords.setup()
     memnow = cp.cuda.Device().mem_info[0]
@@ -205,22 +198,22 @@ def simulate(
             )
 
             # exptau has shape (nant, nsrc)
-            cp.exp(cp.matmul(antpos, crdtop, out=exptau), out=exptau)
+            exptau = taucalc(crdtop)
             logdebug("exptau", exptau)
             logger.debug(
                 f"After exptau, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
             )
             event["tau"].record(stream)
 
-            zcalc.compute(Isqrt, A, exptau, bmfunc.beam_idx)
+            z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
             event["meas_eq"].record(stream)
-            logdebug("Z", zcalc.z)
+            logdebug("Z", z)
             logger.debug(
                 f"After Z, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
             )
 
             # compute vis = Z.Z^dagger
-            matprod(zcalc.z, c)
+            matprod(z, c)
             logger.debug(
                 f"After matprod, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
             )

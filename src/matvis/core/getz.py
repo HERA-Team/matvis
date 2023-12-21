@@ -1,6 +1,13 @@
 """Core abstract class for obtaining the Z matrix."""
 import numpy as np
 
+try:
+    import cupy as cp
+
+    HAVE_CUDA = True
+except ImportError:
+    HAVE_CUDA = False
+
 
 class ZMatrixCalc:
     r"""
@@ -15,23 +22,31 @@ class ZMatrixCalc:
     where A is the beam, I is the square root of the flux, and tau is the phase.
     """
 
-    def __init__(self, nant: int, nfeed: int, nax: int, nsrc: int, ctype):
+    def __init__(
+        self, nant: int, nfeed: int, nax: int, nsrc: int, ctype, gpu: bool = False
+    ):
         self.nant = nant
         self.nfeed = nfeed
         self.nax = nax
         self.nsrc = nsrc
         self.ctype = ctype
 
+        self.gpu = gpu
+        if gpu and not HAVE_CUDA:
+            raise ImportError("You need to install the [gpu] extra to use gpu!")
+
+        self.xp = cp if self.gpu else np
+
     def setup(self):
         """Perform any necessary setup steps.
 
         Accepts no inputs and returns nothing.
         """
-        self.z = np.zeros(
-            (self.nfeed * self.nant, self.nax * self.nsrc), dtype=self.ctype
+        self.z = self.xp.full(
+            (self.nfeed * self.nant, self.nax * self.nsrc), 0.0, dtype=self.ctype
         )
 
-    def compute(
+    def __call__(
         self,
         sqrt_flux: np.ndarray,
         beam: np.ndarray,
@@ -75,3 +90,8 @@ class ZMatrixCalc:
         # Here we expand the beam to all ants (from its beams), then broadcast to
         # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
         self.z.shape = (self.nant * self.nfeed, self.nax * self.nsrc)
+
+        if self.gpu:
+            cp.cuda.Device().synchronize()
+
+        return self.z

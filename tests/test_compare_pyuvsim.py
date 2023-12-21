@@ -10,7 +10,7 @@ from matvis import simulate_vis
 from . import get_standard_sim_params, nants
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def default_uvsim() -> UVData:
     """Pyuvsim output for interpolated polarized beam."""
     (
@@ -26,7 +26,7 @@ def default_uvsim() -> UVData:
         beam_dict,
         _,
         uvdata,
-    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True)
+    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True, nsource=250)
 
     return uvsim.run_uvdata_uvsim(
         uvdata,
@@ -54,7 +54,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         beam_dict,
         hera_lat,
         uvdata,
-    ) = get_standard_sim_params(use_analytic_beam, polarized)
+    ) = get_standard_sim_params(use_analytic_beam, polarized, nsource=250)
     # ---------------------------------------------------------------------------
     # (1) Run matvis
     # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ def test_compare_pyuvsim_chunking(min_chunks, source_buffer, default_uvsim):
         beam_dict,
         hera_lat,
         uvdata,
-    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True)
+    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True, nsource=250)
 
     vis_matvis = simulate_vis(
         ants=ants,

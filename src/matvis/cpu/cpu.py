@@ -6,7 +6,6 @@ import numpy as np
 import psutil
 import time
 import tracemalloc as tm
-from astropy.constants import c as speed_of_light
 from collections.abc import Sequence
 
 # from pympler import tracker
@@ -15,10 +14,11 @@ from typing import Callable
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
+from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
+from ..core.tau import TauCalculator
 from . import matprod as mp
 from .beams import UVBeamInterpolator
-from .coords import CPUCoordinateRotation
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ def simulate(
         nsrc=nsrc_alloc,
     )
 
-    coords = CPUCoordinateRotation(
+    coords = CoordinateRotation(
         flux=np.sqrt(0.5 * I_sky),
         crd_eq=crd_eq,
         eq2top=eq2tops,
@@ -174,6 +174,10 @@ def simulate(
         precision=precision,
         source_buffer=source_buffer,
     )
+    taucalc = TauCalculator(
+        antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc
+    )
+
     mpcls = getattr(mp, matprod_method)
     matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
     zcalc = ZMatrixCalc(
@@ -184,18 +188,13 @@ def simulate(
         ctype=ctype,
     )
 
-    # Intensity distribution (sqrt) and antenna positions. Does not support
-    # negative sky. Factor of 0.5 accounts for splitting Stokes I between
-    # polarization channels
-    ang_freq = rtype(2.0 * np.pi * freq)
-    antpos_u = antpos.astype(rtype) * ang_freq / speed_of_light.value
-
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
 
     bmfunc.setup()
     coords.setup()
     matprod.setup()
     zcalc.setup()
+    taucalc.setup()
 
     logger.info(f"Visibility Array takes {vis.nbytes/1024**2:.1f} MB")
 
@@ -221,13 +220,13 @@ def simulate(
             logdebug("beam", bmfunc.interpolated_beam[..., :nn])
 
             # Calculate delays, where tau = 2pi*nu*(b * s) / c
-            exptau = np.exp(1j * np.dot(antpos_u, crd_top))
+            exptau = taucalc(crd_top)
             logdebug("exptau", exptau[:, :nn])
 
-            zcalc.compute(flux_sqrt, A, exptau, bmfunc.beam_idx)
-            logdebug("Z", zcalc.z[..., :nn])
+            z = zcalc(flux_sqrt, A, exptau, bmfunc.beam_idx)
+            logdebug("Z", z[..., :nn])
 
-            matprod(zcalc.z, c)
+            matprod(z, c)
 
             if not (t % report_chunk or t == ntimes - 1):
                 plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)

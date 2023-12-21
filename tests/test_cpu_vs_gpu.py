@@ -30,7 +30,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision, min_chunks, source_
         _,
         lat,
         _,
-    ) = get_standard_sim_params(use_analytic_beam, polarized)
+    ) = get_standard_sim_params(use_analytic_beam, polarized, nsource=250)
     print("Polarized=", polarized, "Analytic Beam =", use_analytic_beam)
 
     kwargs = {
