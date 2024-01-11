@@ -2,7 +2,7 @@
 import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
 
-from matvis import conversions, plot
+from matvis import coordinates, plot
 
 nsource = 10
 
@@ -20,7 +20,7 @@ def test_source_az_za_beam():
     dec = np.deg2rad(dec)
 
     # Point source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
+    crd_eq = coordinates.point_source_crd_eq(ra, dec)
 
     # Beam model
     beam = AnalyticBeam("gaussian", diameter=14.0)

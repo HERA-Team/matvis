@@ -12,6 +12,18 @@ from numpy import typing as npt
 from pyuvdata.uvbeam import UVBeam
 from typing import Literal
 
+from . import HAVE_GPU
+
+if HAVE_GPU:
+    import cupy as cp
+
+    get_array_module = cp.get_array_module
+else:
+
+    def get_array_module(*x):
+        """Return numpy as the array module."""
+        return np
+
 
 def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     """Convert angle cosines in ENU coordinates into azimuth and zenith angle.
@@ -50,6 +62,8 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     az, za : array_like
         Corresponding azimuth and zenith angles (in radians).
     """
+    xp = get_array_module(enu_e, enu_n)
+
     assert orientation in [
         "astropy",
         "uvbeam",
@@ -57,17 +71,17 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
 
     lsqr = enu_n**2.0 + enu_e**2.0
     mask = lsqr < 1
-    zeta = np.zeros_like(lsqr)
-    zeta[mask] = np.sqrt(1 - lsqr[mask])
+    zeta = xp.zeros_like(lsqr)
+    zeta[mask] = xp.sqrt(1 - lsqr[mask])
 
-    az = np.arctan2(enu_e, enu_n)
-    za = 0.5 * np.pi - np.arcsin(zeta)
+    az = xp.arctan2(enu_e, enu_n)
+    za = 0.5 * np.pi - xp.arcsin(zeta)
 
     # Flip and rotate azimuth coordinate if uvbeam convention is used
     if orientation == "uvbeam":
         az = 0.5 * np.pi - az
     if periodic_azimuth:
-        az = np.mod(az, 2 * np.pi)
+        az = xp.mod(az, 2 * np.pi)
     return az, za
 
 
@@ -169,7 +183,8 @@ def point_source_crd_eq(ra, dec):
         Equatorial coordinates of sources, in Cartesian
         system. Shape=(3, NSRCS).
     """
-    return np.asarray([np.cos(ra) * np.cos(dec), np.cos(dec) * np.sin(ra), np.sin(dec)])
+    xp = get_array_module(ra, dec)
+    return xp.asarray([xp.cos(ra) * xp.cos(dec), xp.cos(dec) * xp.sin(ra), xp.sin(dec)])
 
 
 def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs"):

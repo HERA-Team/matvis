@@ -21,11 +21,17 @@ from line_profiler import LineProfiler
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
+from typing import Literal
 
-from matvis import DATA_PATH, HAVE_GPU, conversions, cpu, gpu, simulate_vis
+from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, simulate_vis
+
+if HAVE_GPU:
+    from matvis import gpu
 
 simcpu = cpu.simulate
-simgpu = gpu.simulate
+
+if HAVE_GPU:
+    simgpu = gpu.simulate
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 
@@ -34,20 +40,12 @@ logger = logging.getLogger("matvis")
 
 
 # These specify which line(s) in the code correspond to which algorithmic step.
-CPU_STEPS = {
-    "eq2top": ("np.dot(eq2top",),
-    "beam_interp": ("_evaluate_beam_cpu(",),
-    "get_tau": ("np.dot(antpos",),
-    "get_antenna_vis": ("v = _get_antenna_vis(",),
-    "get_baseline_vis": ("vis[t] =",),
-}
-
-GPU_STEPS = {
-    "eq2top": ("# compute crdtop",),
-    "beam_interp": ("do_beam_interpolation(",),
-    "get_tau": ("# compute tau",),
-    "get_antenna_vis": ("meas_eq(",),
-    "get_baseline_vis": ("cublas_complex_mm(",),
+STEPS = {
+    "Coordinate Rotation": ("coords.rotate(t)", "coords.select_chunk("),
+    "Beam Interpolation": ("bmfunc(",),
+    "Compute exp(tau)": ("exp(",),
+    "Compute Z": ("zcalc.compute(",),
+    "Compute V": ("matprod(",),
 }
 
 profiler = LineProfiler()
@@ -55,49 +53,16 @@ profiler = LineProfiler()
 main = click.Group()
 
 
-@main.command()
-@click.option("-A/-I", "--analytic-beam/--interpolated-beam", default=True)
-@click.option("-f", "--nfreq", default=1)
-@click.option(
-    "-t",
-    "--ntimes",
-    default=1,
-)
-@click.option(
-    "-a",
-    "--nants",
-    default=1,
-)
-@click.option(
-    "-b",
-    "--nbeams",
-    default=1,
-)
-@click.option(
-    "-s",
-    "--nsource",
-    default=1,
-)
-@click.option(
-    "-g/-c",
-    "--gpu/--cpu",
-    default=False,
-)
-@click.option(
-    "-n", "--gpu-nthreads", default=1024, help="Number of threads to use for GPU"
-)
-@click.option(
-    "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
-)
-@click.option(
-    "-l",
-    "--log-level",
-    default="INFO",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
-)
-@click.option("-o", "--outdir", default=".")
-@click.option("--double-precision/--single-precision", default=True)
-def profile(
+def get_label(**kwargs):
+    """Get a label for the output profile files."""
+    precision = 2 if kwargs["double_precision"] else 1
+    return (
+        "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_"
+        "naz{naz}_nza{nza}_g{gpu}_pr{precision}_{method}"
+    ).format(precision=precision, **kwargs)
+
+
+def run_profile(
     analytic_beam,
     nfreq,
     ntimes,
@@ -109,18 +74,18 @@ def profile(
     outdir,
     verbose,
     log_level,
-    gpu_nthreads,
+    method,
+    naz=360,
+    nza=180,
+    pairs=None,
+    nchunks=1,
+    source_buffer=1.0,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
         raise RuntimeError("Cannot run GPU version without GPU dependencies installed!")
 
     logger.setLevel(log_level.upper())
-
-    if gpu:
-        from pycuda import driver
-
-        driver.start_profiler()
 
     (
         ants,
@@ -132,10 +97,12 @@ def profile(
         cpu_beams,
         hera_lat,
         beam_idx,
-    ) = get_standard_sim_params(analytic_beam, nfreq, ntimes, nants, nsource, nbeams)
+    ) = get_standard_sim_params(
+        analytic_beam, nfreq, ntimes, nants, nsource, nbeams, naz=naz, nza=nza
+    )
 
     print("---------------------------------")
-    print("Running vc-profile with:")
+    print("Running matvis profile with:")
     print(f"  NANTS:            {nants:>7}")
     print(f"  NTIMES:           {ntimes:>7}")
     print(f"  NFREQ:            {nfreq:>7}")
@@ -144,16 +111,14 @@ def profile(
     print(f"  GPU:              {gpu:>7}")
     print(f"  DOUBLE-PRECISION: {double_precision:>7}")
     print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
+    print(f"  METHOD:           {method:>7}")
+    print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
     print("---------------------------------")
 
     if gpu:
         profiler.add_function(simgpu)
-        kw = {
-            "nthreads": gpu_nthreads,
-        }
     else:
         profiler.add_function(simcpu)
-        kw = {}
 
     profiler.runcall(
         simulate_vis,
@@ -169,15 +134,27 @@ def profile(
         latitude=hera_lat * np.pi / 180.0,
         use_gpu=gpu,
         beam_idx=beam_idx,
-        **kw,
+        matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
+        antpairs=pairs,
+        min_chunks=nchunks,
+        source_buffer=source_buffer,
     )
-
-    if gpu:
-        driver.stop_profiler()
 
     outdir = Path(outdir).expanduser().absolute()
 
-    str_id = f"A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_g{gpu}_pr{2 if double_precision else 1}"
+    str_id = get_label(
+        analytic_beam=analytic_beam,
+        nfreq=nfreq,
+        ntimes=ntimes,
+        nants=nants,
+        nbeams=nbeams,
+        nsource=nsource,
+        gpu=gpu,
+        double_precision=double_precision,
+        method=method,
+        naz=naz,
+        nza=nza,
+    )
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
         profiler.print_stats(stream=fl, stripzeros=True)
@@ -186,9 +163,7 @@ def profile(
         profiler.print_stats()
 
     line_stats, total_time = get_line_based_stats(profiler.get_stats())
-    thing_stats = get_summary_stats(
-        line_stats, total_time, GPU_STEPS if gpu else CPU_STEPS
-    )
+    thing_stats = get_summary_stats(line_stats, total_time, STEPS)
 
     print()
     print("------------- Summary of timings -------------")
@@ -200,6 +175,123 @@ def profile(
 
     with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
         pickle.dump(thing_stats, fl)
+
+
+common_profile_options = [
+    click.option("-A/-I", "--analytic-beam/--interpolated-beam", default=True),
+    click.option("-f", "--nfreq", default=1),
+    click.option(
+        "-t",
+        "--ntimes",
+        default=1,
+    ),
+    click.option(
+        "-b",
+        "--nbeams",
+        default=1,
+    ),
+    click.option(
+        "-g/-c",
+        "--gpu/--cpu",
+        default=False,
+    ),
+    click.option(
+        "--method",
+        default="MatMul",
+        type=click.Choice(["MatMul", "VectorDot"]),
+    ),
+    click.option(
+        "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
+    ),
+    click.option(
+        "-l",
+        "--log-level",
+        default="INFO",
+        type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+    ),
+    click.option(
+        "--nchunks",
+        default=1,
+    ),
+    click.option("-o", "--outdir", default="."),
+    click.option("--double-precision/--single-precision", default=True),
+    click.option("--naz", default=360, type=int),
+    click.option("--nza", default=180, type=int),
+    click.option("--source-buffer", default=1.0, type=float),
+]
+
+
+def add_common_options(func):
+    """Add common profiling options to a function."""
+    for option in reversed(common_profile_options):
+        func = option(func)
+    return func
+
+
+@main.command()
+@click.option(
+    "-s",
+    "--nsource",
+    default=1,
+)
+@click.option(
+    "-a",
+    "--nants",
+    default=1,
+)
+@add_common_options
+def profile(**kwargs):
+    """Run the script."""
+    run_profile(**kwargs)
+
+
+def get_redundancies(bls, ndecimals: int = 2):
+    """Find redundant baselines."""
+    uvbins = set()
+    pairs = []
+
+    # Everything here is in wavelengths
+    bls = np.round(bls, decimals=ndecimals)
+    nant = bls.shape[0]
+
+    # group redundant baselines
+    for i in range(nant):
+        for j in range(i + 1, nant):
+            u, v = bls[i, j]
+            if (u, v) not in uvbins and (-u, -v) not in uvbins:
+                uvbins.add((u, v))
+                pairs.append([i, j])
+
+    return pairs
+
+
+@main.command()
+@click.option(
+    "-a",
+    "--hex-num",
+    default=11,
+)
+@click.option(
+    "-s",
+    "--nside",
+    default=64,
+)
+@click.option("-k", "--keep-ants", type=str, default="")
+@click.option("--outriggers/--no-outriggers", default=False)
+@add_common_options
+def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
+    """Run profiling of matvis with a HERA-like array."""
+    from py21cmsense.antpos import hera
+
+    antpos = hera(hex_num=hex_num, split_core=True, outriggers=2 if outriggers else 0)
+    if keep_ants:
+        keep_ants = [int(i) for i in keep_ants.split(",")]
+        antpos = antpos[keep_ants]
+
+    bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
+    pairs = np.array(get_redundancies(bls.value))
+
+    run_profile(nsource=12 * nside**2, nants=antpos.shape[0], pairs=pairs, **kwargs)
 
 
 def get_line_based_stats(lstats) -> tuple[dict, float]:
@@ -281,7 +373,7 @@ def get_stats_and_lines(filename, start_lineno, timings, time_unit):
 
 
 def get_standard_sim_params(
-    use_analytic_beam: bool, nfreq, ntime, nants, nsource, nbeams
+    use_analytic_beam: bool, nfreq, ntime, nants, nsource, nbeams, naz=360, nza=180
 ):
     """Create some standard random simulation parameters for use in profiling.
 
@@ -306,7 +398,18 @@ def get_standard_sim_params(
         # This is a peak-normalized e-field beam file at 100 and 101 MHz,
         # downsampled to roughly 4 square-degree resolution.
         beam = UVBeam()
-        beam.read_beamfits(beam_file)
+        beam.read_beamfits(beam_file, use_future_array_shapes=True)
+
+        # Up/down sample the beam
+        beam.interpolation_function = "az_za_simple"
+        beam = beam.interp(
+            az_array=np.linspace(0, 2 * np.pi, naz + 1)[:-1],
+            za_array=np.linspace(0, np.pi, nza + 1),
+            freq_array=beam.freq_array,
+            reuse_spline=True,
+            new_object=True,
+            az_za_grid=True,
+        )
 
     beams = [beam] * nbeams
 
@@ -318,7 +421,10 @@ def get_standard_sim_params(
 
     # This will make the beam_idx like [0,1,2,3,3,3,3,3,3,3] where nbeams=4 and the
     # array is nants long.
-    beam_idx = np.array(list(range(nbeams)) + [nbeams - 1] * (nants - nbeams))
+    if nbeams in [1, nants]:
+        beam_idx = None
+    else:
+        beam_idx = np.array(list(range(nbeams)) + [nbeams - 1] * (nants - nbeams))
 
     # Observing parameters in a UVData object
     uvdata = simsetup.initialize_uvdata_from_keywords(
@@ -360,7 +466,7 @@ def get_standard_sim_params(
     freqs = np.unique(uvdata.freq_array)
 
     # Correct source locations so that matvis uses the right frame
-    ra, dec = conversions.equatorial_to_eci_coords(
+    ra, dec = coordinates.equatorial_to_eci_coords(
         ra, dec, obstime, location, unit="rad", frame="icrs"
     )
 

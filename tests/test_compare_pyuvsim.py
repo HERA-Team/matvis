@@ -2,12 +2,38 @@
 import pytest
 
 import numpy as np
-from pathlib import Path
+from pyuvdata import UVData
 from pyuvsim import simsetup, uvsim
 
 from matvis import simulate_vis
 
 from . import get_standard_sim_params, nants
+
+
+@pytest.fixture(scope="function")
+def default_uvsim() -> UVData:
+    """Pyuvsim output for interpolated polarized beam."""
+    (
+        sky_model,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        beams,
+        beam_dict,
+        _,
+        uvdata,
+    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True, nsource=250)
+
+    return uvsim.run_uvdata_uvsim(
+        uvdata,
+        beams,
+        beam_dict=beam_dict,
+        catalog=simsetup.SkyModelData(sky_model),
+    )
 
 
 @pytest.mark.parametrize("use_analytic_beam", (True, False))
@@ -28,7 +54,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         beam_dict,
         hera_lat,
         uvdata,
-    ) = get_standard_sim_params(use_analytic_beam, polarized)
+    ) = get_standard_sim_params(use_analytic_beam, polarized, nsource=250)
     # ---------------------------------------------------------------------------
     # (1) Run matvis
     # ---------------------------------------------------------------------------
@@ -58,14 +84,57 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
     # ---------------------------------------------------------------------------
     # Compare
     # ---------------------------------------------------------------------------
-    # Loop over baselines and compare
-    diff_re = 0.0
-    diff_im = 0.0
     rtol = 2e-4 if use_analytic_beam else 0.01
-    atol = 5e-4
 
+    compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol)
+
+
+@pytest.mark.parametrize("min_chunks", (1, 2, 3))
+@pytest.mark.parametrize("source_buffer", (1.0, 0.75))
+def test_compare_pyuvsim_chunking(min_chunks, source_buffer, default_uvsim):
+    """Test chunking and source buffer against pyuvsim."""
+    (
+        sky_model,
+        ants,
+        flux,
+        ra,
+        dec,
+        freqs,
+        lsts,
+        cpu_beams,
+        uvsim_beams,
+        beam_dict,
+        hera_lat,
+        uvdata,
+    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True, nsource=250)
+
+    vis_matvis = simulate_vis(
+        ants=ants,
+        fluxes=flux,
+        ra=ra,
+        dec=dec,
+        freqs=freqs,
+        lsts=lsts,
+        beams=cpu_beams,
+        polarized=True,
+        precision=2,
+        latitude=hera_lat * np.pi / 180.0,
+        min_chunks=min_chunks,
+        source_buffer=source_buffer,
+    )
+
+    compare_sims(default_uvsim, vis_matvis, nants, polarized=True, rtol=0.01)
+
+
+def compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol):
+    """Run the test of comparing matvis and pyuvsim visibilities."""
     # If it passes this test, but fails the following tests, then its probably an
     # ordering issue.
+    diff_re = 0.0
+    diff_im = 0.0
+    atol = 5e-4
+
+    # Loop over baselines and compare
     for i in range(nants):
         for j in range(i, nants):
             for if1, feed1 in enumerate(("X", "Y") if polarized else ("X",)):
@@ -74,9 +143,9 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
                         (i, j, feed1 + feed2)
                     ).T  # pyuvsim visibility
                     d_matvis = (
-                        vis_matvis[:, :, if1, if2, i, j]
+                        vis_matvis[:, :, i * nants + j, if1, if2]
                         if polarized
-                        else vis_matvis[:, :, i, j]
+                        else vis_matvis[:, :, i * nants + j]
                     )
 
                     # Keep track of maximum difference

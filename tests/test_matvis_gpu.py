@@ -1,13 +1,12 @@
 """Tests of functionality of matvis_gpu."""
 import pytest
 
-pytest.importorskip("pycuda")
+pytest.importorskip("cupy")
 
 import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
 
 from matvis import simulate_vis
-from matvis.gpu import _get_3d_block_grid
 
 from . import get_standard_sim_params
 
@@ -159,7 +158,7 @@ def test_mixed_beams(uvbeam):
     cpu_beams = [uvbeam, anl, anl]
 
     with pytest.raises(
-        ValueError, match="gpu.simulate only support beam_lists with either"
+        ValueError, match="GPUBeamInterpolator only supports beam_lists with either"
     ):
         simulate_vis(
             ants=ants,
