@@ -78,6 +78,7 @@ def run_profile(
     naz=360,
     nza=180,
     pairs=None,
+	matsets=None,
     nchunks=1,
     source_buffer=1.0,
 ):
@@ -113,6 +114,7 @@ def run_profile(
     print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
     print(f"  METHOD:           {method:>7}")
     print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
+	#print(f"  NPAIRS:           {sum(np.array([len(pairs[i][0])*len(pairs[i][1]) for i in range(len(pairs))])) if pairs is not None else nants**2:>7}")
     print("---------------------------------")
 
     if gpu:
@@ -136,6 +138,7 @@ def run_profile(
         beam_idx=beam_idx,
         matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
         antpairs=pairs,
+		matsets=matsets,
         min_chunks=nchunks,
         source_buffer=source_buffer,
     )
@@ -264,6 +267,28 @@ def get_redundancies(bls, ndecimals: int = 2):
 
     return pairs
 
+# Chris: for now I have duplicated the get_redundancies function as a placeholder for generating the matrix sets and just assumed 
+# 1x1 sub-matrices (the vector method).  In the future this will be replaced by a function that takes in a set of sub-matrices provided 
+# by the user.  
+def get_matrix_sets(bls, ndecimals: int = 2):
+    """Find redundant baselines."""
+    uvbins = set()
+    msets = []
+
+    # Everything here is in wavelengths
+    bls = np.round(bls, decimals=ndecimals)
+    nant = bls.shape[0]
+
+    # group redundant baselines
+    for i in range(nant):
+        for j in range(i + 1, nant):
+            u, v = bls[i, j]
+            if (u, v) not in uvbins and (-u, -v) not in uvbins:
+                uvbins.add((u, v))
+                msets.append([np.array([i]), np.array([j]))
+
+    return msets
+
 
 @main.command()
 @click.option(
@@ -290,8 +315,10 @@ def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
 
     bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
     pairs = np.array(get_redundancies(bls.value))
+	matsets = list(get_matrix_sets(bls.value))
+	#pairs = list(get_redundancies(bls.value))
 
-    run_profile(nsource=12 * nside**2, nants=antpos.shape[0], pairs=pairs, **kwargs)
+    run_profile(nsource=12 * nside**2, nants=antpos.shape[0], pairs=pairs, matsets=matsets, **kwargs)
 
 
 def get_line_based_stats(lstats) -> tuple[dict, float]:

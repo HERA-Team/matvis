@@ -28,6 +28,7 @@ def simulate_vis(
     beam_spline_opts: dict | None = None,
     beam_idx: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+	matsets: list[tuple[np.ndarray[int], np.ndarray[int]]] | None = None, # set of sub-matrices
     source_buffer: float = 1.0,
     **backend_kwargs,
 ):
@@ -129,6 +130,7 @@ def simulate_vis(
     ]
 
     npairs = len(antpairs) if antpairs is not None else nants * nants
+    #npairs = sum(np.array([len(antpairs[i][0])*len(antpairs[i][1]) for i in range(len(antpairs))])) if antpairs is not None else nants * nants
     if polarized:
         vis = np.zeros(
             (freqs.size, lsts.size, npairs, nfeeds, nfeeds), dtype=complex_dtype
@@ -150,6 +152,7 @@ def simulate_vis(
             beam_spline_opts=beam_spline_opts,
             beam_idx=beam_idx,
             antpairs=antpairs,
+			matsets=matsets,
             source_buffer=source_buffer,
             **backend_kwargs,
         )

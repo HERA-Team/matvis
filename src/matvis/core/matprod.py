@@ -20,6 +20,9 @@ class MatProd(ABC):
         Number of antennas.
     antpairs
         The antenna pairs to sum over. If None, all pairs are used.
+	matsets
+		The list of sub-matrices to calculate.  If None, all pairs are used in a single
+		matrix multiplication.  
     precision
         The precision of the data (1 or 2).
     """
@@ -29,15 +32,18 @@ class MatProd(ABC):
         nchunks: int,
         nfeed: int,
         nant: int,
-        antpairs: np.ndarray | None,
+        antpairs: np.ndarray | list | None,
+		matsets: list | None,
         precision=1,
     ):
         if antpairs is None:
             self.all_pairs = True
             self.antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
+            self.matsets = list([(np.array([i]), np.array([j])) for i in range(nant) for j in range(nant)])
         else:
             self.all_pairs = False
             self.antpairs = antpairs
+            self.matsets  = matsets
 
         self.nchunks = nchunks
         self.nfeed = nfeed

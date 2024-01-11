@@ -45,8 +45,48 @@ class CPUVectorDot(MatProd):
             Output array, shaped as (Nfeed, Nfeed, Npairs).
         """
         z = z.reshape((self.nant, self.nfeed, -1))
-
+  
         for i, (ai, aj) in enumerate(self.antpairs):
             out[i] = z[ai].conj().dot(z[aj].T)
 
         return out
+		
+class CPUMatChunk(MatProd): 
+	
+	def compute(self, z: np.ndarray, out: np.ndarray) -> np.ndarray:
+		"""Perform the source-summing operation for a single time and chunk.
+
+        Parameters
+        ----------
+        z
+            Complex integrand. Shape=(Nfeed, Nant, Nax, Nsrc).
+        out
+            Output array, shaped as (Nfeed, Nfeed, Npairs).
+        """
+		
+		z = z.reshape((self.nant, self.nfeed, -1))
+		
+		mat_product = np.zeros((self.nant,self.nant,self.nfeed,self.nfeed),dtype=z.dtype)
+		
+		# Chris 12/20/23: instead we will use matsets
+		for j in range(self.nfeed): 
+			for k in range(self.nfeed): 
+				for i, (ai, aj) in enumerate(self.matsets):
+					AI,AJ = np.meshgrid(ai,aj)
+					#print(ai)
+					#print(aj)
+					#print(AI)
+					#print(AJ)
+					mat_product[AI,AJ,j,k] = z[ai[:],j].conj().dot(z[aj[:],k].T).T
+				
+		# Now, we need to identify the non-redundant pairs and put them into the final output array
+		for j in range(self.nfeed): 
+			for k in range(self.nfeed): 
+				for i, (ai, aj) in enumerate(self.antpairs): 
+					out[i,j,k] = mat_product[ai,aj,j,k]
+
+		return out
+	
+		
+        
+ 
