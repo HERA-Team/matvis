@@ -54,3 +54,5 @@ full-stats-*.txt
 stats-*.pkl
 summary-stats-*.pkl
 .hypothesis/*
+
+devel/*.yaml
