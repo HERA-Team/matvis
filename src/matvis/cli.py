@@ -267,9 +267,9 @@ def get_redundancies(bls, ndecimals: int = 2):
 
     return pairs
 
-# Chris: for now I have duplicated the get_redundancies function as a placeholder for generating the matrix sets and just assumed 
-# 1x1 sub-matrices (the vector method).  In the future this will be replaced by a function that takes in a set of sub-matrices provided 
-# by the user.  
+# Chris: for now I have duplicated the get_redundancies function as a placeholder for generating the matrix sets and just assumed
+# 1x1 sub-matrices (the vector method).  In the future this will be replaced by a function that takes in a set of sub-matrices provided
+# by the user.
 def get_matrix_sets(bls, ndecimals: int = 2):
     """Find redundant baselines."""
     uvbins = set()

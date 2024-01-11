@@ -105,27 +105,29 @@ class GPUMatChunk(MatProd):
             )
             for _ in range(self.nchunks)
         ]
-		
+
     def compute(self, z: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
         """Perform the source-summing operation for a single time and chunk."""
         z = z.reshape((self.nant, self.nfeed, -1))
-		
-        mat_product = cp.zeros((self.nant,self.nant,self.nfeed,self.nfeed),dtype=z.dtype)
 
-        for j in range(self.nfeed): 
-            for k in range(self.nfeed): 
+        mat_product = cp.zeros(
+            (self.nant, self.nant, self.nfeed, self.nfeed), dtype=z.dtype
+        )
+
+        for j in range(self.nfeed):
+            for k in range(self.nfeed):
                 for i, (ai, aj) in enumerate(self.matsets):
-                    AI,AJ = cp.meshgrid(ai,aj)
-                    mat_product[AI,AJ,j,k] = z[ai[:],j].conj().dot(z[aj[:],k].T).T
-					
-        for j in range(self.nfeed): 
-            for k in range(self.nfeed): 
-                for i, (ai, aj) in enumerate(self.antpairs): 
-                    out[j,k,i] = mat_product[ai,aj,j,k]
+                    AI, AJ = cp.meshgrid(ai, aj)
+                    mat_product[AI, AJ, j, k] = z[ai[:], j].conj().dot(z[aj[:], k].T).T
+
+        for j in range(self.nfeed):
+            for k in range(self.nfeed):
+                for i, (ai, aj) in enumerate(self.antpairs):
+                    out[j, k, i] = mat_product[ai, aj, j, k]
 
         cp.cuda.Device().synchronize()
         return out
-		
+
     def sum_chunks(self, out: np.ndarray):
         """Sum the chunks into the output array."""
         if self.nchunks > 1:
