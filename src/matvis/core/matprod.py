@@ -20,9 +20,9 @@ class MatProd(ABC):
         Number of antennas.
     antpairs
         The antenna pairs to sum over. If None, all pairs are used.
-        matsets
-                The list of sub-matrices to calculate.  If None, all pairs are used in a single
-                matrix multiplication.
+    matsets
+        The list of sub-matrices to calculate.  If None, all pairs are used in a single
+        matrix multiplication.
     precision
         The precision of the data (1 or 2).
     """
@@ -39,13 +39,7 @@ class MatProd(ABC):
         if antpairs is None:
             self.all_pairs = True
             self.antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
-            self.matsets = list(
-                [
-                    (np.array([i]), np.array([j]))
-                    for i in range(nant)
-                    for j in range(nant)
-                ]
-            )
+            self.matsets = None
         else:
             self.all_pairs = False
             self.antpairs = antpairs
@@ -72,9 +66,32 @@ class MatProd(ABC):
             (self.nchunks, self.npairs, self.nfeed, self.nfeed), 0.0, dtype=self.ctype
         )
 
+    def check_antpairs_in_matsets(self):
+        """Check that all non-redundant ant pairs are included in set of sub-matrices.
+
+        If using the CPUMatChunk method, make sure that all non-redudant antpairs are included somewhere
+        in the set of sub-matrices to be calculated.  Otherwise, throw an exception.
+        """
+        antpairs_set = set()
+        matsets_set = set()
+
+        for _, (ai, aj) in enumerate(self.antpairs):
+            antpairs_set.add((ai, aj))
+
+        for _, (ai, aj) in enumerate(self.matsets):
+            for i in range(len(ai)):
+                for j in range(len(aj)):
+                    matsets_set.add((ai[i], aj[j]))
+
+        if not antpairs_set.issubset(matsets_set):
+            raise Exception("Some non-redundant pairs are missing from sub-matrices.  ")
+
     def setup(self):
         """Setup the memory for the object."""
         self.allocate_vis()
+
+        if self.matsets is not None:
+            self.check_antpairs_in_matsets()
 
     @abstractmethod
     def compute(self, z: np.ndarray, out: np.ndarray):

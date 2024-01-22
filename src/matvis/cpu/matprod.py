@@ -53,6 +53,8 @@ class CPUVectorDot(MatProd):
 
 
 class CPUMatChunk(MatProd):
+    """Loop over a small set of sub-matrix products which collectively contain all nont-redundant pairs."""
+
     def compute(self, z: np.ndarray, out: np.ndarray) -> np.ndarray:
         """Perform the source-summing operation for a single time and chunk.
 
@@ -63,7 +65,6 @@ class CPUMatChunk(MatProd):
         out
             Output array, shaped as (Nfeed, Nfeed, Npairs).
         """
-
         z = z.reshape((self.nant, self.nfeed, -1))
 
         mat_product = np.zeros(
@@ -75,10 +76,6 @@ class CPUMatChunk(MatProd):
             for k in range(self.nfeed):
                 for i, (ai, aj) in enumerate(self.matsets):
                     AI, AJ = np.meshgrid(ai, aj)
-                    # print(ai)
-                    # print(aj)
-                    # print(AI)
-                    # print(AJ)
                     mat_product[AI, AJ, j, k] = z[ai[:], j].conj().dot(z[aj[:], k].T).T
 
         # Now, we need to identify the non-redundant pairs and put them into the final output array

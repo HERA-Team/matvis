@@ -131,7 +131,6 @@ def simulate_vis(
     ]
 
     npairs = len(antpairs) if antpairs is not None else nants * nants
-    # npairs = sum(np.array([len(antpairs[i][0])*len(antpairs[i][1]) for i in range(len(antpairs))])) if antpairs is not None else nants * nants
     if polarized:
         vis = np.zeros(
             (freqs.size, lsts.size, npairs, nfeeds, nfeeds), dtype=complex_dtype
