@@ -21,7 +21,7 @@ from line_profiler import LineProfiler
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
-from submatrices import get_matrix_sets
+from submatrices import *
 from typing import Literal
 
 from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, simulate_vis
@@ -281,8 +281,9 @@ def get_redundancies(bls, ndecimals: int = 2):
 )
 @click.option("-k", "--keep-ants", type=str, default="")
 @click.option("--outriggers/--no-outriggers", default=False)
+@click.option("-msm", "--matset-method", type=str, default="")
 @add_common_options
-def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
+def hera_profile(hex_num, nside, keep_ants, outriggers, matset_method, **kwargs):
     """Run profiling of matvis with a HERA-like array."""
     from py21cmsense.antpos import hera
 
@@ -293,7 +294,9 @@ def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
 
     bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
     pairs = np.array(get_redundancies(bls.value))
-    matsets = list(get_matrix_sets(bls.value))
+
+    if matset_method == "":
+        matsets = None
 
     run_profile(
         nsource=12 * nside**2,
