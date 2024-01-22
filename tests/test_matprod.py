@@ -1,11 +1,5 @@
 """Tests that the various matprod methods produce the same result."""
 
-import sys
-
-sys.path.insert(
-    0,
-    "/home/lab-admin/Desktop/Desktop/Graduate_School/Research/ASU/21_group/matvis/src/",
-)
 
 import pytest
 
@@ -25,13 +19,19 @@ def simple_matprod(z):
 @pytest.mark.parametrize("precision", [1, 2])
 @pytest.mark.parametrize(
     "method",
-    ["CPUMatMul", "CPUVectorDot", "CPUMatChunk"],  # , "GPUMatMul", "GPUVectorDot"]
+    [
+        "CPUMatMul",
+        "CPUVectorDot",
+        "CPUMatChunk",
+        "GPUMatMul",
+        "GPUVectorDot",
+        "GPUMatChunk",
+    ],
 )
 def test_matprod(nfeed, antpairs, matsets, precision, method):
     """Test that the various matprod methods produce the same result."""
     if method.startswith("GPU"):
         pytest.importorskip("cupy")
-        import cupy as cp
 
         from matvis.gpu import matprod as module
     else:
@@ -45,19 +45,12 @@ def test_matprod(nfeed, antpairs, matsets, precision, method):
     else:
         antpairs = None
 
-    if matsets and method.startswith("CPU"):
+    if matsets:
         matsets = [
             (np.array([0, 1, 2, 3]), np.array([0, 1, 2, 3])),
             (np.array([0, 1, 2, 3]), np.array([3, 4])),
             (np.array([3, 4]), np.array([0, 1, 2, 3])),
             (np.array([3, 4]), np.array([3, 4])),
-        ]
-    elif matsets and method.startswith("GPU"):
-        matsets = [
-            (cp.array([0, 1, 2, 3]), cp.array([0, 1, 2, 3])),
-            (cp.array([0, 1, 2, 3]), cp.array([3, 4])),
-            (cp.array([3, 4]), cp.array([0, 1, 2, 3])),
-            (cp.array([3, 4]), cp.array([3, 4])),
         ]
     else:
         matsets = None
@@ -94,18 +87,6 @@ def test_matprod(nfeed, antpairs, matsets, precision, method):
     if method.startswith("GPU"):
         true = true.get()
 
-    print(np.shape(out))
-    print(np.shape(true))
-    print(out)
-    print(true)
-    print(out - true)
-
     assert out.dtype.type == ctype
     assert out.shape == (obj.npairs, nfeed, nfeed)
     np.testing.assert_allclose(out, true)
-
-
-# antpairs = np.array([(1,2),(1,3),(3,2),(3,4),(4,4)])
-
-# test_matprod(2,True,True,1,"CPUMatChunk")
-test_matprod(2, True, True, 1, "GPUMatChunk")

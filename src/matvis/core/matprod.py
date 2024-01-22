@@ -3,7 +3,12 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import Any
 
+from matvis import HAVE_GPU
+
 from .._utils import get_dtypes
+
+if HAVE_GPU:
+    import cupy as cp
 
 
 class MatProd(ABC):
@@ -43,6 +48,11 @@ class MatProd(ABC):
         else:
             self.all_pairs = False
             self.antpairs = antpairs
+
+            if HAVE_GPU:
+                for i in range(len(matsets)):
+                    matsets[i][0] = cp.array(matsets[i][0])
+                    matsets[i][1] = cp.array(matsets[i][1])
             self.matsets = matsets
 
         self.nchunks = nchunks
