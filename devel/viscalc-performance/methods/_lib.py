@@ -29,13 +29,13 @@ class Solver:
         return out
 
     @classmethod
-    def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
+    def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None, **opts):
         if rtol is None:
             rtol = 1e-5 if z0.dtype.name == "complex128" else 1e-3
         if atol is None:
             atol = 1e-5 if z0.dtype.name == "complex128" else 1e-3
 
-        obj = cls(z0)
+        obj = cls(z0, **opts)
         result = obj()
         np.testing.assert_allclose(np.triu(result), np.triu(v0), rtol=rtol, atol=atol)
 
@@ -53,7 +53,7 @@ class RedundantSolver(Solver):
         self.pairs = pairs
 
     @classmethod
-    def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None):
+    def test(cls, z0: np.ndarray, v0: np.ndarray, rtol=None, atol=None, **opts):
         if rtol is None:
             rtol = 1e-5 if z0.dtype.name == "complex128" else 1e-3
         if atol is None:
@@ -62,7 +62,7 @@ class RedundantSolver(Solver):
         # All the pairs.
         nant = min(z0.shape)
         pairs = np.array([(a, b) for a in range(nant) for b in range(nant)])
-        obj = cls(z0, pairs)
+        obj = cls(z0, pairs, **opts)
         result = obj()
         np.testing.assert_allclose(
             np.triu(result.reshape((nant, nant))), np.triu(v0), rtol=rtol, atol=atol

@@ -9,7 +9,7 @@ import yaml
 from dataclasses import asdict, dataclass
 from methods._lib import RedundantSolver, Solver
 from pathlib import Path
-
+import json
 
 @dataclass
 class TimeResult:
@@ -75,9 +75,9 @@ def get_timing(sln, repeats: int = 3) -> float:
     return TimeResult(times, n)
 
 
-def test_solver(solver, nants, nsrcs, ctype=complex):
+def test_solver(solver, nants, nsrcs, ctype=complex, **opts):
     z0 = getz((nants, nsrcs), ctype)
-    solver.test(z0, np.dot(z0, z0.T.conj()))
+    solver.test(z0, np.dot(z0, z0.T.conj()), **opts)
 
 
 def get_timings(
@@ -281,6 +281,37 @@ def get_redundancies(bls, ndecimals: int = 2):
 
     return pairs
 
+def make_polpairs(pairs, feed_moves_first: bool = False):
+    if feed_moves_first:
+        p = pairs * 2
+        p1 = p.copy()
+        p2 = p.copy(); p2[:, 0] += 1
+        p3 = p.copy(); p3[:, 1] += 1
+        p4 = p.copy(); p4 += 1
+        return np.array([p1,p2,p3,p4]).transpose((1, 0, 2)).reshape((-1, 2))
+    else:
+        nmax = pairs.max() + 1
+        p1 = pairs.copy()
+        p2 = pairs.copy(); p2[:, 0] += nmax
+        p3 = pairs.copy(); p3[:, 1] += nmax
+        p4 = pairs.copy(); p4 += nmax
+        return np.concatenate([p1,p2,p3,p4])
+
+def get_hera_pairs(hex_num: int, outriggers: bool=False, feed_moves_first: bool = True):
+    from py21cmsense.antpos import hera
+
+    cachename = Path("hera-pair-cache") / f'hex{hex_num}_outriggers{outriggers}_feedfirst{feed_moves_first}'
+    if cachename.exists():
+        d = np.load(cachename)
+        return d['antpos'], d['pairs']
+
+    antpos = hera(hex_num=hex_num, split_core=True, outriggers=2 if outriggers else 0)
+    bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
+    pairs = np.array(get_redundancies(bls.value))
+    pairs = make_polpairs(pairs, feed_moves_first=feed_moves_first)
+
+    np.savez(cachename, antpos=antpos, pairs=pairs)
+    return antpos, pairs
 
 @cli.command()
 @click.argument("solver", type=str, required=True)
@@ -288,25 +319,20 @@ def get_redundancies(bls, ndecimals: int = 2):
 @click.option("--transpose/--no-transpose", default=False)
 @click.option("--outriggers/--core", default=False)
 @click.option("--nside", type=int, default=256)
-@click.option("--ax-moves-first/--ant-moves-first", default=True)
-def hera_profile(solver, double, transpose, outriggers, nside, ax_moves_first):
-    from py21cmsense.antpos import hera
+@click.option("--feed-moves-first/--ant-moves-first", default=True)
+@click.option("--solver-opts",  type=str, default="{}", help="JSON-parsable options for the solver")
+@click.option(
+    "--cache", type=click.Path(exists=True, file_okay=False), default=Path(".")
+)
+@click.option("--hex-num", default=11, type=int, help="Size of side of HERA hex")
+def hera_profile(solver, double, transpose, outriggers, nside, feed_moves_first, solver_opts, cache, hex_num):
+    antpos, pairs = get_hera_pairs(hex_num, outriggers, feed_moves_first)
 
-    antpos = hera(hex_num=11, split_core=True, outriggers=2 if outriggers else 0)
-    bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
-    pairs = np.array(get_redundancies(bls.value))
-
-    # We also need the pairs for the pol axis
-    if ax_moves_first:
-        pairs *= 4
-        pairs = np.array([[p, p + 1, p+2, p+3] for p in pairs]).reshape((4 * len(pairs), 2))
-    else:
-        pairs = np.concatenate((pairs, pairs + len(pairs), pairs + 2*len(pairs), pairs + 3*len(pairs)), axis=0)
-
+    solver_opts = json.loads(solver_opts)
     solver = get_solver(solver)
 
     ctype = complex if double else np.complex64
-    test_solver(solver, 50, 1000, ctype)
+    #test_solver(solver, 50, 1000, ctype, **solver_opts)
 
     nant = len(antpos)
     nsrc = 12 * nside**2
@@ -315,12 +341,21 @@ def hera_profile(solver, double, transpose, outriggers, nside, ax_moves_first):
     z = getz((2 * nant, 2 * nsrc), transpose=transpose, ctype=ctype)
 
     if solver.is_redundant:
-        sln = solver(z, pairs=pairs)
+        sln = solver(z, pairs=pairs, **solver_opts)
     else:
-        sln = solver(z)
+        sln = solver(z, **solver_opts)
 
-    sln()
+    res = get_timing(sln, repeats=3)
 
+    optstr = "_".join(f"{k.replace('_', '')}-{v}" for k, v in solver_opts.items())
+    # Cache it
+    dstr = 'd' if double else 's'
+    tstr = 't' if transpose else 'n'
+    ostr = 'o' if outriggers else 'c'
+    fstr = 'f' if feed_moves_first else 'a'
+    pth = Path(cache) / f"{solver.__name__}_{nside}_ants{len(antpos)}_{dstr}{tstr}{ostr}{fstr}_{optstr}.yaml"
+    with open(pth, "w") as fl:
+        yaml.dump(asdict(res), fl)
 
 if __name__ == "__main__":
     cli()

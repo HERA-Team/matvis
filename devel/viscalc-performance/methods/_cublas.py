@@ -11,7 +11,7 @@ try:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
 
-        import pycuda.autoinit
+        from pycuda import autoinit
         from pycuda import compiler
         from pycuda import cumath as cm
         from pycuda import driver, gpuarray
@@ -44,8 +44,7 @@ def cublasCdotc_inplace(handle, n, x, incx, y, incy, result):
 
 
 class _CuBLASCommon:
-    def setup(self):
-        self.z = gpuarray.to_gpu(self._z)
+    def create(self):
         self.h = cublasCreate()
 
         if self._z.dtype.name == "complex128":
@@ -62,18 +61,22 @@ class _CuBLASCommon:
 
 class _CuBLAS(_CuBLASCommon, Solver):
     def setup(self):
-        super().setup()
+        self.create()
         if self.transposed:
-            nant = self.z.shape[1]
+            nant = self._z.shape[1]
         else:
-            nant = self.z.shape[0]
+            nant = self._z.shape[0]
+        self.z = gpuarray.to_gpu(self._z)
+
         self.out = gpuarray.empty(shape=(nant, nant), dtype=self._z.dtype)
 
 
 class _CuBLASRed(_CuBLASCommon, RedundantSolver):
     def setup(self):
-        super().setup()
+        self.create()
         self.out = gpuarray.empty(self.pairs.shape[0], dtype=self._z.dtype)
+        self.z = gpuarray.to_gpu(self._z)
+
 
 
 take_along_axis_kernel_code = r"""
@@ -127,6 +130,9 @@ __global__ void TakeAlongSecondAxis2D(
 """
 
 if HAVE_PYCUDA:
+
+    def sync():
+        autoinit.context.synchronize()
 
     def _compile_take(dtype):
         take_along_axis_template = Template(take_along_axis_kernel_code)
