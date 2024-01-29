@@ -1,4 +1,5 @@
 """Test GPU utilities."""
+
 import pytest
 
 from hypothesis import assume, given

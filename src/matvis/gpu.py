@@ -1,4 +1,5 @@
 """GPU implementation of the simulator."""
+
 from __future__ import annotations
 
 import logging

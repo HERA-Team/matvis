@@ -1,4 +1,5 @@
 """Compare matvis CPU and GPU visibilities."""
+
 import pytest
 
 pytest.importorskip("pycuda")

@@ -5,6 +5,7 @@ simply with `beam.interp()`. Since this is purely for speed (obviously not for
 convenience), this module makes many assumptions and restrictions on the UVBeam objects
 that it can handle.
 """
+
 from __future__ import annotations
 
 import numpy as np

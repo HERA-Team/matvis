@@ -1,4 +1,5 @@
 """Tests of coordinate conversions."""
+
 import pytest
 
 import astropy.units as u

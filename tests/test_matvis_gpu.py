@@ -1,4 +1,5 @@
 """Tests of functionality of matvis_gpu."""
+
 import pytest
 
 pytest.importorskip("pycuda")
