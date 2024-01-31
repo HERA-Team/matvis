@@ -21,6 +21,7 @@ from line_profiler import LineProfiler
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
+from submatrices import *
 from typing import Literal
 
 from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, simulate_vis
@@ -78,6 +79,7 @@ def run_profile(
     naz=360,
     nza=180,
     pairs=None,
+    matsets=None,
     nchunks=1,
     source_buffer=1.0,
 ):
@@ -136,6 +138,7 @@ def run_profile(
         beam_idx=beam_idx,
         matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
         antpairs=pairs,
+        matsets=matsets,
         min_chunks=nchunks,
         source_buffer=source_buffer,
     )
@@ -278,8 +281,9 @@ def get_redundancies(bls, ndecimals: int = 2):
 )
 @click.option("-k", "--keep-ants", type=str, default="")
 @click.option("--outriggers/--no-outriggers", default=False)
+@click.option("-msm", "--matset-method", type=str, default="")
 @add_common_options
-def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
+def hera_profile(hex_num, nside, keep_ants, outriggers, matset_method, **kwargs):
     """Run profiling of matvis with a HERA-like array."""
     from py21cmsense.antpos import hera
 
@@ -291,7 +295,16 @@ def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
     bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
     pairs = np.array(get_redundancies(bls.value))
 
-    run_profile(nsource=12 * nside**2, nants=antpos.shape[0], pairs=pairs, **kwargs)
+    if matset_method == "":
+        matsets = None
+
+    run_profile(
+        nsource=12 * nside**2,
+        nants=antpos.shape[0],
+        pairs=pairs,
+        matsets=matsets,
+        **kwargs,
+    )
 
 
 def get_line_based_stats(lstats) -> tuple[dict, float]:

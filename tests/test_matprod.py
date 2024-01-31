@@ -1,7 +1,9 @@
 """Tests that the various matprod methods produce the same result."""
 
+
 import pytest
 
+import cupy as cp
 import numpy as np
 
 from matvis._utils import get_dtypes
@@ -16,13 +18,20 @@ def simple_matprod(z):
 @pytest.mark.parametrize("antpairs", [True, False])
 @pytest.mark.parametrize("precision", [1, 2])
 @pytest.mark.parametrize(
-    "method", ["CPUMatMul", "CPUVectorDot", "GPUMatMul", "GPUVectorDot"]
+    "method",
+    [
+        "CPUMatMul",
+        "CPUVectorDot",
+        "CPUMatChunk",
+        "GPUMatMul",
+        "GPUVectorDot",
+        "GPUMatChunk",
+    ],
 )
-def test_matprod(nfeed, antpairs, precision, method):
+def test_matprod(nfeed, antpairs, matsets, precision, method):
     """Test that the various matprod methods produce the same result."""
     if method.startswith("GPU"):
         pytest.importorskip("cupy")
-        import cupy as cp
 
         from matvis.gpu import matprod as module
     else:
@@ -36,7 +45,24 @@ def test_matprod(nfeed, antpairs, precision, method):
     else:
         antpairs = None
 
-    obj = cls(nchunks=1, nfeed=nfeed, nant=nant, antpairs=antpairs, precision=precision)
+    if matsets:
+        matsets = [
+            (np.array([0, 1, 2, 3]), np.array([0, 1, 2, 3])),
+            (np.array([0, 1, 2, 3]), np.array([3, 4])),
+            (np.array([3, 4]), np.array([0, 1, 2, 3])),
+            (np.array([3, 4]), np.array([3, 4])),
+        ]
+    else:
+        matsets = None
+
+    obj = cls(
+        nchunks=1,
+        nfeed=nfeed,
+        nant=nant,
+        antpairs=antpairs,
+        matsets=matsets,
+        precision=precision,
+    )
     obj.setup()
 
     ctype = get_dtypes(precision)[1]
