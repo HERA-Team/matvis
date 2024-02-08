@@ -1,4 +1,5 @@
 """Simple example wrapper for basic usage of matvis."""
+
 from __future__ import annotations
 
 import logging

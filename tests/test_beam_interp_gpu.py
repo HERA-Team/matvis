@@ -1,4 +1,5 @@
 """Test the GPU beam interpolation routine."""
+
 import pytest
 
 pytest.importorskip("pycuda")

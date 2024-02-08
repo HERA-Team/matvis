@@ -1,4 +1,5 @@
 """Tests."""
+
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, Latitude, Longitude

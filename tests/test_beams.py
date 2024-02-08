@@ -1,4 +1,5 @@
 """Test that pixel and analytic beams are properly aligned."""
+
 import pytest
 
 import numpy as np
