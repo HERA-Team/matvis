@@ -305,7 +305,7 @@ def simulate(
 
     # Zero arrays: beam pattern, visibilities, delays, complex voltages
     vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
-    logger.info(f"Visibility Array takes {vis.nbytes/1024**2:.1f} MB")
+    logger.info(f"Visibility Array takes {vis.nbytes / 1024**2:.1f} MB")
 
     crd_eq = crd_eq.astype(real_dtype)
 
@@ -389,8 +389,8 @@ def _get_antenna_vis(
 def _memtrace(highest_peak) -> int:
     if logger.isEnabledFor(logging.INFO):
         cm, pm = tm.get_traced_memory()
-        logger.info(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
-        logger.info(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
+        logger.info(f"Starting Memory usage  : {cm / 1024**3:.3f} GB")
+        logger.info(f"Starting Peak Mem usage: {pm / 1024**3:.3f} GB")
         logger.info(f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
         tm.reset_peak()
         return max(pm, highest_peak)
