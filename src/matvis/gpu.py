@@ -706,7 +706,7 @@ def _get_required_chunks(nax, nfeed, nant, nsrc, nbeam, nbeampix, precision):
         )
 
     logger.info(
-        f"Total free mem on GPU: {freemem/(1024**3):.2f} GB. Requires {ch} chunks "
+        f"Total free mem on GPU: {freemem / (1024**3):.2f} GB. Requires {ch} chunks "
         f"(estimate {sum(gpusize) / 1024**3:.2f} GB)"
     )
     return ch
