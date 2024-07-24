@@ -24,7 +24,6 @@ repos:
     additional_dependencies:
       - flake8-docstrings
       - flake8-builtins
-      - flake8-logging-format
       - flake8-rst-docstrings
       - flake8-rst
       - flake8-markdown
