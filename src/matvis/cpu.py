@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import datetime
-import gc
-import linecache
 import logging
 import numpy as np
 import psutil
 import time
 import tracemalloc as tm
 from astropy.constants import c
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord
+from astropy.time import Time
 from collections.abc import Sequence
-
-# from pympler import tracker
 from pyuvdata import UVBeam
 from typing import Callable
 
@@ -177,7 +175,7 @@ def _evaluate_beam_cpu(
     return A_s
 
 
-def _validate_inputs(precision, polarized, antpos, eq2tops, crd_eq, I_sky):
+def _validate_inputs(precision, polarized, antpos, times, I_sky):
     assert precision in {1, 2}
 
     # Specify number of polarizations (axes/feeds)
@@ -188,15 +186,9 @@ def _validate_inputs(precision, polarized, antpos, eq2tops, crd_eq, I_sky):
 
     nant, ncrd = antpos.shape
     assert ncrd == 3, "antpos must have shape (NANTS, 3)."
-    ntimes, ncrd1, ncrd2 = eq2tops.shape
-    assert ncrd1 == 3 and ncrd2 == 3, "eq2tops must have shape (NTIMES, 3, 3)."
-    ncrd, nsrcs = crd_eq.shape
-    assert ncrd == 3, "crd_eq must have shape (3, NSRCS)."
-    assert (
-        I_sky.ndim == 1 and I_sky.shape[0] == nsrcs
-    ), "I_sky must have shape (NSRCS,)."
+    assert I_sky.ndim == 1, "I_sky must have shape (NSRCS,)."
 
-    return nax, nfeed, nant, ntimes
+    return nax, nfeed, nant, len(times)
 
 
 @profile
@@ -204,8 +196,9 @@ def simulate(
     *,
     antpos: np.ndarray,
     freq: float,
-    eq2tops: np.ndarray,
-    crd_eq: np.ndarray,
+    times: Time,
+    source_coords: SkyCoord,
+    telescope_loc: EarthLocation,
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | Callable] | None,
     precision: int = 1,
@@ -281,7 +274,7 @@ def simulate(
     highest_peak = _memtrace(0)
 
     nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, eq2tops, crd_eq, I_sky
+        precision, polarized, antpos, times, I_sky
     )
 
     if precision == 1:
@@ -307,7 +300,7 @@ def simulate(
     vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
     logger.info(f"Visibility Array takes {vis.nbytes / 1024**2:.1f} MB")
 
-    crd_eq = crd_eq.astype(real_dtype)
+    #    crd_eq = crd_eq.astype(real_dtype)
 
     # Have up to 100 reports as it iterates through time.
     report_chunk = ntimes // max_progress_reports + 1
@@ -318,12 +311,15 @@ def simulate(
 
     highest_peak = _memtrace(highest_peak)
 
+    source_coords.transform_to(AltAz(obstime=times[0], location=telescope_loc))  # dummy
+
     # Loop over time samples
-    for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
+    for t, jd in enumerate(times):
         # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
         # (topocentric) cosines, with (tx, ty, tz) = (e, n, u) components
         # relative to the center of the array
-        tx, ty, tz = crd_top = np.dot(eq2top, crd_eq)
+        tx, ty, tz = crd_top = get_crd_top(source_coords, jd, telescope_loc)
+
         above_horizon = tz > 0
         tx = tx[above_horizon]
         ty = ty[above_horizon]
@@ -430,3 +426,10 @@ def _log_progress(start_time, prev_time, iters, niters, pr, last_mem):
     )
 
     return t, rss
+
+
+def get_crd_top(source_coords, time, telescope_loc):
+    """Obtain the topocentric coordinates for the sources."""
+    alt_az = source_coords.transform_to(AltAz(obstime=time, location=telescope_loc))
+    el, az = alt_az.alt.rad, alt_az.az.rad
+    return np.array([np.cos(el) * np.sin(az), np.cos(el) * np.cos(az), np.sin(el)])

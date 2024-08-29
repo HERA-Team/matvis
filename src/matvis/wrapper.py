@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+from astropy import units as un
+from astropy.coordinates import SkyCoord
 
 from . import HAVE_GPU, conversions, cpu
 
@@ -19,11 +21,11 @@ def simulate_vis(
     ra,
     dec,
     freqs,
-    lsts,
+    times,
     beams,
+    location,
     polarized=False,
     precision=1,
-    latitude=-30.7215 * np.pi / 180.0,
     use_feed="x",
     use_gpu: bool = False,
     beam_spline_opts: dict | None = None,
@@ -115,12 +117,6 @@ def simulate_vis(
     antpos = np.array([ants[k] for k in ants.keys()])
     nants = antpos.shape[0]
 
-    # Source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
-
-    # Get coordinate transforms as a function of LST
-    eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
-
     # Create beam pixel models (if requested)
     beams = [
         conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
@@ -129,18 +125,19 @@ def simulate_vis(
 
     if polarized:
         vis = np.zeros(
-            (freqs.size, lsts.size, nfeeds, nfeeds, nants, nants), dtype=complex_dtype
+            (freqs.size, times.size, nfeeds, nfeeds, nants, nants), dtype=complex_dtype
         )
     else:
-        vis = np.zeros((freqs.size, lsts.size, nants, nants), dtype=complex_dtype)
+        vis = np.zeros((freqs.size, times.size, nants, nants), dtype=complex_dtype)
 
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
         vis[i] = fnc(
             antpos=antpos,
             freq=freq,
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
+            source_coords=SkyCoord(ra * un.rad, dec * un.rad, frame="icrs"),
+            times=times,
+            telescope_loc=location,
             I_sky=fluxes[:, i],
             beam_list=beams,
             precision=precision,

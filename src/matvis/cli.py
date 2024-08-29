@@ -15,14 +15,15 @@ import logging
 import numpy as np
 import os
 import pickle
-from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from line_profiler import LineProfiler
 from pathlib import Path
 from pyuvdata import UVBeam
-from pyuvsim import AnalyticBeam, simsetup
+from pyuvdata.telescopes import get_telescope
+from pyuvsim import AnalyticBeam
 
 from matvis import DATA_PATH, HAVE_GPU, conversions, cpu, gpu, simulate_vis
+from matvis.cpu import get_crd_top
 
 simcpu = cpu.simulate
 simgpu = gpu.simulate
@@ -35,7 +36,8 @@ logger = logging.getLogger("matvis")
 
 # These specify which line(s) in the code correspond to which algorithmic step.
 CPU_STEPS = {
-    "eq2top": ("np.dot(eq2top",),
+    "crd-overhead": ("# dummy",),
+    "eq2top": ("get_crd_top(",),
     "beam_interp": ("_evaluate_beam_cpu(",),
     "get_tau": ("np.dot(antpos",),
     "get_antenna_vis": ("v = _get_antenna_vis(",),
@@ -79,6 +81,10 @@ main = click.Group()
     default=1,
 )
 @click.option(
+    "--beam-res",
+    default=1.0,
+)
+@click.option(
     "-g/-c",
     "--gpu/--cpu",
     default=False,
@@ -103,6 +109,7 @@ def profile(
     ntimes,
     nants,
     nbeams,
+    beam_res,
     nsource,
     gpu,
     double_precision,
@@ -128,11 +135,12 @@ def profile(
         ra,
         dec,
         freqs,
-        lsts,
+        times,
         cpu_beams,
-        hera_lat,
         beam_idx,
-    ) = get_standard_sim_params(analytic_beam, nfreq, ntimes, nants, nsource, nbeams)
+    ) = get_standard_sim_params(
+        analytic_beam, nfreq, ntimes, nants, nsource, nbeams, beam_res
+    )
 
     print("---------------------------------")
     print("Running vc-profile with:")
@@ -153,6 +161,7 @@ def profile(
         }
     else:
         profiler.add_function(simcpu)
+        profiler.add_function(get_crd_top)
         kw = {}
 
     profiler.runcall(
@@ -162,11 +171,11 @@ def profile(
         ra=ra,
         dec=dec,
         freqs=freqs,
-        lsts=lsts,
+        times=times,
         beams=cpu_beams,
         polarized=True,
         precision=2 if double_precision else 1,
-        latitude=hera_lat * np.pi / 180.0,
+        location=get_telescope("hera").location,
         use_gpu=gpu,
         beam_idx=beam_idx,
         **kw,
@@ -281,21 +290,13 @@ def get_stats_and_lines(filename, start_lineno, timings, time_unit):
 
 
 def get_standard_sim_params(
-    use_analytic_beam: bool, nfreq, ntime, nants, nsource, nbeams
+    use_analytic_beam: bool, nfreq, ntime, nants, nsource, nbeams, beam_res: float = 1.0
 ):
     """Create some standard random simulation parameters for use in profiling.
 
     Will create a sky with uniformly distributed point sources (half below the horizon).
 
     """
-    hera_lat = -30.7215
-    hera_lon = 21.4283
-    hera_alt = 1073.0
-    obstime = Time("2018-08-31T04:02:30.11", format="isot", scale="utc")
-
-    # HERA location
-    location = EarthLocation.from_geodetic(lat=hera_lat, lon=hera_lon, height=hera_alt)
-
     # Set the seed so that different runs take about the same time.
     np.random.seed(1)
 
@@ -307,6 +308,11 @@ def get_standard_sim_params(
         # downsampled to roughly 4 square-degree resolution.
         beam = UVBeam()
         beam.read_beamfits(beam_file)
+        beam.interp(
+            az_array=np.linspace(0, 2 * np.pi, int(360 / beam_res + 1)),
+            za_array=np.linspace(0, np.pi, int(90 // beam_res + 1)),
+            az_za_grid=True,
+        )
 
     beams = [beam] * nbeams
 
@@ -320,24 +326,7 @@ def get_standard_sim_params(
     # array is nants long.
     beam_idx = np.array(list(range(nbeams)) + [nbeams - 1] * (nants - nbeams))
 
-    # Observing parameters in a UVData object
-    uvdata = simsetup.initialize_uvdata_from_keywords(
-        Nfreqs=nfreq,
-        start_freq=100e6,
-        channel_width=97.3e3,
-        start_time=obstime.jd,
-        integration_time=182.0,  # Just over 3 mins between time samples
-        Ntimes=ntime,
-        array_layout=ants,
-        polarization_array=np.array(["XX", "YY", "XY", "YX"]),
-        telescope_location=(hera_lat, hera_lon, hera_alt),
-        telescope_name="test_array",
-        phase_type="drift",
-        vis_units="Jy",
-        complete=True,
-        write_files=False,
-    )
-    lsts = np.unique(uvdata.lst_array)
+    times = Time(np.linspace(2459865.0, 2459866.0, ntime), format="jd")
 
     # The first source always near zenith (makes sure there's always at least one
     # source above the horizon at the first time).
@@ -357,12 +346,7 @@ def get_standard_sim_params(
     spec_indx = np.random.normal(0.8, scale=0.05, size=nsource)
 
     # Source locations and frequencies
-    freqs = np.unique(uvdata.freq_array)
-
-    # Correct source locations so that matvis uses the right frame
-    ra, dec = conversions.equatorial_to_eci_coords(
-        ra, dec, obstime, location, unit="rad", frame="icrs"
-    )
+    freqs = np.linspace(100e6, 200e6, nfreq)
 
     # Calculate source fluxes for matvis
     flux = ((freqs[:, np.newaxis] / freqs[0]) ** spec_indx.T * flux0.T).T
@@ -373,8 +357,7 @@ def get_standard_sim_params(
         ra,
         dec,
         freqs,
-        lsts,
+        times,
         beams,
-        hera_lat,
         beam_idx,
     )

@@ -275,17 +275,18 @@ def prepare_beam(
     interpolated to an (l,m) grid, or passed to  matvis. The output beam type is
     dependent on the input parameters ``polarized`` and ``use_feed``.
     """
+    # Interpolate beam onto cube
+    if polarized:
+        if uvbeam.beam_type != "efield":
+            raise ValueError("Beam type must be efield")
+        return uvbeam
+
     use_feed = use_feed.lower()
     if use_feed not in "xy":
         raise ValueError("use_feed must be either 'x' or 'y'")
     use_pol = use_feed * 2
 
-    # Interpolate beam onto cube
-    if polarized:
-        if uvbeam.beam_type != "efield":
-            raise ValueError("Beam type must be efield")
-        uvbeam_ = uvbeam
-    elif uvbeam.beam_type == "efield":
+    if uvbeam.beam_type == "efield":
         uvbeam_ = uvbeam.copy() if isinstance(uvbeam, UVBeam) else deepcopy(uvbeam)
         # Analytic beams have no concept of feeds, so assume they have a "single" feed
         if getattr(uvbeam_, "Nfeeds", 1) > 1:
