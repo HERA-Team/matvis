@@ -311,7 +311,9 @@ def simulate(
 
     highest_peak = _memtrace(highest_peak)
 
-    source_coords.transform_to(AltAz(obstime=times[0], location=telescope_loc))  # dummy
+    source_coords[0].transform_to(
+        AltAz(obstime=times[0], location=telescope_loc)
+    )  # dummy
 
     # Loop over time samples
     for t, jd in enumerate(times):
