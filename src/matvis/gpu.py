@@ -12,12 +12,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from pyuvdata import UVBeam
 from typing import Callable, Optional
+from astropy.coordinates import SkyCoord, AltAz
 
 from . import conversions
 from ._utils import ceildiv
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
 from .cpu import _evaluate_beam_cpu, _log_progress, _validate_inputs, _wrangle_beams
 from .cpu import simulate as simcpu
+from .cpu import get_crd_top
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +104,9 @@ def simulate(
     *,
     antpos: np.ndarray,
     freq: float,
-    eq2tops: np.ndarray,
-    crd_eq: np.ndarray,
+    times: Time,
+    source_coords: SkyCoord,
+    telescope_loc: EarthLocation,
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | Callable] | None,
     polarized: bool = False,
@@ -115,12 +118,14 @@ def simulate(
     beam_spline_opts: dict | None = None,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
+    setup_time = time.time()
+
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
     pr = psutil.Process()
     nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, eq2tops, crd_eq, I_sky
+        precision, polarized, antpos, times, I_sky
     )
 
     if beam_spline_opts:
@@ -147,8 +152,6 @@ def simulate(
 
     # ensure data types
     antpos = antpos.astype(real_dtype)
-    eq2tops = eq2tops.astype(real_dtype)
-    crd_eq = crd_eq.astype(real_dtype)
     Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
 
     beam_list, nbeam, beam_idx = _wrangle_beams(
@@ -269,10 +272,10 @@ def simulate(
     else:
         beam_data_gpu = None
 
-    # will be set on GPU by bm_interp
-    crd_eq_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
-    # sent from CPU each time
-    eq2top_gpu = gpuarray.empty(shape=(3, 3), dtype=real_dtype)
+    # # will be set on GPU by bm_interp
+    # crd_eq_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
+    # # sent from CPU each time
+    # eq2top_gpu = gpuarray.empty(shape=(3, 3), dtype=real_dtype)
     # will be set on GPU
     crdtop_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
     # will be set on GPU
@@ -310,39 +313,46 @@ def simulate(
     mlast = pr.memory_info().rss
     plast = tstart
 
-    for t in range(ntimes):
-        eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
+    source_coords[0].transform_to(AltAz(obstime=times[0], location=telescope_loc))
+    end_setup = time.time()
+    print("SETUP TIME: ", end_setup - setup_time)
+
+    for t, jd in enumerate(times):
+        #eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
         events = [{e: driver.Event() for e in event_order} for _ in range(nchunks)]
+    
 
         for c, (stream, event) in enumerate(zip(streams, events)):
             event["start"].record(stream)
-            crd_eq_gpu.set_async(crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream)
+            #crd_eq_gpu.set_async(crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream)
+            tx, ty, tz = get_crd_top(source_coords[c*npixc:(c+1)*npixc], jd, telescope_loc)
+
             Isqrt_gpu.set_async(Isqrt[c * npixc : (c + 1) * npixc], stream=stream)
             event["upload"].record(stream)
 
             cublasSetStream(h, stream.handle)
 
-            # cublas arrays are in Fortran order, so P=M*N is actually
-            # peformed as P.T = N.T * M.T
-            cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
-                h,
-                "n",
-                "n",
-                npixc,
-                3,
-                3,
-                1.0,
-                crd_eq_gpu.gpudata,
-                npixc,
-                eq2top_gpu.gpudata,
-                3,
-                0.0,
-                crdtop_gpu.gpudata,
-                npixc,
-            )
-            event["eq2top"].record(stream)
+            # # cublas arrays are in Fortran order, so P=M*N is actually
+            # # peformed as P.T = N.T * M.T
+            # cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
+            #     h,
+            #     "n",
+            #     "n",
+            #     npixc,
+            #     3,
+            #     3,
+            #     1.0,
+            #     crd_eq_gpu.gpudata,
+            #     npixc,
+            #     eq2top_gpu.gpudata,
+            #     3,
+            #     0.0,
+            #     crdtop_gpu.gpudata,
+            #     npixc,
+            # )
+            # event["eq2top"].record(stream)
 
-            tx, ty, tz = crdtop_gpu.get_async(stream=stream)
+            # tx, ty, tz = crdtop_gpu.get_async(stream=stream)
             above_horizon = tz > 0
             tx = tx[above_horizon]
             ty = ty[above_horizon]
@@ -473,9 +483,12 @@ def simulate(
         if not (t % report_chunk or t == ntimes - 1):
             plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
+    print("TIME FOR TIME-LOOP: ", time.time() - end_setup)
+
     # teardown GPU configuration
     cublasDestroy(h)
     vis = vis.conj().reshape((ntimes, nfeed, nant, nfeed, nant))
+   
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
 
 

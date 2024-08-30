@@ -36,7 +36,7 @@ logger = logging.getLogger("matvis")
 
 # These specify which line(s) in the code correspond to which algorithmic step.
 CPU_STEPS = {
-    "crd-overhead": ("# dummy",),
+    "crd-overhead": ("source_coords[0].transform_to",),
     "eq2top": ("get_crd_top(",),
     "beam_interp": ("_evaluate_beam_cpu(",),
     "get_tau": ("np.dot(antpos",),
@@ -45,7 +45,8 @@ CPU_STEPS = {
 }
 
 GPU_STEPS = {
-    "eq2top": ("# compute crdtop",),
+    "crd-overhead": ("source_coords[0].transform_to",),
+    "eq2top": ("get_crd_top(",),
     "beam_interp": ("do_beam_interpolation(",),
     "get_tau": ("# compute tau",),
     "get_antenna_vis": ("meas_eq(",),

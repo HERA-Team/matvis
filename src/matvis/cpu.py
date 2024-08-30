@@ -268,6 +268,7 @@ def simulate(
         shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
         shape (NTIMES, NANTS, NANTS).
     """
+    setup_time = time.time()
     if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
         tm.start()
 
@@ -311,9 +312,9 @@ def simulate(
 
     highest_peak = _memtrace(highest_peak)
 
-    source_coords[0].transform_to(
-        AltAz(obstime=times[0], location=telescope_loc)
-    )  # dummy
+    source_coords[0].transform_to(AltAz(obstime=times[0], location=telescope_loc))
+    end_setup = time.time()
+    print("TOTAL SETUP TIME: ", end_setup - setup_time)
 
     # Loop over time samples
     for t, jd in enumerate(times):
@@ -362,6 +363,7 @@ def simulate(
             highest_peak = _memtrace(highest_peak)
 
     vis.shape = (ntimes, nfeed, nant, nfeed, nant)
+    print("TIME FOR TIME-LOOP: ", time.time() - end_setup)
 
     # Return visibilities with or without multiple polarization channels
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
