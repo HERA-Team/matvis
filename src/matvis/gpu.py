@@ -8,18 +8,23 @@ import psutil
 import time
 import warnings
 from astropy.constants import c as speed_of_light
+from astropy.coordinates import AltAz, SkyCoord
 from collections.abc import Sequence
 from pathlib import Path
 from pyuvdata import UVBeam
 from typing import Callable, Optional
-from astropy.coordinates import SkyCoord, AltAz
 
 from . import conversions
 from ._utils import ceildiv
 from ._uvbeam_to_raw import uvbeam_to_azza_grid
-from .cpu import _evaluate_beam_cpu, _log_progress, _validate_inputs, _wrangle_beams
+from .cpu import (
+    _evaluate_beam_cpu,
+    _log_progress,
+    _validate_inputs,
+    _wrangle_beams,
+    get_crd_top,
+)
 from .cpu import simulate as simcpu
-from .cpu import get_crd_top
 
 logger = logging.getLogger(__name__)
 
@@ -318,14 +323,15 @@ def simulate(
     print("SETUP TIME: ", end_setup - setup_time)
 
     for t, jd in enumerate(times):
-        #eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
+        # eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
         events = [{e: driver.Event() for e in event_order} for _ in range(nchunks)]
-    
 
         for c, (stream, event) in enumerate(zip(streams, events)):
             event["start"].record(stream)
-            #crd_eq_gpu.set_async(crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream)
-            tx, ty, tz = get_crd_top(source_coords[c*npixc:(c+1)*npixc], jd, telescope_loc)
+            # crd_eq_gpu.set_async(crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream)
+            tx, ty, tz = get_crd_top(
+                source_coords[c * npixc : (c + 1) * npixc], jd, telescope_loc
+            )
 
             Isqrt_gpu.set_async(Isqrt[c * npixc : (c + 1) * npixc], stream=stream)
             event["upload"].record(stream)
@@ -488,7 +494,7 @@ def simulate(
     # teardown GPU configuration
     cublasDestroy(h)
     vis = vis.conj().reshape((ntimes, nfeed, nant, nfeed, nant))
-   
+
     return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
 
 
