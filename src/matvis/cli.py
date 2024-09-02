@@ -98,6 +98,11 @@ main = click.Group()
     "-n", "--gpu-nthreads", default=1024, help="Number of threads to use for GPU"
 )
 @click.option(
+    "--min-chunks",
+    default=1,
+    help="Minimum number of chunks over source-axis to use",
+)
+@click.option(
     "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
 )
 @click.option(
@@ -122,6 +127,7 @@ def profile(
     verbose,
     log_level,
     gpu_nthreads,
+    min_chunks,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -186,6 +192,7 @@ def profile(
         location=get_telescope("hera").location,
         use_gpu=gpu,
         beam_idx=beam_idx,
+        min_chunks=min_chunks,
         **kw,
     )
 

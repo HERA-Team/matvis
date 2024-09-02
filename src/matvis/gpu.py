@@ -117,7 +117,6 @@ def simulate(
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
     nthreads: int = 1024,
-    max_memory: int = 2**29,
     min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
