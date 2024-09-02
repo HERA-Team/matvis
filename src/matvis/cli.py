@@ -21,14 +21,18 @@ from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvdata.telescopes import get_telescope
 from pyuvsim import AnalyticBeam
+from rich.console import Console
+from rich.rule import Rule
 
-from matvis import DATA_PATH, HAVE_GPU, conversions, cpu, gpu, simulate_vis
+from matvis import DATA_PATH, HAVE_GPU, __version__, conversions, cpu, gpu, simulate_vis
 from matvis.cpu import get_crd_top
 
 simcpu = cpu.simulate
 simgpu = gpu.simulate
 
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
+
+cns = Console()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("matvis")
@@ -143,17 +147,20 @@ def profile(
         analytic_beam, nfreq, ntimes, nants, nsource, nbeams, beam_res
     )
 
-    print("---------------------------------")
-    print("Running vc-profile with:")
-    print(f"  NANTS:            {nants:>7}")
-    print(f"  NTIMES:           {ntimes:>7}")
-    print(f"  NFREQ:            {nfreq:>7}")
-    print(f"  NBEAMS:           {nbeams:>7}")
-    print(f"  NSOURCE:          {nsource:>7}")
-    print(f"  GPU:              {gpu:>7}")
-    print(f"  DOUBLE-PRECISION: {double_precision:>7}")
-    print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
-    print("---------------------------------")
+    cns.print(f"matvis version: {__version__}")
+
+    cns.print(Rule())
+    cns.print("Running matvis profile with:")
+    cns.print(f"  NANTS:            {nants:>7}")
+    cns.print(f"  NTIMES:           {ntimes:>7}")
+    cns.print(f"  NFREQ:            {nfreq:>7}")
+    cns.print(f"  NBEAMS:           {nbeams:>7}")
+    cns.print(f"  NSOURCE:          {nsource:>7}")
+    cns.print(f"  GPU:              {gpu:>7}")
+    cns.print(f"  DOUBLE-PRECISION: {double_precision:>7}")
+    cns.print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
+    cns.print(f"  BEAM RES:         {beam_res:>7}")
+    cns.print(Rule())
 
     if gpu:
         profiler.add_function(simgpu)
@@ -200,13 +207,13 @@ def profile(
         line_stats, total_time, GPU_STEPS if gpu else CPU_STEPS
     )
 
-    print()
-    print("------------- Summary of timings -------------")
+    cns.print()
+    cns.print(Rule("Summary of timings"))
     for thing, (hits, time, time_per_hit, percent, nlines) in thing_stats.items():
-        print(
+        cns.print(
             f"{thing:>19}: {hits:>4} hits, {time:.3e} seconds, {time_per_hit:.3e} sec/hit, {percent:3.2f}%, {nlines} lines"
         )
-    print("----------------------------------------------")
+    cns.print(Rule())
 
     with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
         pickle.dump(thing_stats, fl)
