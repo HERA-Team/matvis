@@ -1,4 +1,5 @@
 """Test the utils module."""
+
 from matvis import _utils
 
 

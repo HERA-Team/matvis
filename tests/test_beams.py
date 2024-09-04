@@ -1,4 +1,5 @@
 """Test that pixel and analytic beams are properly aligned."""
+
 import pytest
 
 import numpy as np
@@ -366,7 +367,7 @@ def test_wrong_coord_system(uvbeam):
     with pytest.raises(ValueError, match="Can only handle one frequency"):
         uvbeam_to_azza_grid(uvbeam)
 
-    newfreq = np.array([beam.freq_array[0, 0]])
+    newfreq = np.array([beam.freq_array[0]])
     print(newfreq.shape)
     newuv = uvbeam.interp(
         freq_array=newfreq,
@@ -399,7 +400,7 @@ def test_nan_in_cpu_beam(uvbeam):
     tx = np.linspace(-1, 1, 100)
     ty = tx
 
-    freq = beam.freq_array[0, 0]
+    freq = np.array([beam.freq_array[0]])
 
     bmfunc = UVBeamInterpolator(
         beam_list=[beam],

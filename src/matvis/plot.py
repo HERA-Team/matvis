@@ -1,4 +1,5 @@
 """Plotting convenience functions to help in analyzing matvis output."""
+
 import numpy as np
 
 from . import coordinates

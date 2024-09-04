@@ -1,4 +1,5 @@
 """Global configuration for pytest."""
+
 import pytest
 
 from pyuvdata.uvbeam import UVBeam

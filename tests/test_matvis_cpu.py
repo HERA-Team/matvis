@@ -1,4 +1,5 @@
 """Tests of matvis_cpu."""
+
 import pytest
 
 import numpy as np

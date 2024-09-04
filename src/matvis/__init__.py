@@ -1,4 +1,5 @@
 """A fast visibility simulator based on per-antenna calculations."""
+
 from pkg_resources import DistributionNotFound, get_distribution
 
 from pathlib import Path
