@@ -380,17 +380,6 @@ def test_wrong_coord_system(uvbeam):
         uvbeam_to_azza_grid(uvbeam)
 
     newfreq = np.array([beam.freq_array[0]])
-    print(newfreq.shape)
-    newuv = uvbeam.interp(
-        freq_array=newfreq,
-        az_array=np.array([0, 0.5, 1.2]),
-        za_array=np.array([0, 0.2, 0.4]),
-        az_za_grid=True,
-        new_object=True,
-    )
-
-    with pytest.raises(ValueError, match="Input UVBeam is not regular"):
-        uvbeam_to_azza_grid(newuv)
 
     newuv = uvbeam.interp(
         freq_array=newfreq,

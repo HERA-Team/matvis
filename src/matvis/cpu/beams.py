@@ -29,13 +29,12 @@ class UVBeamInterpolator(BeamInterpolator):
                 {
                     "reuse_spline": True,
                     "check_azza_domain": False,
+                    "interpolation_function": "az_za_map_coordinates",
                     "spline_opts": self.spline_opts,
                 }
                 if isinstance(bm, UVBeam)
                 else {}
             )
-            if isinstance(bm, UVBeam) and not bm.future_array_shapes:
-                bm.use_future_array_shapes()
 
             interp_beam = bm.interp(
                 az_array=az,

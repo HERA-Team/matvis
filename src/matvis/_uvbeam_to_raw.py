@@ -74,18 +74,8 @@ def uvbeam_to_azza_grid(
     if naz is None:
         naz = len(az)
 
-    is_regular_grid = np.allclose(delta_az, delta_az[0]) and np.allclose(
-        delta_za, delta_za[0]
-    )
-
-    if is_regular_grid and dza is None:
+    if dza is None:
         dza = delta_za[0]
-    elif not is_regular_grid:
-        raise ValueError(
-            "Input UVBeam is not regular, so you must supply your desired dza. "
-            f"az diffs between ({delta_az.min(), delta_az.max()}). "
-            f"za diffs between ({delta_za.min(), delta_za.max()}). "
-        )
 
     delta_az = delta_az[0]
     delta_za = delta_za[0]
@@ -132,20 +122,10 @@ def uvbeam_to_azza_grid(
         uvbeam.use_future_array_shapes()
 
     # Simplest Case: everything is already in the regular format we need.
-    if (
-        naz == len(az)
-        and np.isclose(dza, delta_za)
-        and is_regular_grid
-        and covers_sky_strong
-    ):
+    if naz == len(az) and np.isclose(dza, delta_za) and covers_sky_strong:
         # Returned data has shape (Nax, Nfeeds, Nza, Naz)
         return uvbeam.data_array[:, :, 0], delta_az, dza
-    elif (
-        naz == len(az)
-        and np.isclose(dza, delta_za)
-        and is_regular_grid
-        and covers_sky_almost_strong
-    ):
+    elif naz == len(az) and np.isclose(dza, delta_za) and covers_sky_almost_strong:
         data = uvbeam.data_array[:, :, 0]
         data = np.concatenate((data, data[..., [0]]), axis=-1)
         return data, delta_az, dza
