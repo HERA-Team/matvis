@@ -14,6 +14,14 @@ ERFA_SRS = 1.97412574336e-8
 class CoordinateRotationAstropy(CoordinateRotation):
     """Perform coordinate rotation with astropy directly."""
 
+    def setup(self):
+        """Warmup cache as well as initializing memory."""
+        super().setup()
+
+        # Do one rotation to warm up the cache.
+        frame = AltAz(obstime=self.times[0], location=self.telescope_loc)
+        self.skycoords[0].transform_to(frame)
+
     def rotate(self, t: int) -> tuple[np.ndarray, np.ndarray]:
         """Compute the topocentric coordinates from the given time and telescope loc."""
         frame = AltAz(obstime=self.times[t], location=self.telescope_loc)
@@ -47,6 +55,9 @@ class CoordinateRotationERFA(CoordinateRotation):
         self._eci = self.xp.asarray(
             point_source_crd_eq(self.skycoords.ra, self.skycoords.dec)
         )
+        # Do one rotation to warm up the cache.
+        frame = AltAz(obstime=self.times[0], location=self.telescope_loc)
+        self.skycoords[0].transform_to(frame)
 
     def _atioq(self, xyz: np.ndarray, astrom):
         # cirs to hadec rot

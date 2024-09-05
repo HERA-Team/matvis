@@ -59,7 +59,7 @@ def simulate(
     min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
-    coords_method: str = "CoordinateRotationAstropy",
+    coord_method: str = "CoordinateRotationAstropy",
     matprod_method: str = "GPUMatMul",
     source_buffer: float = 1.0,
 ) -> np.ndarray:
@@ -105,8 +105,8 @@ def simulate(
         nsrc=nsrc_alloc,
         precision=precision,
     )
-    coords_method = CoordinateRotation._methods[coords_method]
-    coords = coords_method(
+    coord_method = CoordinateRotation._methods[coord_method]
+    coords = coord_method(
         flux=np.sqrt(0.5 * I_sky),
         times=times,
         telescope_loc=telescope_loc,

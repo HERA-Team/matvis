@@ -15,15 +15,25 @@ import logging
 import numpy as np
 import os
 import pickle
+import time
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from line_profiler import LineProfiler
 from pathlib import Path
 from pyuvdata import UVBeam
+from pyuvdata.telescopes import get_telescope
 from pyuvsim import AnalyticBeam, simsetup
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.rule import Rule
+from rich.traceback import Traceback
 from typing import Literal
 
 from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, simulate_vis
+
+from .core.coords import CoordinateRotation
+
+logging.basicConfig(handlers=[RichHandler(rich_tracebacks=True)])
 
 if HAVE_GPU:
     from matvis import gpu
@@ -38,13 +48,14 @@ beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("matvis")
 
+cns = Console()
 
 # These specify which line(s) in the code correspond to which algorithmic step.
 STEPS = {
     "Coordinate Rotation": ("coords.rotate(t)", "coords.select_chunk("),
     "Beam Interpolation": ("bmfunc(",),
-    "Compute exp(tau)": ("exp(",),
-    "Compute Z": ("zcalc.compute(",),
+    "Compute exp(tau)": ("taucalc(",),
+    "Compute Z": ("zcalc(",),
     "Compute V": ("matprod(",),
 }
 
@@ -58,7 +69,7 @@ def get_label(**kwargs):
     precision = 2 if kwargs["double_precision"] else 1
     return (
         "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_"
-        "naz{naz}_nza{nza}_g{gpu}_pr{precision}_{method}"
+        "naz{naz}_nza{nza}_g{gpu}_pr{precision}_{matprod_method}_{coord_method}"
     ).format(precision=precision, **kwargs)
 
 
@@ -74,7 +85,8 @@ def run_profile(
     outdir,
     verbose,
     log_level,
-    method,
+    matprod_method,
+    coord_method,
     naz=360,
     nza=180,
     pairs=None,
@@ -93,33 +105,35 @@ def run_profile(
         ra,
         dec,
         freqs,
-        lsts,
+        times,
         cpu_beams,
-        hera_lat,
         beam_idx,
     ) = get_standard_sim_params(
         analytic_beam, nfreq, ntimes, nants, nsource, nbeams, naz=naz, nza=nza
     )
 
-    print("---------------------------------")
-    print("Running matvis profile with:")
-    print(f"  NANTS:            {nants:>7}")
-    print(f"  NTIMES:           {ntimes:>7}")
-    print(f"  NFREQ:            {nfreq:>7}")
-    print(f"  NBEAMS:           {nbeams:>7}")
-    print(f"  NSOURCE:          {nsource:>7}")
-    print(f"  GPU:              {gpu:>7}")
-    print(f"  DOUBLE-PRECISION: {double_precision:>7}")
-    print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
-    print(f"  METHOD:           {method:>7}")
-    print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
-    print("---------------------------------")
+    cns.print(Rule("Running matvis profile"))
+    cns.print(f"  NANTS:            {nants:>7}")
+    cns.print(f"  NTIMES:           {ntimes:>7}")
+    cns.print(f"  NFREQ:            {nfreq:>7}")
+    cns.print(f"  NBEAMS:           {nbeams:>7}")
+    cns.print(f"  NSOURCE:          {nsource:>7}")
+    cns.print(f"  GPU:              {gpu:>7}")
+    cns.print(f"  DOUBLE-PRECISION: {double_precision:>7}")
+    cns.print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
+    cns.print(f"  MATPROD METHOD:   {matprod_method:>7}")
+    cns.print(f"  COORDROT METHOD:  {coord_method:>7}")
+    cns.print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
+    cns.print(f"  NAZ:              {naz:>7}")
+    cns.print(f"  NZA:              {nza:>7}")
+    cns.print(Rule())
 
     if gpu:
         profiler.add_function(simgpu)
     else:
         profiler.add_function(simcpu)
 
+    init_time = time.time()
     profiler.runcall(
         simulate_vis,
         ants=ants,
@@ -127,18 +141,20 @@ def run_profile(
         ra=ra,
         dec=dec,
         freqs=freqs,
-        lsts=lsts,
+        times=times,
         beams=cpu_beams,
         polarized=True,
         precision=2 if double_precision else 1,
-        latitude=hera_lat * np.pi / 180.0,
+        telescope_loc=get_telescope("hera").location,
         use_gpu=gpu,
         beam_idx=beam_idx,
-        matprod_method=f"{'GPU' if gpu else 'CPU'}{method}",
+        matprod_method=f"{'GPU' if gpu else 'CPU'}{matprod_method}",
+        coord_method=coord_method,
         antpairs=pairs,
         min_chunks=nchunks,
         source_buffer=source_buffer,
     )
+    out_time = time.time()
 
     outdir = Path(outdir).expanduser().absolute()
 
@@ -151,7 +167,8 @@ def run_profile(
         nsource=nsource,
         gpu=gpu,
         double_precision=double_precision,
-        method=method,
+        matprod_method=matprod_method,
+        coord_method=coord_method,
         naz=naz,
         nza=nza,
     )
@@ -162,16 +179,17 @@ def run_profile(
     if verbose:
         profiler.print_stats()
 
-    line_stats, total_time = get_line_based_stats(profiler.get_stats())
-    thing_stats = get_summary_stats(line_stats, total_time, STEPS)
+    line_stats = get_line_based_stats(profiler.get_stats())
+    thing_stats = get_summary_stats(line_stats, STEPS)
 
-    print()
-    print("------------- Summary of timings -------------")
-    for thing, (hits, time, time_per_hit, percent, nlines) in thing_stats.items():
-        print(
-            f"{thing:>19}: {hits:>4} hits, {time:.3e} seconds, {time_per_hit:.3e} sec/hit, {percent:3.2f}%, {nlines} lines"
+    cns.print()
+    cns.print(Rule("Summary of timings"))
+    cns.print(f"         Total Time:            {out_time - init_time:.3e} seconds")
+    for thing, (hits, _time, time_per_hit, percent, nlines) in thing_stats.items():
+        cns.print(
+            f"{thing:>19}: {hits:>4} hits, {_time:.3e} seconds, {time_per_hit:.3e} sec/hit, {percent:4.2f}%, {nlines} lines"
         )
-    print("----------------------------------------------")
+    cns.print(Rule())
 
     with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
         pickle.dump(thing_stats, fl)
@@ -196,9 +214,14 @@ common_profile_options = [
         default=False,
     ),
     click.option(
-        "--method",
+        "--matprod-method",
         default="MatMul",
         type=click.Choice(["MatMul", "VectorDot"]),
+    ),
+    click.option(
+        "--coord-method",
+        default="CoordinateRotationAstropy",
+        type=click.Choice(list(CoordinateRotation._methods.keys())),
     ),
     click.option(
         "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
@@ -298,29 +321,16 @@ def get_line_based_stats(lstats) -> tuple[dict, float]:
     """Convert the line-number based stats into line-based stats."""
     time_unit = lstats.unit
     (fn, lineno, name), timings = sorted(lstats.timings.items())[0]
-    d, total_time = get_stats_and_lines(fn, lineno, timings, time_unit)
-    return d, total_time
+    return get_stats_and_lines(fn, lineno, timings, time_unit)
 
 
-def get_summary_stats(line_data, total_time, ids):
+def get_summary_stats(line_data, ids):
     """Convert a line-by-line set of stats into a summary of major components."""
     # specify contents of lines where important things happen
-    thing_stats = {"total": (1, total_time, total_time / 1, 100, len(line_data))}
+    thing_stats = {}  # "total": (1, total_time, total_time / 1, 100, len(line_data))}
     for thing, lines in ids.items():
-        init_line = None
-        assoc_lines = []
         for dd in line_data:
-            if lines[0] in dd:
-                init_line = dd
-                assoc_lines.append(init_line)
-
-            if len(lines) > 1 and init_line:
-                assoc_lines.append(dd)
-
-                if lines[1] in dd:
-                    break
-            elif len(lines) == 1 and init_line:
-                break
+            assoc_lines = [dd for line in lines if line in dd]
 
         if not assoc_lines:
             raise RuntimeError(
@@ -345,8 +355,8 @@ def get_stats_and_lines(filename, start_lineno, timings, time_unit):
     d = {}
     total_time = 0.0
     linenos = []
-    for lineno, nhits, time in timings:
-        total_time += time
+    for lineno, nhits, _time in timings:
+        total_time += _time
         linenos.append(lineno)
 
     if not os.path.exists(filename):
@@ -357,19 +367,19 @@ def get_stats_and_lines(filename, start_lineno, timings, time_unit):
     sublines = inspect.getblock(all_lines[start_lineno - 1 :])
     all_linenos = list(range(start_lineno, start_lineno + len(sublines)))
 
-    for lineno, nhits, time in timings:
-        percent = 100 * time / total_time
+    for lineno, nhits, _time in timings:
+        percent = 100 * _time / total_time
         idx = all_linenos.index(lineno)
 
         d[sublines[idx].rstrip("\n").rstrip("\r")] = (
             nhits,
-            time * time_unit,
-            float(time) / nhits * time_unit,
+            _time * time_unit,
+            float(_time) / nhits * time_unit,
             percent,
             lineno,
         )
 
-    return d, total_time * time_unit
+    return d
 
 
 def get_standard_sim_params(
@@ -378,18 +388,9 @@ def get_standard_sim_params(
     """Create some standard random simulation parameters for use in profiling.
 
     Will create a sky with uniformly distributed point sources (half below the horizon).
-
     """
-    hera_lat = -30.7215
-    hera_lon = 21.4283
-    hera_alt = 1073.0
-    obstime = Time("2018-08-31T04:02:30.11", format="isot", scale="utc")
-
-    # HERA location
-    location = EarthLocation.from_geodetic(lat=hera_lat, lon=hera_lon, height=hera_alt)
-
     # Set the seed so that different runs take about the same time.
-    np.random.seed(1)
+    rng = np.random.default_rng()
 
     # Beam model
     if use_analytic_beam:
@@ -414,9 +415,9 @@ def get_standard_sim_params(
     beams = [beam] * nbeams
 
     # Random antenna locations
-    x = np.random.random(nants) * 400.0  # Up to 400 metres
-    y = np.random.random(nants) * 400.0
-    z = np.random.random(nants) * 0.0
+    x = rng.uniform(size=nants) * 400.0  # Up to 400 metres
+    y = rng.uniform(size=nants) * 400.0
+    z = np.zeros(nants)
     ants = {i: (x[i], y[i], z[i]) for i in range(nants)}
 
     # This will make the beam_idx like [0,1,2,3,3,3,3,3,3,3] where nbeams=4 and the
@@ -426,24 +427,7 @@ def get_standard_sim_params(
     else:
         beam_idx = np.array(list(range(nbeams)) + [nbeams - 1] * (nants - nbeams))
 
-    # Observing parameters in a UVData object
-    uvdata = simsetup.initialize_uvdata_from_keywords(
-        Nfreqs=nfreq,
-        start_freq=100e6,
-        channel_width=97.3e3,
-        start_time=obstime.jd,
-        integration_time=182.0,  # Just over 3 mins between time samples
-        Ntimes=ntime,
-        array_layout=ants,
-        polarization_array=np.array(["XX", "YY", "XY", "YX"]),
-        telescope_location=(hera_lat, hera_lon, hera_alt),
-        telescope_name="test_array",
-        phase_type="drift",
-        vis_units="Jy",
-        complete=True,
-        write_files=False,
-    )
-    lsts = np.unique(uvdata.lst_array)
+    times = Time(np.linspace(2459865.0, 2459866.0, ntime), format="jd")
 
     # The first source always near zenith (makes sure there's always at least one
     # source above the horizon at the first time).
@@ -463,12 +447,7 @@ def get_standard_sim_params(
     spec_indx = np.random.normal(0.8, scale=0.05, size=nsource)
 
     # Source locations and frequencies
-    freqs = np.unique(uvdata.freq_array)
-
-    # Correct source locations so that matvis uses the right frame
-    ra, dec = coordinates.equatorial_to_eci_coords(
-        ra, dec, obstime, location, unit="rad", frame="icrs"
-    )
+    freqs = np.linspace(100e6, 200e6, nfreq)
 
     # Calculate source fluxes for matvis
     flux = ((freqs[:, np.newaxis] / freqs[0]) ** spec_indx.T * flux0.T).T
@@ -479,8 +458,7 @@ def get_standard_sim_params(
         ra,
         dec,
         freqs,
-        lsts,
+        times,
         beams,
-        hera_lat,
         beam_idx,
     )

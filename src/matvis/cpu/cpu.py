@@ -56,19 +56,6 @@ def simulate(
         Antenna position array. Shape=(NANT, 3).
     freq : float
         Frequency to evaluate the visibilities at [GHz].
-    eq2tops : array_like
-        Set of 3x3 transformation matrices to rotate the RA and Dec
-        cosines in an ECI coordinate system (see `crd_eq`) to
-        topocentric ENU (East-North-Up) unit vectors at each
-        time/LST/hour angle in the dataset.
-        Shape=(NTIMES, 3, 3).
-    crd_eq : array_like
-        Cartesian unit vectors of sources in an ECI (Earth Centered
-        Inertial) system, which has the Earth's center of mass at
-        the origin, and is fixed with respect to the distant stars.
-        The components of the ECI vector for each source are:
-        (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
-        Shape=(3, NSRCS).
     I_sky : array_like
         Intensity distribution of sources/pixels on the sky, assuming intensity
         (Stokes I) only. The Stokes I intensity will be split equally between
@@ -136,6 +123,8 @@ def simulate(
         shape (NTIMES, NBLS).
 
     """
+    init_time = time.time()
+
     if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
         tm.start()
 
@@ -213,6 +202,9 @@ def simulate(
     plast = tstart
 
     highest_peak = memtrace(highest_peak)
+    setup_time = time.time()
+
+    logger.info(f"Setup Time: {setup_time - init_time:1.3e}")
 
     # Loop over time samples
     for t in range(ntimes):
@@ -235,11 +227,14 @@ def simulate(
 
             matprod(z, c)
 
-            if not (t % report_chunk or t == ntimes - 1):
+            if not t % report_chunk and t != ntimes - 1 and c == nchunks - 1:
                 plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
                 highest_peak = memtrace(highest_peak)
 
         matprod.sum_chunks(vis[t])
         logdebug("vis", vis[t])
+
+    final_time = time.time()
+    logger.info(f"Loop Time: {final_time - setup_time:1.3e}")
 
     return vis if polarized else vis[:, :, 0, 0]
