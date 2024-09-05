@@ -1,6 +1,5 @@
 """Tests of the cublas wrapper functions."""
 
-
 import pytest
 
 pytest.importorskip("cupy")

@@ -1,4 +1,5 @@
 """CPU-based beam evaluation."""
+
 import numpy as np
 from pyuvdata import UVBeam
 
