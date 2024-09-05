@@ -1,4 +1,5 @@
 """CPU-based implementation of the matvis visibility simulator."""
+
 from __future__ import annotations
 
 import logging
@@ -6,6 +7,8 @@ import numpy as np
 import psutil
 import time
 import tracemalloc as tm
+from astropy.coordinates import EarthLocation, SkyCoord
+from astropy.time import Time
 from collections.abc import Sequence
 
 # from pympler import tracker
@@ -27,8 +30,9 @@ def simulate(
     *,
     antpos: np.ndarray,
     freq: float,
-    eq2tops: np.ndarray,
-    crd_eq: np.ndarray,
+    times: Time,
+    skycoords: SkyCoord,
+    telescope_loc: EarthLocation,
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | Callable] | None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
@@ -38,6 +42,7 @@ def simulate(
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
     matprod_method: str = "CPUMatMul",
+    coord_method: str = "CoordinateRotationAstropy",
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
@@ -137,7 +142,7 @@ def simulate(
     highest_peak = memtrace(0)
 
     nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, eq2tops, crd_eq, I_sky
+        precision, polarized, antpos, times, I_sky
     )
 
     rtype, ctype = get_dtypes(precision)
@@ -166,10 +171,12 @@ def simulate(
         nsrc=nsrc_alloc,
     )
 
-    coords = CoordinateRotation(
+    coord_method = CoordinateRotation._methods[coord_method]
+    coords = coord_method(
         flux=np.sqrt(0.5 * I_sky),
-        crd_eq=crd_eq,
-        eq2top=eq2tops,
+        times=times,
+        telescope_loc=telescope_loc,
+        skycoords=skycoords,
         chunk_size=npixc,
         precision=precision,
         source_buffer=source_buffer,
@@ -196,7 +203,7 @@ def simulate(
     zcalc.setup()
     taucalc.setup()
 
-    logger.info(f"Visibility Array takes {vis.nbytes/1024**2:.1f} MB")
+    logger.info(f"Visibility Array takes {vis.nbytes / 1024**2:.1f} MB")
 
     # Have up to 100 reports as it iterates through time.
     report_chunk = ntimes // max_progress_reports + 1

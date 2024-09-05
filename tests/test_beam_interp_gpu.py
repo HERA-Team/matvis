@@ -72,7 +72,7 @@ def test_identity_beamfile(polarized):
     beam.read_beamfits(beam_file)
     beam = beam.interp(freq_array=np.array([1e8]), new_object=True, run_check=False)
 
-    beam.interp(freq_array=beam.freq_array[0])
+    beam.interp(freq_array=beam.freq_array)
     if not polarized:
         beam.efield_to_power(calc_cross_pols=False, inplace=True)
         beam.select(polarizations=["xx"], inplace=True)
@@ -120,7 +120,7 @@ def test_non_identity_beamfile(polarized):
     beam.read_beamfits(beam_file)
     beam = beam.interp(freq_array=np.array([1e8]), new_object=True, run_check=False)
 
-    beam.interp(freq_array=beam.freq_array[0])
+    beam.interp(freq_array=beam.freq_array)
     if not polarized:
         beam.efield_to_power(calc_cross_pols=False, inplace=True)
         beam.select(polarizations=["xx"], inplace=True)
@@ -134,7 +134,9 @@ def test_non_identity_beamfile(polarized):
     raw_az = np.linspace(0, 2 * np.pi, naz)  # from uvbeam_to_raw
     raw_za = np.arange(0, np.pi / 2 + dza, dza)
 
-    beam = beam.interp(raw_az, raw_za, az_za_grid=True, new_object=True)
+    beam = beam.interp(
+        az_array=raw_az, za_array=raw_za, az_za_grid=True, new_object=True
+    )
 
     assert beam_raw.shape == (
         2 if polarized else 1,

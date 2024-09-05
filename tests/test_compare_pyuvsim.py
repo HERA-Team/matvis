@@ -14,20 +14,9 @@ from . import get_standard_sim_params, nants
 @pytest.fixture(scope="function")
 def default_uvsim() -> UVData:
     """Pyuvsim output for interpolated polarized beam."""
-    (
-        sky_model,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-        beams,
-        beam_dict,
-        _,
-        uvdata,
-    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True, nsource=250)
+    _, sky_model, beams, beam_dict, uvdata = get_standard_sim_params(
+        use_analytic_beam=False, polarized=True, nsource=250
+    )
 
     return uvsim.run_uvdata_uvsim(
         uvdata,
@@ -37,48 +26,22 @@ def default_uvsim() -> UVData:
     )
 
 
-@pytest.mark.parametrize("use_analytic_beam", (True, False))
-@pytest.mark.parametrize("polarized", (True, False))
+@pytest.mark.parametrize(
+    "use_analytic_beam", (True, False), ids=["analytic_beam", "uvbeam"]
+)
+@pytest.mark.parametrize("polarized", (True, False), ids=["polarized", "unpolarized"])
 def test_compare_pyuvsim(polarized, use_analytic_beam):
     """Compare matvis and pyuvsim simulated visibilities."""
     print("Polarized=", polarized, "Analytic Beam =", use_analytic_beam)
-    (
-        sky_model,
-        ants,
-        flux,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        cpu_beams,
-        uvsim_beams,
-        beam_dict,
-        hera_lat,
-        uvdata,
-    ) = get_standard_sim_params(use_analytic_beam, polarized, nsource=250)
-    # ---------------------------------------------------------------------------
-    # (1) Run matvis
-    # ---------------------------------------------------------------------------
-    vis_matvis = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams,
-        polarized=polarized,
-        precision=2,
-        latitude=hera_lat * np.pi / 180.0,
+    kw, sky_model, uvbeams, bmdict, uvdata = get_standard_sim_params(
+        use_analytic_beam, polarized, nsource=250
     )
 
-    # ---------------------------------------------------------------------------
-    # (2) Run pyuvsim
-    # ---------------------------------------------------------------------------
+    vis_matvis = simulate_vis(precision=2, **kw)
     uvd_uvsim = uvsim.run_uvdata_uvsim(
         uvdata,
-        uvsim_beams,
-        beam_dict=beam_dict,
+        uvbeams,
+        beam_dict=bmdict,
         catalog=simsetup.SkyModelData(sky_model),
     )
 
@@ -94,34 +57,12 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
 @pytest.mark.parametrize("source_buffer", (1.0, 0.75))
 def test_compare_pyuvsim_chunking(min_chunks, source_buffer, default_uvsim):
     """Test chunking and source buffer against pyuvsim."""
-    (
-        sky_model,
-        ants,
-        flux,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        cpu_beams,
-        uvsim_beams,
-        beam_dict,
-        hera_lat,
-        uvdata,
-    ) = get_standard_sim_params(use_analytic_beam=False, polarized=True, nsource=250)
+    kw, *_ = get_standard_sim_params(
+        use_analytic_beam=False, polarized=True, nsource=250
+    )
 
     vis_matvis = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams,
-        polarized=True,
-        precision=2,
-        latitude=hera_lat * np.pi / 180.0,
-        min_chunks=min_chunks,
-        source_buffer=source_buffer,
+        precision=2, min_chunks=min_chunks, source_buffer=source_buffer, **kw
     )
 
     compare_sims(default_uvsim, vis_matvis, nants, polarized=True, rtol=0.01)

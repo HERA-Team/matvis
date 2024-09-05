@@ -158,6 +158,17 @@ def enu_to_eci_matrix(ha, lat):
     )
 
 
+def altaz_to_enu(el, az):
+    """Convert alt/az coordinates as given by Astropy, into ENU coordinates.
+
+    Astropy has Az oriented East of North, i.e. Az(N) = 0 deg, Az(E) = +90 deg.
+    See: https://gssc.esa.int/navipedia/index.php/Transformations_between_ECEF_and_ENU_coordinates
+    """
+    xp = get_array_module(el)
+
+    return xp.array([xp.cos(el) * xp.sin(az), xp.cos(el) * xp.cos(az), xp.sin(el)])
+
+
 def point_source_crd_eq(ra, dec):
     """Coordinate transform of source locations from equatorial to Cartesian.
 
@@ -264,12 +275,7 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     # Get AltAz and ENU coords of sources at reference time and location. Ref:
     # https://gssc.esa.int/navipedia/index.php/Transformations_between_ECEF_and_ENU_coordinates
     alt_az = skycoords.transform_to(AltAz(obstime=obstime, location=location))
-    el, az = alt_az.alt.rad, alt_az.az.rad
-    astropy_enu = np.array(
-        [np.cos(el) * np.sin(az), np.cos(el) * np.cos(az), np.sin(el)]
-    )
-    # astropy has Az oriented East of North, i.e. Az(N) = 0 deg, Az(E) = +90 deg
-
+    astropy_enu = altaz_to_enu(alt_az.alt.rad, alt_az.az.rad)
     # Convert to ECI coordinates using ENU->ECI transform
     astropy_eci = np.dot(m, astropy_enu)
 

@@ -1,6 +1,9 @@
 """Core abstract class for coordinate rotation."""
 
 import numpy as np
+from abc import ABC, abstractmethod
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord
+from astropy.time import Time
 
 from .._utils import get_dtypes
 
@@ -12,68 +15,72 @@ except ImportError:
     HAVE_CUDA = False
 
 
-class CoordinateRotation:
-    """
-    Abstract class for coordinate rotation.
+class CoordinateRotation(ABC):
+    """Abstract class for converting Equatorial (RA/DEC) coordinates to observed.
 
-    Parameters
-    ----------
-    flux
-        Flux of each source. Shape=(Nsrc,).
-    crd_eq
-        Equatorial coordinates of each source. Shape=(3, Nsrc).
-    eq2top
-        Set of 3x3 transformation matrices to rotate the RA and Dec
-        cosines in an ECI coordinate system (see `crd_eq`) to
-        topocentric coordinates. Shape=(Nt, 3, 3).
-    chunk_size
-        Number of sources to rotate at a time.
-    precision
-        The precision of the data (1 or 2).
+    Subclasses must, at the very least, implement the ``rotate(t)`` method, which takes
+    an integer ``t``, which indexes into the ``times`` array, and sets the
+    ``all_coords_topo`` attribute, which are unit-vector topocentric coordinates in the
+    horizontal ENU frame of the telescope.
+
+    All defined subclasses of this class can be found in the
+    ``CoordinateRotation._methods`` dictionary.
     """
+
+    _methods = {}
+    requires_gpu: bool = False
+
+    def __init_subclass__(cls) -> None:
+        """Register the subclass."""
+        CoordinateRotation._methods[cls.__name__] = cls
+        return super().__init_subclass__()
 
     def __init__(
         self,
         flux: np.ndarray,
-        crd_eq: np.ndarray,
-        eq2top: np.ndarray,
+        times: Time,
+        telescope_loc: EarthLocation,
+        skycoords: SkyCoord,
         chunk_size: int | None = None,
         source_buffer: float = 0.55,
         precision: int = 1,
         gpu: bool = False,
     ):
-        self.rtype, _ = get_dtypes(precision)
-        self.flux = flux.astype(self.rtype)
-        self.coords_eq = crd_eq.astype(self.rtype)
-        self.eq2top = eq2top.astype(self.rtype)
-        self.nsrc = len(flux)
-
-        assert flux.ndim == 1
-        assert crd_eq.ndim == 2
-        assert eq2top.ndim == 3
-        self.chunk_size = chunk_size or self.nsrc
-        self.source_buffer = source_buffer
-        self.nsrc_alloc = int(self.chunk_size * self.source_buffer)
-
         self.gpu = gpu
         if self.gpu and not HAVE_CUDA:
             raise ValueError("GPU requested but cupy not installed.")
 
         self.xp = cp if self.gpu else np
 
+        self.precision = precision
+        self.rtype, _ = get_dtypes(precision)
+        self.flux = self.xp.asarray(flux.astype(self.rtype))
+
+        self.nsrc = len(flux)
+        self.times = times
+        self.telescope_loc = telescope_loc
+        self.skycoords = skycoords
+
+        assert flux.ndim == 1
+        assert times.ndim == 1
+        assert len(skycoords) == self.nsrc
+
+        self.chunk_size = chunk_size or self.nsrc
+        self.source_buffer = source_buffer
+        self.nsrc_alloc = int(self.chunk_size * self.source_buffer)
+
     def setup(self):
         """Allocate memory for the rotation."""
-        self.all_coords_topo = self.xp.full((3, self.nsrc), 0.0, dtype=self.rtype)
+        # Initialize arrays that all subclasses must use.
+        self.all_coords_topo = self.xp.full(
+            (3, self.nsrc), self.rtype(0.0), dtype=self.rtype
+        )
         self.coords_above_horizon = self.xp.full(
-            (3, self.nsrc_alloc), 0.0, dtype=self.rtype
+            (3, self.nsrc_alloc), self.rtype(0.0), dtype=self.rtype
         )
         self.flux_above_horizon = self.xp.full(
-            (self.nsrc_alloc,), 0.0, dtype=self.rtype
+            (self.nsrc_alloc,), self.rtype(0.0), dtype=self.rtype
         )
-
-        self.eq2top = self.xp.asarray(self.eq2top)
-        self.coords_eq = self.xp.asarray(self.coords_eq)
-        self.flux = self.xp.asarray(self.flux)
 
     def select_chunk(self, chunk: int):
         """Set the chunk of coordinates to rotate."""
@@ -100,24 +107,6 @@ class CoordinateRotation:
 
         return self.coords_above_horizon, self.flux_above_horizon, n
 
+    @abstractmethod
     def rotate(self, t: int) -> tuple[np.ndarray, np.ndarray]:
-        """Rotate the given coordinates with the given 3x3 rotation matrix.
-
-        Parameters
-        ----------
-        crd
-            Coordinates to rotate. Shape=(3, Nsrc).
-        rot
-            Rotation matrix. Shape=(3, 3).
-
-        Returns
-        -------
-        np.ndarray
-            Rotated coordinates. Shape=(3, Nsrcs_above_horizon).
-        np.ndarray
-            Flux. Shape=(Nsrcs_above_horizon,).
-        """
-        self.xp.matmul(self.eq2top[t], self.coords_eq, out=self.all_coords_topo)
-
-        if self.gpu:
-            self.xp.cuda.Device().synchronize()
+        """Perform the rotation for a single time."""

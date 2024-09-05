@@ -1,4 +1,5 @@
 """GPU implementation of the simulator."""
+
 from __future__ import annotations
 
 import logging
@@ -7,6 +8,8 @@ import psutil
 import time
 import warnings
 from astropy.constants import c as speed_of_light
+from astropy.coordinates import EarthLocation, SkyCoord
+from astropy.time import Time
 from collections.abc import Sequence
 from pyuvdata import UVBeam
 from typing import Callable
@@ -44,8 +47,9 @@ def simulate(
     *,
     antpos: np.ndarray,
     freq: float,
-    eq2tops: np.ndarray,
-    crd_eq: np.ndarray,
+    times: Time,
+    skycoords: SkyCoord,
+    telescope_loc: EarthLocation,
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | Callable] | None,
     polarized: bool = False,
@@ -55,6 +59,7 @@ def simulate(
     min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
+    coords_method: str = "CoordinateRotationAstropy",
     matprod_method: str = "GPUMatMul",
     source_buffer: float = 1.0,
 ) -> np.ndarray:
@@ -67,7 +72,7 @@ def simulate(
 
     pr = psutil.Process()
     nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, eq2tops, crd_eq, I_sky
+        precision, polarized, antpos, times, I_sky
     )
 
     if beam_spline_opts:
@@ -100,10 +105,12 @@ def simulate(
         nsrc=nsrc_alloc,
         precision=precision,
     )
-    coords = CoordinateRotation(
+    coords_method = CoordinateRotation._methods[coords_method]
+    coords = coords_method(
         flux=np.sqrt(0.5 * I_sky),
-        crd_eq=crd_eq,
-        eq2top=eq2tops,
+        times=times,
+        telescope_loc=telescope_loc,
+        skycoords=skycoords,
         chunk_size=npixc,
         precision=precision,
         source_buffer=source_buffer,

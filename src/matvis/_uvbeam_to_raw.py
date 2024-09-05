@@ -168,7 +168,11 @@ def uvbeam_to_azza_grid(
         new_za = np.arange(0, np.pi / 2 + dza, dza)
 
         out = uvbeam.interp(
-            new_az, new_za, az_za_grid=True, check_azza_domain=False, **interp_kwargs
+            az_array=new_az,
+            za_array=new_za,
+            az_za_grid=True,
+            check_azza_domain=False,
+            **interp_kwargs,
         )[0]
         out = out.reshape(out.shape[:-1] + (len(new_za), naz))
 

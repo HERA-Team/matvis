@@ -4,9 +4,13 @@ import pytest
 
 import numpy as np
 import pyuvdata.utils as uvutils
+from astropy import units as un
+from astropy.coordinates import SkyCoord
+from astropy.time import Time
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvdata.data import DATA_PATH
+from pyuvdata.telescopes import get_telescope
 from pyuvsim import AnalyticBeam
 
 from matvis import coordinates
@@ -194,12 +198,13 @@ def beam_cube(beam_list_unpol, freq) -> np.ndarray:
 
 
 @pytest.fixture(scope="module")
-def point_source_pos():
+def skycoords():
     """Some simple point source positions."""
-    ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
-    dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
-
-    return ra, dec
+    return SkyCoord(
+        ra=np.linspace(0.0, 2.0 * np.pi, NPTSRC) * un.rad,
+        dec=np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC) * un.rad,
+        frame="icrs",
+    )
 
 
 @pytest.fixture(scope="module")
@@ -210,34 +215,34 @@ def sky_flux(freq):
 
 
 @pytest.fixture(scope="module")
-def crd_eq(point_source_pos):
-    """Equatorial coordinates for the point sources."""
-    ra, dec = point_source_pos
-    return coordinates.point_source_crd_eq(ra, dec)
-
-
-@pytest.fixture(scope="module")
-def eq2tops():
-    """Get coordinate transforms as a function of LST."""
-    hera_lat = -30.7215 * np.pi / 180.0
-    lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
-    return np.array([coordinates.eci_to_enu_matrix(lst, lat=hera_lat) for lst in lsts])
-
-
-@pytest.fixture(scope="module")
 def antpos():
     """Antenna positions in the test array."""
     return np.array([ants[k] for k in ants.keys()])
 
 
-def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, antpos):
+@pytest.fixture(scope="module")
+def times():
+    """Times for the sim."""
+    return Time(np.linspace(2459863.0, 2459864.0, NTIMES), format="jd")
+
+
+@pytest.fixture(scope="module")
+def location():
+    """The location of HERA."""
+    return get_telescope("hera").location
+
+
+def test_polarized_not_efield(
+    beam_list_unpol, skycoords, times, sky_flux, freq, antpos, location
+):
     """Test that when doing polarized sim, error is raised if beams aren't efield."""
     with pytest.raises(ValueError, match="beam type must be efield"):
         simulate(
             antpos=antpos,
+            skycoords=skycoords,
+            times=times,
+            telescope_loc=location,
             freq=freq[0],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
             I_sky=sky_flux[:, 0],
             beam_list=beam_list_unpol,
             precision=2,
@@ -245,14 +250,17 @@ def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, 
         )
 
 
-def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antpos):
+def test_unpolarized_efield(
+    beam_list_pol, skycoords, sky_flux, freq, antpos, location, times
+):
     """Test that when doing unpolarized sim, error is raised if beams aren't power."""
     with pytest.raises(ValueError, match="beam type must be power"):
         simulate(
             antpos=antpos,
+            skycoords=skycoords,
             freq=freq[0],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
+            times=times,
+            telescope_loc=location,
             I_sky=sky_flux[:, 0],
             beam_list=beam_list_pol,
             precision=2,
@@ -315,19 +323,20 @@ def test_prepare_beam_unpol_uvbeam_pol_no_exist():
         coordinates.prepare_beam(beam, polarized=False, use_feed="x")
 
 
-def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
+def test_unique_beam_passed(
+    beam_list_unpol, skycoords, freq, sky_flux, times, location
+):
     """Test passing different numbers of beams than nant."""
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
 
     for i in range(freq.size):
-        print("eq2tops:", np.sum(eq2tops))
-        print("crd_eq:", np.sum(crd_eq))
         # Analytic beams
         vis_analytic = simulate(
             antpos=antpos,
+            skycoords=skycoords,
             freq=freq[i],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
+            times=times,
+            telescope_loc=location,
             I_sky=sky_flux[:, i],
             beam_list=beam_list_unpol[:1],
             precision=2,
@@ -338,7 +347,9 @@ def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
         assert np.all(~np.isnan(vis_analytic))
 
 
-def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
+def test_wrong_numbeams_passed(
+    beam_list_unpol, skycoords, freq, sky_flux, times, location
+):
     """Test passing different numbers of beams than nant."""
     antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
 
@@ -347,8 +358,9 @@ def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops)
         simulate(
             antpos=antpos,
             freq=freq[0],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
+            times=times,
+            skycoords=skycoords,
+            telescope_loc=location,
             I_sky=sky_flux[:, 0],
             beam_list=beam_list_unpol,
             precision=2,
@@ -400,7 +412,7 @@ def test_nan_in_cpu_beam(uvbeam):
     tx = np.linspace(-1, 1, 100)
     ty = tx
 
-    freq = np.array([beam.freq_array[0]])
+    freq = beam.freq_array[0]
 
     bmfunc = UVBeamInterpolator(
         beam_list=[beam],

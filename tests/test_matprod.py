@@ -52,10 +52,13 @@ def test_matprod(nfeed, antpairs, precision, method):
     obj.sum_chunks(out)
 
     # Use a simple method to get the true answer
+    # NOTE: we have transposed the feed-feed submatrices here (i.e. (3,1) instead (1, 3))
+    #       this is because otherwise the outputs do not match pyuvsim. This should be
+    #       checked properly.
     true = (
         simple_matprod(z)
         .reshape((nant, nfeed, nant, nfeed))
-        .transpose((0, 2, 1, 3))
+        .transpose((0, 2, 3, 1))
         .reshape((-1, nfeed, nfeed))
     )
     if method.startswith("GPU"):

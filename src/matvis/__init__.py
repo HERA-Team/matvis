@@ -21,7 +21,7 @@ except ImportError:
     HAVE_GPU = False
 
 
-from . import cpu, plot
+from . import cpu
 from .wrapper import simulate_vis
 
 if HAVE_GPU:

@@ -3,11 +3,12 @@
 import pytest
 
 import numpy as np
+from astropy.time import Time
+from pyuvdata.telescopes import get_telescope
 from pyuvsim.analyticbeam import AnalyticBeam
 
 from matvis import simulate_vis
 
-np.random.seed(0)
 NTIMES = 10
 NFREQ = 5
 NPTSRC = 20
@@ -22,6 +23,7 @@ ants = {0: (0.0, 0.0, 0.0), 1: (20.0, 20.0, 0.0)}
 def test_simulate_vis(polarized):
     """Test basic operation of simple wrapper around matvis, `simulate_vis`."""
     # Point source equatorial coords (radians)
+    hera = get_telescope("hera")
     ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
     dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
 
@@ -33,7 +35,7 @@ def test_simulate_vis(polarized):
     I_sky = fluxes[:, np.newaxis] * (freq[np.newaxis, :] / 100.0e6) ** -2.7
 
     # Get coordinate transforms as a function of LST
-    lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
+    times = Time(np.linspace(2495863.0, 2495864.0, NTIMES), format="jd")
 
     # Create beam models
     beam = AnalyticBeam("gaussian", diameter=14.0)
@@ -45,11 +47,11 @@ def test_simulate_vis(polarized):
         ra,
         dec,
         freq,
-        lsts,
+        times,
         beams=[beam, beam],
         polarized=polarized,
         precision=1,
-        latitude=-30.7215 * np.pi / 180.0,
+        telescope_loc=hera.location,
         max_progress_reports=2,
     )
     assert np.all(~np.isnan(vis))  # check that there are no NaN values

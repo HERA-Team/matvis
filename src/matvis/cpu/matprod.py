@@ -1,4 +1,5 @@
 """CPU-based source-summing operations."""
+
 import numpy as np
 
 from ..core.matprod import MatProd
@@ -21,7 +22,7 @@ class CPUMatMul(MatProd):
 
         # Separate feed/ant axes to make indexing easier
         v.shape = (self.nant, self.nfeed, self.nant, self.nfeed)
-        v = v.transpose((0, 2, 1, 3))  # transpose always returns a view
+        v = v.transpose((0, 2, 3, 1))  # transpose always returns a view
 
         if self.all_pairs:
             out[:] = v.reshape((self.nant * self.nant, self.nfeed, self.nfeed))
@@ -47,6 +48,6 @@ class CPUVectorDot(MatProd):
         z = z.reshape((self.nant, self.nfeed, -1))
 
         for i, (ai, aj) in enumerate(self.antpairs):
-            out[i] = z[ai].conj().dot(z[aj].T)
+            out[i] = z[aj].dot(z[ai].conj().T)  # dot(z[aj].T)
 
         return out

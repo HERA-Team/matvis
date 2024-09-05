@@ -1,4 +1,5 @@
 """GPU-accelerated source-summing operation."""
+
 import cupy as cp
 import numpy as np
 
@@ -21,7 +22,7 @@ class GPUMatMul(MatProd):
         self.vis = [
             cp.full(
                 (self.nfeed, self.nant, self.nfeed, self.nant),
-                0.0,
+                self.ctype(0.0),
                 dtype=self.ctype,
                 order="F",
             )
@@ -51,7 +52,7 @@ class GPUMatMul(MatProd):
         cpu = self.vis[0].get()
 
         # cpu = cpu.transpose((0, 2, 1, 3))
-        cpu = cpu.transpose((1, 3, 0, 2))
+        cpu = cpu.transpose((1, 3, 2, 0))
 
         if self.all_pairs:
             cpu = cpu.reshape((self.nant * self.nant, self.nfeed, self.nfeed))
@@ -69,7 +70,10 @@ class GPUVectorDot(MatProd):
         """Allocate memory for the visibilities."""
         self.vis = [
             cp.full(
-                (self.nfeed, self.nfeed, self.npairs), 0.0, dtype=self.ctype, order="F"
+                (self.nfeed, self.nfeed, self.npairs),
+                self.ctype(0.0),
+                dtype=self.ctype,
+                order="F",
             )
             for _ in range(self.nchunks)
         ]
@@ -90,5 +94,5 @@ class GPUVectorDot(MatProd):
             for i in range(1, len(self.vis)):
                 self.vis[0] += self.vis[i]
 
-        out[:] = self.vis[0].transpose((2, 0, 1)).get()
+        out[:] = self.vis[0].transpose((2, 1, 0)).get()
         cp.cuda.Device().synchronize()

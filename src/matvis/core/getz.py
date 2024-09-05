@@ -1,4 +1,5 @@
 """Core abstract class for obtaining the Z matrix."""
+
 import numpy as np
 
 try:
@@ -43,7 +44,9 @@ class ZMatrixCalc:
         Accepts no inputs and returns nothing.
         """
         self.z = self.xp.full(
-            (self.nfeed * self.nant, self.nax * self.nsrc), 0.0, dtype=self.ctype
+            (self.nfeed * self.nant, self.nax * self.nsrc),
+            self.ctype(0.0),
+            dtype=self.ctype,
         )
 
     def __call__(

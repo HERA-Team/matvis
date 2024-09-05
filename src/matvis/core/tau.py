@@ -1,4 +1,5 @@
 """Core abstract class for computing exp(tau)."""
+
 import numpy as np
 from astropy.constants import c as speed_of_light
 
@@ -39,7 +40,9 @@ class TauCalculator:
         Accepts no inputs and returns nothing.
         """
         self._xp = cp if self.gpu else np
-        self.exptau = self._xp.full((self.nant, self.nsrc), 0.0, dtype=self.ctype)
+        self.exptau = self._xp.full(
+            (self.nant, self.nsrc), self.rtype(0.0), dtype=self.ctype
+        )
         self.antpos = self._xp.asarray(self.antpos)
 
     def __call__(self, crdtop: np.ndarray) -> np.ndarray:
