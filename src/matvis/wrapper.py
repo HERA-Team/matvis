@@ -31,6 +31,8 @@ def simulate_vis(
     beam_spline_opts: dict | None = None,
     beam_idx: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    matsets: list[tuple[np.ndarray[int], np.ndarray[int]]]
+    | None = None,  # set of sub-matrices
     source_buffer: float = 1.0,
     **backend_kwargs,
 ):
@@ -155,6 +157,7 @@ def simulate_vis(
             beam_spline_opts=beam_spline_opts,
             beam_idx=beam_idx,
             antpairs=antpairs,
+            matsets=matsets,
             source_buffer=source_buffer,
             **backend_kwargs,
         )

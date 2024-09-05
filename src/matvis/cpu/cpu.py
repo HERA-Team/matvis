@@ -36,6 +36,7 @@ def simulate(
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | Callable] | None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    matsets: list[tuple[np.ndarray[int], np.ndarray[int]]] | None = None,
     precision: int = 1,
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
@@ -86,6 +87,13 @@ def simulate(
         Either a 2D array, shape ``(Npairs, 2)``, or list of 2-tuples of ints, with
         the list of antenna-pairs to return as visibilities (all feed-pairs are always
         calculated). If None, all feed-pairs are returned.
+    matsets  : array_like, optional
+        A list of containing a set of 2-tuples of numpy arrays.  Each entry in the list
+        corresponds to a different sub-matrix.  The first element of the ith tuple lists the rows of Z corresponding
+        to the rows of the ith sub-matrix, and the second tuple element contains the list of columns.  In the case
+        of vector-vector loop, the number of tuples is equal to Npairs and each element of the tuple contains only
+        one int, such that the sub-matrices contain only one element each.  Outer dimension has to be a list because
+        numpy doesn't like inhomogeneous arrays.
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
@@ -106,14 +114,15 @@ def simulate(
         allows). Default is 100.
     matprod_method : str, optional
         The method to use for the final matrix multiplication. Default is 'CPUMatMul',
-        which simply uses `np.dot` over the two full matrices. Currently, the other
-        option is `CPUVectorLoop`, which uses a loop over the antenna pairs,
-        computing the sum over sources as a vector dot product.
-        Whether to calculate visibilities for each antpair in antpairs as a vector
-        dot-product instead of using a full matrix-matrix multiplication for all
-        possible pairs. Default is False. Setting to True can be faster for large
-        arrays where `antpairs` is small (possibly from high redundancy). You should
-        run a performance test before using this.
+        which simply uses `np.dot` over the two full matrices. The second option is
+        `CPUVectorLoop`, which uses a loop over the antenna pairs, computing the sum
+        over sources as a vector dot product.  The third option is `CPUMatChunk`, which
+        divides the product into several matrix multiplications that are optimized to have the
+        highest possible density of non-redundant pairs without invoking the overhead of a large
+        for loop over vector products.  For very large arrays, with very high redundancy, CPUVectorLoop
+        is usually fastest, while for cases with low redundancy, `CPUMatMul` is fastest.  The `CPUMatChunk`
+        can sometimes be fastest for intermediate levels of redundancy and intermediately sized arrays.  You should
+        run a performance test before choosing one of these options.
     max_memory : int, optional
         The maximum memory (in bytes) to use for the visibility calculation. This is
         not a hard-set limit, but rather a guideline for how much memory to use. If the
@@ -186,7 +195,7 @@ def simulate(
     )
 
     mpcls = getattr(mp, matprod_method)
-    matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+    matprod = mpcls(nchunks, nfeed, nant, antpairs, matsets, precision=precision)
     zcalc = ZMatrixCalc(
         nsrc=nsrc_alloc,
         nfeed=nfeed,

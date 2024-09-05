@@ -54,6 +54,7 @@ def simulate(
     beam_list: Sequence[UVBeam | Callable] | None,
     polarized: bool = False,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    matsets: list[tuple[np.ndarray[int], np.ndarray[int]]] | None = None,
     beam_idx: np.ndarray | None = None,
     max_memory: int = np.inf,
     min_chunks: int = 1,
@@ -124,7 +125,7 @@ def simulate(
     )
 
     mpcls = getattr(mp, matprod_method)
-    matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+    matprod = mpcls(nchunks, nfeed, nant, antpairs, matsets, precision=precision)
 
     logger.debug("Starting GPU allocations...")
 
