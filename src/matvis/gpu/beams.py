@@ -1,4 +1,5 @@
 """GPU beam interpolation routines."""
+
 import cupy as cp
 import itertools
 import numpy as np

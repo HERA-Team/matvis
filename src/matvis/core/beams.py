@@ -1,4 +1,5 @@
 """Functions for working with beams."""
+
 import numpy as np
 from abc import ABC, abstractmethod
 from pyuvdata import UVBeam
@@ -51,9 +52,11 @@ def _wrangle_beams(
 
     # make sure we interpolate to the right frequency first.
     beam_list = [
-        bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
-        if isinstance(bm, UVBeam)
-        else bm
+        (
+            bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
+            if isinstance(bm, UVBeam)
+            else bm
+        )
         for bm in beam_list
     ]
 
