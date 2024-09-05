@@ -329,8 +329,7 @@ def get_summary_stats(line_data, ids):
     # specify contents of lines where important things happen
     thing_stats = {}  # "total": (1, total_time, total_time / 1, 100, len(line_data))}
     for thing, lines in ids.items():
-        for dd in line_data:
-            assoc_lines = [dd for line in lines if line in dd]
+        assoc_lines = [dd for line in lines for dd in line_data if line in dd]
 
         if not assoc_lines:
             raise RuntimeError(
