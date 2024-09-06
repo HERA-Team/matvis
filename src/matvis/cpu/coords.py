@@ -1,6 +1,7 @@
 """Coordinate rotation methods."""
 
 import numpy as np
+from astropy import units as un
 from astropy.coordinates import AltAz
 from astropy.coordinates.erfa_astrom import erfa_astrom
 
@@ -47,7 +48,21 @@ class CoordinateRotationERFA(CoordinateRotation):
 
     All functions were essentially transcribed and pythonized directly from the
     excellent ERFA C-library.
+
+    This class has the extra parameter ``update_bcrs_every``, which should be a float
+    interpreted as the number of seconds between updates to the BCRS coordinates
+    (which account for light deflection, aberration and bias, precession and nutation).
+    These functions account for ~90% of the time to transform the coordinates, so
+    setting this to a high value will increase the speed of the simulation significnatly.
+    These corrections are fairly small, resulting in ~1 arcsec differences in the resulting
+    topocentric coordinates. Rough testing shows that values of ~3min for this
+    parameter should keep differences below 10 mas.
     """
+
+    def __init__(self, update_bcrs_every=0.0):
+        """Initialize the ERFA-based coordinate rotation."""
+        super().__init__()
+        self.update_bcrs_every = update_bcrs_every * un.s
 
     def setup(self):
         """Standard setup, as well as storing the cartesian representation of ECI."""
@@ -55,6 +70,12 @@ class CoordinateRotationERFA(CoordinateRotation):
         self._eci = self.xp.asarray(
             point_source_crd_eq(self.skycoords.ra, self.skycoords.dec)
         )
+
+        # BCRS holds the deflected, aberrated bnp-d coordinates, which don't change
+        # significantly over time.
+        self._bcrs = self._eci.copy()
+        self._time_of_last_evaluation = None
+
         # Do one rotation to warm up the cache.
         frame = AltAz(obstime=self.times[0], location=self.telescope_loc)
         self.skycoords[0].transform_to(frame)
@@ -150,34 +171,6 @@ class CoordinateRotationERFA(CoordinateRotation):
         """Apply bias-precession-nutation."""
         self.xp.matmul(self.xp.asarray(astrom["bpn"]), p, out=p)
 
-    def _atciqz(self, eci: np.ndarray, astrom: dict):
-        """
-        A slightly modified version of the ERFA function ``eraAtciqz``, from astropy.
-
-        Parameters
-        ----------
-        eci
-            Astrometric ICRS positions of sources in cartesian representation
-        astrom : eraASTROM array
-            ERFA astrometry context, as produced by, e.g. ``eraApci13`` or ``eraApcs13``
-
-        Returns
-        -------
-        ri : float or `~numpy.ndarray`
-            Right Ascension in radians
-        di : float or `~numpy.ndarray`
-            Declination in radians
-        """
-        # Light deflection by the Sun, giving BCRS natural direction.
-        self._ld(eci, self.xp.asarray(astrom["eh"]), astrom["em"], 1e-6)
-
-        # Aberration, giving GCRS proper direction.
-        self._ab(eci, self.xp.asarray(astrom["v"]), astrom["em"], astrom["bm1"])
-
-        # Bias-precession-nutation, giving CIRS proper direction.
-        # Has no effect if matrix is identity matrix, in which case gives GCRS ppr.
-        self._bpn(eci, astrom)
-
     def _apco(self, observed_frame):
         return erfa_astrom.get().apco(observed_frame)
 
@@ -190,10 +183,30 @@ class CoordinateRotationERFA(CoordinateRotation):
         astrom = self._apco(obsf)
 
         # Copy the eci coordinates, because these routines modify them in-place
-        self.all_coords_topo[:] = self._eci[:]
 
         # convert to topocentric CIRS
-        self._atciqz(self.all_coords_topo, astrom)
+        # together, _ld + _ab take ~90% of the time.
+        if (
+            self._time_of_last_evaluation is None
+            or self.times[t] - self._time_of_last_evaluation[0] > self.update_bcrs_every
+        ):
+            self._bcrs[:] = self._eci[:]
+
+            # Light deflection by the Sun, giving BCRS natural direction.
+            self._ld(self._bcrs, self.xp.asarray(astrom["eh"]), astrom["em"], 1e-6)
+
+            # Aberration, giving GCRS proper direction.
+            self._ab(
+                self._bcrs, self.xp.asarray(astrom["v"]), astrom["em"], astrom["bm1"]
+            )
+
+            # Bias-precession-nutation, giving CIRS proper direction.
+            # Has no effect if matrix is identity matrix, in which case gives GCRS ppr.
+            self._bpn(self._bcrs, astrom)
+
+            self._time_of_last_evaluation = t
+
+        self.all_coords_topo[:] = self._bcrs[:]
 
         # now perform observed conversion
         self._atioq(self.all_coords_topo, astrom)

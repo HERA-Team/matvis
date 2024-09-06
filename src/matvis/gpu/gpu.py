@@ -62,6 +62,7 @@ def simulate(
     coord_method: str = "CoordinateRotationAstropy",
     matprod_method: str = "GPUMatMul",
     source_buffer: float = 1.0,
+    coord_method_params: dict | None = None,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
@@ -106,6 +107,7 @@ def simulate(
         precision=precision,
     )
     coord_method = CoordinateRotation._methods[coord_method]
+    coord_method_params = coord_method_params or {}
     coords = coord_method(
         flux=np.sqrt(0.5 * I_sky),
         times=times,
@@ -115,6 +117,7 @@ def simulate(
         precision=precision,
         source_buffer=source_buffer,
         gpu=True,
+        **coord_method_params,
     )
     zcalc = ZMatrixCalc(
         nsrc=nsrc_alloc, nfeed=nfeed, nant=nant, nax=nax, ctype=ctype, gpu=True

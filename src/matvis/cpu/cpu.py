@@ -46,6 +46,7 @@ def simulate(
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
+    coord_method_params: dict | None = None,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -114,6 +115,11 @@ def simulate(
         (since half should be below the horizon). If you have a particular sky model in
         which you expect more or less sources to appear above the horizon at any time,
         set this to a different value.
+    coord_method_params
+        Parameters particular to the coordinate rotation method of choice. For example,
+        for the CoordinateRotationERFA (and GPU version of the same) method, there
+        is the parameter ``update_bcrs_every``, which should be a time in seconds, for
+        which larger values speed up the computation.
 
     Returns
     -------
@@ -161,6 +167,7 @@ def simulate(
     )
 
     coord_method = CoordinateRotation._methods[coord_method]
+    coord_method_params = coord_method_params or {}
     coords = coord_method(
         flux=np.sqrt(0.5 * I_sky),
         times=times,
@@ -169,6 +176,7 @@ def simulate(
         chunk_size=npixc,
         precision=precision,
         source_buffer=source_buffer,
+        **coord_method_params,
     )
     taucalc = TauCalculator(
         antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc
