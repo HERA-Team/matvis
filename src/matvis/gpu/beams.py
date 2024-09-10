@@ -100,7 +100,13 @@ class GPUBeamInterpolator(BeamInterpolator):
         self.interpolated_beam[..., len(az) :] = 0.0
 
         gpu_beam_interpolation(
-            self.beam_data, self.daz, self.dza, az, za, beam_at_src=out
+            self.beam_data,
+            self.daz,
+            self.dza,
+            az,
+            za,
+            beam_at_src=out,
+            **self.spline_opts,
         )
 
 
@@ -111,6 +117,7 @@ def gpu_beam_interpolation(
     az: np.ndarray | cp.ndarray,
     za: np.ndarray | cp.ndarray,
     beam_at_src: cp.ndarray | None = None,
+    order: int = 1,
 ):
     """
     Interpolate beam values from a regular az/za grid using GPU.
@@ -165,7 +172,7 @@ def gpu_beam_interpolation(
         ndimage.map_coordinates(
             beam[bm, ax, fd],
             cp.asarray([za, az]),
-            order=1,
+            order=order,
             output=beam_at_src[bm, fd, ax],
             mode="nearest",  # controls the end-point behavior, no-op
         )

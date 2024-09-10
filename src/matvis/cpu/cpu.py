@@ -10,10 +10,8 @@ import tracemalloc as tm
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
 from collections.abc import Sequence
-
-# from pympler import tracker
 from pyuvdata import UVBeam
-from typing import Callable
+from typing import Callable, Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
@@ -41,7 +39,7 @@ def simulate(
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
-    matprod_method: str = "CPUMatMul",
+    matprod_method: Literal["CPUMatMul", "CPUVectorLoop"] = "CPUMatMul",
     coord_method: str = "CoordinateRotationAstropy",
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
@@ -102,6 +100,10 @@ def simulate(
         possible pairs. Default is False. Setting to True can be faster for large
         arrays where `antpairs` is small (possibly from high redundancy). You should
         run a performance test before using this.
+    coord_method : str, optional
+        The method to use to transform coordinates from the equatorial to horizontal
+        frame. The default is to use Astropy coordinate transforms. A faster option,
+        which is accurate to within 6 mas, is to use "CoordinateTransformERFA".
     max_memory : int, optional
         The maximum memory (in bytes) to use for the visibility calculation. This is
         not a hard-set limit, but rather a guideline for how much memory to use. If the

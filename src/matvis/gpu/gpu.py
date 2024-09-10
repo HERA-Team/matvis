@@ -76,12 +76,6 @@ def simulate(
         precision, polarized, antpos, times, I_sky
     )
 
-    if beam_spline_opts:
-        warnings.warn(
-            "You have passed beam_spline_opts, but these are not used in GPU.",
-            stacklevel=1,
-        )
-
     rtype, ctype = get_dtypes(precision)
 
     nchunks, npixc = get_desired_chunks(
@@ -105,6 +99,7 @@ def simulate(
         freq=freq,
         nsrc=nsrc_alloc,
         precision=precision,
+        spline_opts=beam_spline_opts,
     )
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
