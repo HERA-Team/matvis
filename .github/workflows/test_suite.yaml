@@ -79,6 +79,8 @@ jobs:
 
       - name: Install
         run: |
+          echo $(whoami)
+          source ~/.bashrc
           micromamba activate testenv
           echo $(which pip)
           python -m pip install --upgrade pip
