@@ -74,7 +74,7 @@ def test_repeat_stays_same(method, gpu):
 
 
 @pytest.mark.parametrize("method", list(CoordinateRotation._methods.values()))
-@pytest.mark.parametrize("gpu", [False, True] if HAVE_GPU else False)
+@pytest.mark.parametrize("gpu", [False, True] if HAVE_GPU else [False])
 @pytest.mark.parametrize("precision", [1, 2])
 def test_accuracy_against_astropy(method, gpu, precision):
     """Test other methods against the benchmark Astropy method."""
