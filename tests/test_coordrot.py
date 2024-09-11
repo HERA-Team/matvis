@@ -57,7 +57,7 @@ def get_random_coordrot(n, method, gpu, seed, precision=2):
 
 
 @pytest.mark.parametrize("method", list(CoordinateRotation._methods.values()))
-@pytest.mark.parametrize("gpu", [False, True])
+@pytest.mark.parametrize("gpu", [False, True] if HAVE_GPU else [False])
 def test_repeat_stays_same(method, gpu):
     """This test just checks that repeating the .rotate() method multiple times works."""
     if not gpu and method.requires_gpu:
@@ -74,7 +74,7 @@ def test_repeat_stays_same(method, gpu):
 
 
 @pytest.mark.parametrize("method", list(CoordinateRotation._methods.values()))
-@pytest.mark.parametrize("gpu", [False, True])
+@pytest.mark.parametrize("gpu", [False, True] if HAVE_GPU else False)
 @pytest.mark.parametrize("precision", [1, 2])
 def test_accuracy_against_astropy(method, gpu, precision):
     """Test other methods against the benchmark Astropy method."""
