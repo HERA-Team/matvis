@@ -2,20 +2,30 @@
 
 import pytest
 
-import cupy as cp
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from pyuvdata.telescopes import get_telescope
 
+from matvis import HAVE_GPU
 from matvis.core.coords import CoordinateRotation
 from matvis.cpu.coords import CoordinateRotationAstropy
+
+if HAVE_GPU:
+    import cupy as cp
+    from cupy import get_array_module
+else:
+    cp = np
+
+    def get_array_module(x):
+        """Dummy function to return np."""
+        return np
 
 
 def get_angles(x, y):
     """Compute angles between arrays of 3-vectors."""
-    xp = cp.get_array_module(x)
+    xp = get_array_module(x)
 
     dot = xp.sum(x * y, axis=0)
     norms = xp.sqrt(xp.linalg.norm(x, axis=0) * xp.linalg.norm(y, axis=0))
