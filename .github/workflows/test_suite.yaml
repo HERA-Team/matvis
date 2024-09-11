@@ -45,11 +45,6 @@ jobs:
         run: |
           python -m pytest --ignore tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL}}
 
-      - name: Run Plotting Tests
-        if: matrix.python-version != '3.9' || matrix.os == 'macos-latest'
-        run: |
-          python -m pytest tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-append --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
-
       - name: Upload coverage report
         uses: codecov/codecov-action@v3.1.3
         with:
@@ -65,7 +60,9 @@ jobs:
       OS: Ubuntu
     name: Self-Hosted Tests (GPU)
     runs-on: [self-hosted, gpu]
-
+    defaults:
+      run:
+        shell: bash -el {0}
     steps:
       - name: Add Home to PATH
         run: |
@@ -76,14 +73,18 @@ jobs:
         with:
           node-version: 16
 
-      - uses: actions/checkout@v3.6.0
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: ${{ env.PYTHON }}
+          mamba-version: "*"
+          channels: conda-forge,defaults
+          channel-priority: true
+          activate-environment: testenv
+          environment-file: ci/test-env.yml
 
       - name: Install
         run: |
