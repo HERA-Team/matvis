@@ -18,7 +18,8 @@ def simple_matprod(z):
 @pytest.mark.parametrize(
     "method", ["CPUMatMul", "CPUVectorDot", "GPUMatMul", "GPUVectorDot"]
 )
-def test_matprod(nfeed, antpairs, precision, method):
+@pytest.mark.parametrize("nchunks", [1, 2])
+def test_matprod(nfeed, antpairs, precision, method, nchunks):
     """Test that the various matprod methods produce the same result."""
     if method.startswith("GPU"):
         pytest.importorskip("cupy")
@@ -30,13 +31,15 @@ def test_matprod(nfeed, antpairs, precision, method):
 
     cls = getattr(module, method)
     nant = 5
-    nsrc = 3
+    nsrc = 15
     if antpairs:
         antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
     else:
         antpairs = None
 
-    obj = cls(nchunks=1, nfeed=nfeed, nant=nant, antpairs=antpairs, precision=precision)
+    obj = cls(
+        nchunks=nchunks, nfeed=nfeed, nant=nant, antpairs=antpairs, precision=precision
+    )
     obj.setup()
 
     ctype = get_dtypes(precision)[1]

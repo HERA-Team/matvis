@@ -59,9 +59,9 @@ class CoordinateRotationERFA(CoordinateRotation):
     parameter should keep differences below 10 mas.
     """
 
-    def __init__(self, update_bcrs_every=0.0):
+    def __init__(self, update_bcrs_every=0.0, *args, **kwargs):
         """Initialize the ERFA-based coordinate rotation."""
-        super().__init__()
+        super().__init__(*args, **kwargs)
         self.update_bcrs_every = update_bcrs_every * un.s
 
     def setup(self):
@@ -188,7 +188,8 @@ class CoordinateRotationERFA(CoordinateRotation):
         # together, _ld + _ab take ~90% of the time.
         if (
             self._time_of_last_evaluation is None
-            or self.times[t] - self._time_of_last_evaluation[0] > self.update_bcrs_every
+            or self.times[t] - self.times[self._time_of_last_evaluation]
+            > self.update_bcrs_every
         ):
             self._bcrs[:] = self._eci[:]
 

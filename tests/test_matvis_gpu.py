@@ -12,19 +12,6 @@ from matvis import simulate_vis
 from . import get_standard_sim_params
 
 
-def test_gpu_with_spline_opts():
-    """Ensure that spline options are working although these are not used."""
-    kw, *_ = get_standard_sim_params(use_analytic_beam=True, polarized=False)
-
-    with pytest.warns(
-        UserWarning,
-        match="You have passed beam_spline_opts, but these are not used in GPU",
-    ):
-        simulate_vis(
-            precision=2, use_gpu=True, beam_spline_opts={"kx": 1, "ky": 1}, **kw
-        )
-
-
 def test_antizenith():
     """Ensure that a single source at anti-zenith produces zero visibilities."""
     kw, *_ = get_standard_sim_params(

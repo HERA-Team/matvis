@@ -7,9 +7,15 @@ from cupyx.scipy import ndimage
 from pyuvdata import UVBeam
 
 from .. import coordinates
-from .._uvbeam_to_raw import uvbeam_to_azza_grid
 from ..core.beams import BeamInterpolator
 from ..cpu.beams import UVBeamInterpolator
+
+
+def prepare_for_map_coords(uvbeam):
+    """Obtain coordinates for doing map_coordinates interpolation from a UVBeam."""
+    d0, az, za = uvbeam._prepare_coordinate_data(uvbeam.data_array)
+    d0 = d0[:, :, 0]  # only one frequency
+    return d0, np.diff(az)[0], np.diff(za)[0], az.min()
 
 
 class GPUBeamInterpolator(BeamInterpolator):
@@ -42,9 +48,16 @@ class GPUBeamInterpolator(BeamInterpolator):
             # we might want to do cubic interpolation with pyuvbeam onto a much higher-res
             # grid, then use linear interpolation on the GPU with that high-res grid.
             # We can explore this later...
-            d0, self.daz, self.dza = uvbeam_to_azza_grid(self.beam_list[0])
-            naz = 2 * np.pi / self.daz + 1
-            assert np.isclose(int(naz), naz)
+            if any(bm.pixel_coordinate_system != "az_za" for bm in self.beam_list):
+                raise ValueError('pixel coordinate system must be "az_za"')
+
+            self.daz = np.zeros(len(self.beam_list))
+            self.dza = np.zeros(len(self.beam_list))
+            self.azmin = np.zeros(len(self.beam_list))
+
+            d0, self.daz[0], self.dza[0], self.azmin[0] = prepare_for_map_coords(
+                self.beam_list[0]
+            )
 
             self.beam_data = cp.zeros(
                 (self.nbeam,) + d0.shape,
@@ -54,11 +67,10 @@ class GPUBeamInterpolator(BeamInterpolator):
 
             if len(self.beam_list) > 1:
                 for i, b in enumerate(self.beam_list[1:]):
-                    self.beam_data[i + 1].set(
-                        uvbeam_to_azza_grid(b, naz=int(naz), dza=self.dza)[0]
+                    d, self.daz[i + 1], self.dza[i + 1], self.azmin[i + 1] = (
+                        prepare_for_map_coords(b)
                     )
-            #                    self.beam_data[i+1] = uvbeam_to_azza_grid(b, naz=int(naz), dza=self.dza)[0]
-
+                    self.beam_data[i + 1].set(d)
         else:
             # If doing simply analytic beams, just use the UVBeamInterpolator
             self._eval = UVBeamInterpolator.interp
@@ -84,7 +96,7 @@ class GPUBeamInterpolator(BeamInterpolator):
         if self.use_interp:
             self._interp(tx, ty, out)
         else:
-            self._eval(self, tx.get(), ty.get(), self._np_beam)
+            self._eval(self, cp.asnumpy(tx), cp.asnumpy(ty), self._np_beam)
             out.set(self._np_beam)
 
     def _interp(
@@ -103,6 +115,7 @@ class GPUBeamInterpolator(BeamInterpolator):
             self.beam_data,
             self.daz,
             self.dza,
+            self.azmin,
             az,
             za,
             beam_at_src=out,
@@ -112,8 +125,9 @@ class GPUBeamInterpolator(BeamInterpolator):
 
 def gpu_beam_interpolation(
     beam: np.ndarray | cp.ndarray,
-    daz: float,
-    dza: float,
+    daz: np.ndarray,
+    dza: np.ndarray,
+    azmin: np.ndarray,
     az: np.ndarray | cp.ndarray,
     za: np.ndarray | cp.ndarray,
     beam_at_src: cp.ndarray | None = None,
@@ -157,10 +171,8 @@ def gpu_beam_interpolation(
         )
 
     complex_beam = beam.dtype.name.startswith("complex")
-    az /= daz
-    za /= dza
 
-    nbeam, nax, nfeed, nza, naz = beam.shape
+    nbeam, nax, nfeed, *_ = beam.shape
     nsrc = len(az)
 
     if beam_at_src is None:
@@ -168,14 +180,16 @@ def gpu_beam_interpolation(
     else:
         assert beam_at_src.shape == (nbeam, nfeed, nax, nsrc)
 
-    for bm, fd, ax in itertools.product(range(nbeam), range(nfeed), range(nax)):
-        ndimage.map_coordinates(
-            beam[bm, ax, fd],
-            cp.asarray([za, az]),
-            order=order,
-            output=beam_at_src[bm, fd, ax],
-            mode="nearest",  # controls the end-point behavior, no-op
-        )
+    for bm in range(nbeam):
+        coords = cp.asarray([za / dza[bm], (az - azmin[bm]) / daz[bm]])
+        for fd, ax in itertools.product(range(nfeed), range(nax)):
+            ndimage.map_coordinates(
+                beam[bm, ax, fd],
+                coords,
+                order=order,
+                output=beam_at_src[bm, fd, ax],
+                #                mode="nearest",  # controls the end-point behavior, no-op
+            )
 
     if not complex_beam:  # power beam
         cp.sqrt(beam_at_src, out=beam_at_src)

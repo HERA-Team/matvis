@@ -35,7 +35,7 @@ def test_simulate_vis(polarized):
     I_sky = fluxes[:, np.newaxis] * (freq[np.newaxis, :] / 100.0e6) ** -2.7
 
     # Get coordinate transforms as a function of LST
-    times = Time(np.linspace(2495863.0, 2495864.0, NTIMES), format="jd")
+    times = Time(np.linspace(2459863.0, 2459864.0, NTIMES), format="jd")
 
     # Create beam models
     beam = AnalyticBeam("gaussian", diameter=14.0)

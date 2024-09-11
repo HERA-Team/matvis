@@ -63,26 +63,3 @@ def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
     cublas.setPointerMode(handle, orig_mode)
 
     return out
-
-
-def dotc(x, y, out: cp.ndarray | None = None):
-    """Computes the dot product of x.conj() and y."""
-    if x.dtype == "complex64":
-        func = cublas.cdotc
-    elif x.dtype == "complex128":
-        func = cublas.zdotc
-    else:
-        raise TypeError(f"invalid dtype: {x.dtype}")
-
-    if out is None:
-        out = cp.empty((), dtype=x.dtype)
-
-    handle = device.get_cublas_handle()
-    orig_mode = cublas.getPointerMode(handle)
-
-    try:
-        func(handle, x.size, x.data.ptr, 1, y.data.ptr, 1, out.data.ptr)
-    finally:
-        cublas.setPointerMode(handle, orig_mode)
-
-    return out

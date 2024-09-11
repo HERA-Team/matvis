@@ -2,8 +2,35 @@
 
 import numpy as np
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from pyuvdata import UVBeam
-from typing import Any
+from pyuvdata.utils.pol import polstr2num
+from typing import Any, Literal
+
+
+def prepare_beam_unpolarized(uvbeam, use_pol: Literal["xy", "xx", "yx", "yy"] = "xx"):
+    """Given a UVBeam or AnalyticBeam, prepare it for an un-polarized simulation."""
+    if uvbeam.beam_type == "power" and getattr(uvbeam, "Npols", 1) == 1:
+        return uvbeam
+
+    uvbeam_ = uvbeam.copy() if isinstance(uvbeam, UVBeam) else deepcopy(uvbeam)
+
+    if uvbeam_.beam_type == "efield":
+        if isinstance(uvbeam, UVBeam):
+            uvbeam_.efield_to_power(calc_cross_pols=False)
+        else:
+            uvbeam_.efield_to_power()
+
+    if getattr(uvbeam_, "Npols", 1) > 1:
+        pol = polstr2num(use_pol)
+
+        if pol not in uvbeam_.polarization_array:
+            raise ValueError(
+                f"You want to use {use_pol} pol, but it does not exist in the UVBeam"
+            )
+        uvbeam_.select(polarizations=[pol])
+
+    return uvbeam_
 
 
 def _wrangle_beams(
@@ -41,14 +68,12 @@ def _wrangle_beams(
             "If number of beams provided is not 1 or nant, beam_idx must be provided."
         )
     if beam_idx is not None:
-        assert beam_idx.shape == (nant,), "beam_idx must be length nant"
-        assert all(
-            0 <= i < nbeam for i in beam_idx
-        ), "beam_idx contains indices greater than the number of beams"
-
-    for bm in beam_list:
-        if isinstance(bm, UVBeam) and not bm.future_array_shapes:
-            bm.use_future_array_shapes()
+        if beam_idx.shape != (nant,):
+            raise ValueError("beam_idx must be length nant")
+        if not all(0 <= i < nbeam for i in beam_idx):
+            raise ValueError(
+                "beam_idx contains indices greater than the number of beams"
+            )
 
     # make sure we interpolate to the right frequency first.
     beam_list = [
@@ -60,9 +85,12 @@ def _wrangle_beams(
         for bm in beam_list
     ]
 
-    if polarized and any(b.beam_type != "efield" for b in beam_list):
-        raise ValueError("beam type must be efield if using polarized=True")
-    elif not polarized and any(
+    if polarized:
+        if any(b.beam_type != "efield" for b in beam_list):
+            raise ValueError("beam type must be efield if using polarized=True")
+
+    # The following applies if we're not polarized
+    elif any(
         (
             b.beam_type != "power"
             or getattr(b, "Npols", 1) > 1
@@ -157,7 +185,6 @@ class BeamInterpolator(ABC):
 
         This method must return an array of shape ``(nbeam, nfeed, nax, nsrcs_up)``.
         """
-        pass
 
     def __call__(
         self, tx: np.ndarray, ty: np.ndarray, check: bool = True

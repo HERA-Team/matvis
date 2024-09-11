@@ -40,7 +40,9 @@ def simulate(
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
     matprod_method: Literal["CPUMatMul", "CPUVectorLoop"] = "CPUMatMul",
-    coord_method: str = "CoordinateRotationAstropy",
+    coord_method: Literal[
+        "CoordinateRotationAstropy", "CoordinateRotationERFA"
+    ] = "CoordinateRotationAstropy",
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,

@@ -11,7 +11,6 @@ from pyuvdata.telescopes import get_telescope
 
 from matvis.core.coords import CoordinateRotation
 from matvis.cpu.coords import CoordinateRotationAstropy
-from matvis.gpu.coords import GPUCoordinateRotationERFA
 
 
 def get_angles(x, y):
@@ -26,7 +25,7 @@ def get_angles(x, y):
     return xp.arccos(ratio)
 
 
-def get_random_coordrot(n, method, gpu, seed):
+def get_random_coordrot(n, method, gpu, seed, precision=2):
     """Get a random coordinate rotation object."""
     rng = np.random.default_rng(seed)
     location = get_telescope("hera").location
@@ -41,7 +40,7 @@ def get_random_coordrot(n, method, gpu, seed):
         telescope_loc=location,
         skycoords=skycoords,
         gpu=gpu,
-        precision=2,
+        precision=precision,
     )
     coords.setup()
     return coords
@@ -66,13 +65,16 @@ def test_repeat_stays_same(method, gpu):
 
 @pytest.mark.parametrize("method", list(CoordinateRotation._methods.values()))
 @pytest.mark.parametrize("gpu", [False, True])
-def test_accuracy_against_astropy(method, gpu):
+@pytest.mark.parametrize("precision", [1, 2])
+def test_accuracy_against_astropy(method, gpu, precision):
     """Test other methods against the benchmark Astropy method."""
     if not gpu and method.requires_gpu:
         pytest.skip()
 
-    astr = get_random_coordrot(1000, CoordinateRotationAstropy, gpu, seed=42)
-    coords = get_random_coordrot(1000, method, gpu, seed=42)
+    astr = get_random_coordrot(
+        1000, CoordinateRotationAstropy, gpu, seed=42, precision=precision
+    )
+    coords = get_random_coordrot(1000, method, gpu, seed=42, precision=precision)
 
     coords.rotate(0)
     astr.rotate(0)
@@ -85,4 +87,7 @@ def test_accuracy_against_astropy(method, gpu):
     if gpu:
         angles = angles.get()
 
-    np.testing.assert_allclose(angles, 0, atol=0.01)  # 10 mas
+    if precision == 2:
+        np.testing.assert_allclose(angles, 0, atol=0.01)  # 10 mas
+    else:
+        np.testing.assert_allclose(angles, 0, atol=150)  # 50 mas

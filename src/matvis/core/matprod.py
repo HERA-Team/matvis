@@ -78,7 +78,6 @@ class MatProd(ABC):
             Output array, shaped like the visibilities set in `allocate_vis`, but
             without the first chunk axis.
         """
-        pass
 
     def __call__(self, z: np.ndarray, chunk: int) -> np.ndarray:
         """

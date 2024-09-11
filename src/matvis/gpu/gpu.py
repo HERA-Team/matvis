@@ -11,8 +11,9 @@ from astropy.constants import c as speed_of_light
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
 from collections.abc import Sequence
+from docstring_parser import combine_docstrings
 from pyuvdata import UVBeam
-from typing import Callable
+from typing import Callable, Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 ONE_OVER_C = 1.0 / speed_of_light.value
 
 
+@combine_docstrings(simcpu)
 def simulate(
     *,
     antpos: np.ndarray,
@@ -59,8 +61,12 @@ def simulate(
     min_chunks: int = 1,
     precision: int = 1,
     beam_spline_opts: dict | None = None,
-    coord_method: str = "CoordinateRotationAstropy",
-    matprod_method: str = "GPUMatMul",
+    coord_method: Literal[
+        "CoordinateRotationAstropy",
+        "CoordinateRotationERFA",
+        "GPUCoordinateRotationERFA",
+    ] = "CoordinateRotationAstropy",
+    matprod_method: Literal["GPUMatMul", "GPUVectorLoop"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
 ) -> np.ndarray:

@@ -7,7 +7,8 @@ import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, SkyCoord
 
-from . import HAVE_GPU, coordinates, cpu
+from . import HAVE_GPU, cpu
+from .core.beams import prepare_beam_unpolarized
 
 if HAVE_GPU:
     from . import gpu
@@ -114,23 +115,14 @@ def simulate_vis(
     # Get polarization information from beams
     if polarized:
         nfeeds = getattr(beams[0], "Nfeeds", 2)
+    else:
+        beams = [prepare_beam_unpolarized(beam) for beam in beams]
 
     # Antenna x,y,z positions
     antpos = np.array([ants[k] for k in ants.keys()])
     nants = antpos.shape[0]
 
     skycoords = SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs")
-    # # Source coordinate transform, from equatorial to Cartesian
-    # crd_eq = coordinates.point_source_crd_eq(ra, dec)
-
-    # # Get coordinate transforms as a function of LST
-    # eq2tops = np.array([coordinates.eci_to_enu_matrix(lst, latitude) for lst in lsts])
-
-    # Create beam pixel models (if requested)
-    beams = [
-        coordinates.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
-        for beam in beams
-    ]
 
     npairs = len(antpairs) if antpairs is not None else nants * nants
     if polarized:

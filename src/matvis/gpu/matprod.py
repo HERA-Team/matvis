@@ -4,7 +4,7 @@ import cupy as cp
 import numpy as np
 
 from ..core.matprod import MatProd
-from ._cublas import complex_matmul, dotc, zdotz
+from ._cublas import complex_matmul, zdotz
 
 
 class GPUMatMul(MatProd):
