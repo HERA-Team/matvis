@@ -61,7 +61,7 @@ jobs:
   gpu_tests:
     env:
       ENV_NAME: tests
-      PYTHON: "3.10"
+      PYTHON: "3.12"
       OS: Ubuntu
     name: Self-Hosted Tests (GPU)
     runs-on: [self-hosted, gpu]
@@ -88,7 +88,8 @@ jobs:
       - name: Install
         run: |
           echo $(which pip)
-          pip install .[test,gpu]
+          python -m pip install --upgrade pip
+          python -m pip install .[test,gpu]
 
       - name: Run Tests
         run: |
