@@ -88,6 +88,8 @@ jobs:
 
       - name: Run Tests
         run: |
+          source ~/.bashrc
+          micromamba activate testenv
           python -m pytest -k "gpu" --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - name: Upload coverage report
