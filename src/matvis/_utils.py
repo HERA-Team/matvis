@@ -65,8 +65,8 @@ def memtrace(highest_peak: int) -> int:
     """
     if logger.isEnabledFor(logging.INFO):
         cm, pm = tm.get_traced_memory()
-        logger.info(f"Starting Memory usage  : {cm/1024**3:.3f} GB")
-        logger.info(f"Starting Peak Mem usage: {pm/1024**3:.3f} GB")
+        logger.info(f"Starting Memory usage  : {cm / 1024**3:.3f} GB")
+        logger.info(f"Starting Peak Mem usage: {pm / 1024**3:.3f} GB")
         logger.info(f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
         tm.reset_peak()
         return max(pm, highest_peak)
@@ -191,7 +191,7 @@ def get_required_chunks(
         )
 
     logger.info(
-        f"Total free mem: {freemem/(1024**3):.2f} GB. Requires {ch} chunks "
+        f"Total free mem: {freemem / (1024**3):.2f} GB. Requires {ch} chunks "
         f"(estimate {sum(gpusize.values()) / 1024**3:.2f} GB)"
     )
     return ch
