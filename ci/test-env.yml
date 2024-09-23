@@ -1,4 +1,4 @@
-name: tests
+name: testenv
 channels:
   - conda-forge
   - defaults
@@ -15,6 +15,7 @@ dependencies:
   - h5py>=3.2
   - ffmpeg
   - pyuvdata  # For testing when using UVBeam object
+  - cupy
   - pip:
     - pyuvsim[sim]>=1.2
     - pyradiosky>=0.1.1

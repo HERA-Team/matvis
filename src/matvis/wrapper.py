@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+from astropy import units as un
+from astropy.coordinates import EarthLocation, SkyCoord
 
-from . import HAVE_GPU, conversions, cpu
+from . import HAVE_GPU, cpu
+from .core.beams import prepare_beam_unpolarized
 
 if HAVE_GPU:
     from . import gpu
@@ -19,15 +22,17 @@ def simulate_vis(
     ra,
     dec,
     freqs,
-    lsts,
+    times,
     beams,
+    telescope_loc: EarthLocation,
     polarized=False,
     precision=1,
-    latitude=-30.7215 * np.pi / 180.0,
     use_feed="x",
     use_gpu: bool = False,
     beam_spline_opts: dict | None = None,
     beam_idx: np.ndarray | None = None,
+    antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    source_buffer: float = 1.0,
     **backend_kwargs,
 ):
     """
@@ -46,7 +51,7 @@ def simulate_vis(
         shape (NSRCS, NFREQS).
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
-        and Dec from [-pi, +pi].
+        and Dec from [-pi/2, +pi/2].
     freqs : array_like
         Frequency channels for the simulation, in Hz.
     lsts : array_like
@@ -77,17 +82,17 @@ def simulate_vis(
     Returns
     -------
     vis : array_like
-        Complex array of shape (NFREQS, NTIMES, NFEED, NFEED, NANTS, NANTS)
-        if ``polarized == True``, or (NFREQS, NTIMES, NANTS, NANTS) otherwise.
+        Complex array of shape (NFREQS, NTIMES, NBLS, NFEED, NFEED)
+        if ``polarized == True``, or (NFREQS, NTIMES, NBLS) otherwise.
     """
     if use_gpu:
         if not HAVE_GPU:
             raise ImportError("You cannot use GPU without installing GPU-dependencies!")
 
-        from pycuda import driver
+        import cupy as cp
 
-        device = driver.Device(0)
-        attrs = device.get_attributes()
+        device = cp.cuda.Device()
+        attrs = device.attributes
         attrs = {str(k): v for k, v in attrs.items()}
         string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
         logger.debug(
@@ -110,43 +115,39 @@ def simulate_vis(
     # Get polarization information from beams
     if polarized:
         nfeeds = getattr(beams[0], "Nfeeds", 2)
+    else:
+        beams = [prepare_beam_unpolarized(beam) for beam in beams]
 
     # Antenna x,y,z positions
     antpos = np.array([ants[k] for k in ants.keys()])
     nants = antpos.shape[0]
 
-    # Source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
+    skycoords = SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs")
 
-    # Get coordinate transforms as a function of LST
-    eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
-
-    # Create beam pixel models (if requested)
-    beams = [
-        conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
-        for beam in beams
-    ]
-
+    npairs = len(antpairs) if antpairs is not None else nants * nants
     if polarized:
         vis = np.zeros(
-            (freqs.size, lsts.size, nfeeds, nfeeds, nants, nants), dtype=complex_dtype
+            (freqs.size, times.size, npairs, nfeeds, nfeeds), dtype=complex_dtype
         )
     else:
-        vis = np.zeros((freqs.size, lsts.size, nants, nants), dtype=complex_dtype)
+        vis = np.zeros((freqs.size, times.size, npairs), dtype=complex_dtype)
 
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
         vis[i] = fnc(
             antpos=antpos,
             freq=freq,
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
+            times=times,
+            skycoords=skycoords,
+            telescope_loc=telescope_loc,
             I_sky=fluxes[:, i],
             beam_list=beams,
             precision=precision,
             polarized=polarized,
             beam_spline_opts=beam_spline_opts,
             beam_idx=beam_idx,
+            antpairs=antpairs,
+            source_buffer=source_buffer,
             **backend_kwargs,
         )
     return vis

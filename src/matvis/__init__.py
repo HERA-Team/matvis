@@ -14,15 +14,18 @@ finally:
     del get_distribution, DistributionNotFound
 
 try:
-    import pycuda
+    import cupy
 
     HAVE_GPU = True
 except ImportError:
     HAVE_GPU = False
 
 
-from . import cpu, gpu, plot
+from . import cpu
 from .wrapper import simulate_vis
+
+if HAVE_GPU:
+    from . import gpu
 
 DATA_PATH = Path(__file__).parent / "data"
 

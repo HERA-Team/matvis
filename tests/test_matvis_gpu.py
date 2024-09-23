@@ -2,86 +2,24 @@
 
 import pytest
 
-pytest.importorskip("pycuda")
+pytest.importorskip("cupy")
 
 import numpy as np
 from pyuvsim.analyticbeam import AnalyticBeam
 
 from matvis import simulate_vis
-from matvis.gpu import _get_3d_block_grid
 
 from . import get_standard_sim_params
 
 
-def test_gpu_with_spline_opts():
-    """Ensure that spline options are working although these are not used."""
-    (
-        sky_model,
-        ants,
-        flux,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        cpu_beams,
-        uvsim_beams,
-        beam_dict,
-        hera_lat,
-        uvdata,
-    ) = get_standard_sim_params(True, False)
-
-    with pytest.warns(
-        UserWarning,
-        match="You have passed beam_spline_opts, but these are not used in GPU",
-    ):
-        simulate_vis(
-            ants=ants,
-            fluxes=flux,
-            ra=ra,
-            dec=dec,
-            freqs=freqs,
-            lsts=lsts,
-            beams=cpu_beams,
-            polarized=False,
-            precision=2,
-            latitude=hera_lat * np.pi / 180.0,
-            use_gpu=True,
-            beam_spline_opts={"kx": 1, "ky": 1},
-            beam_idx=np.zeros(len(ants), dtype=int),
-        )
-
-
 def test_antizenith():
-    """Ensure that anti-zenith source produce 0."""
-    (
-        sky_model,
-        ants,
-        flux,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        cpu_beams,
-        uvsim_beams,
-        beam_dict,
-        hera_lat,
-        uvdata,
-    ) = get_standard_sim_params(True, False, nsource=1, first_source_antizenith=True)
+    """Ensure that a single source at anti-zenith produces zero visibilities."""
+    kw, *_ = get_standard_sim_params(
+        True, False, nsource=1, first_source_antizenith=True
+    )
 
     vis = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams,
-        polarized=False,
-        precision=2,
-        latitude=hera_lat * np.pi / 180.0,
-        use_gpu=True,
-        beam_spline_opts={"kx": 1, "ky": 1},
-        beam_idx=np.zeros(len(ants), dtype=int),
+        precision=2, use_gpu=True, beam_spline_opts={"kx": 1, "ky": 1}, **kw
     )
 
     assert np.all(vis == 0)
@@ -89,142 +27,47 @@ def test_antizenith():
 
 def test_multibeam():
     """Ensure that running with multiple beams of the same kind gives the same answer as a single beam."""
-    (
-        sky_model,
-        ants,
-        flux,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        cpu_beams,
-        uvsim_beams,
-        beam_dict,
-        hera_lat,
-        uvdata,
-    ) = get_standard_sim_params(False, False, nsource=1, first_source_antizenith=True)
-
-    vis1 = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams * len(ants),
-        polarized=False,
-        precision=2,
-        latitude=hera_lat * np.pi / 180.0,
-        use_gpu=True,
-        beam_spline_opts={"kx": 1, "ky": 1},
-        beam_idx=np.zeros(len(ants), dtype=int),
+    kw, *_ = get_standard_sim_params(
+        False, False, nsource=1, first_source_antizenith=True
     )
+    kw |= {
+        "precision": 2,
+        "use_gpu": True,
+        "beam_spline_opts": {"kx": 1, "ky": 1},
+        "beam_idx": np.zeros(len(kw["ants"]), dtype=int),
+    }
+    beams = kw.pop("beams")
 
-    vis2 = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams,
-        polarized=False,
-        precision=2,
-        latitude=hera_lat * np.pi / 180.0,
-        use_gpu=True,
-        beam_spline_opts={"kx": 1, "ky": 1},
-        beam_idx=np.zeros(len(ants), dtype=int),
-    )
+    vis1 = simulate_vis(beams=beams * len(kw["ants"]), **kw)
+    vis2 = simulate_vis(beams=beams, **kw)
 
     assert np.all(vis1 == vis2)
 
 
 def test_mixed_beams(uvbeam):
     """Test that error is raised when using a mixed beam list."""
-    (
-        sky_model,
-        ants,
-        flux,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        cpu_beams,
-        uvsim_beams,
-        beam_dict,
-        hera_lat,
-        uvdata,
-    ) = get_standard_sim_params(True, False)
+    kw, *_ = get_standard_sim_params(use_analytic_beam=True, polarized=False)
 
     anl = AnalyticBeam("gaussian", diameter=14.0)
     cpu_beams = [uvbeam, anl, anl]
+    del kw["beams"]
 
     with pytest.raises(
-        ValueError, match="gpu.simulate only support beam_lists with either"
+        ValueError, match="GPUBeamInterpolator only supports beam_lists with either"
     ):
-        simulate_vis(
-            ants=ants,
-            fluxes=flux,
-            ra=ra,
-            dec=dec,
-            freqs=freqs,
-            lsts=lsts,
-            beams=cpu_beams,
-            polarized=False,
-            precision=2,
-            latitude=hera_lat * np.pi / 180.0,
-            use_gpu=True,
-            beam_spline_opts={"kx": 1, "ky": 1},
-            beam_idx=np.zeros(len(ants), dtype=int),
-        )
+        simulate_vis(beams=cpu_beams, use_gpu=True, **kw)
 
 
 def test_single_precision():
     """Test that using single precision on gpu works."""
     polarized = True
-    (
-        sky_model,
-        ants,
-        flux,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        cpu_beams,
-        uvsim_beams,
-        beam_dict,
-        hera_lat,
-        uvdata,
-    ) = get_standard_sim_params(
+    kw, *_ = get_standard_sim_params(
         polarized=polarized, use_analytic_beam=False, nfreq=1, nsource=2, ntime=1
     )
 
-    vis_2 = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams,
-        polarized=polarized,
-        precision=2,
-        latitude=hera_lat * np.pi / 180.0,
-        use_gpu=True,
-    )
+    kw |= {"use_gpu": True}
 
-    vis_1 = simulate_vis(
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        lsts=lsts,
-        beams=cpu_beams,
-        polarized=polarized,
-        precision=1,
-        latitude=hera_lat * np.pi / 180.0,
-        use_gpu=True,
-    )
+    vis_2 = simulate_vis(precision=2, **kw)
+    vis_1 = simulate_vis(precision=1, **kw)
 
     np.testing.assert_allclose(vis_1, vis_2, atol=1e-5, rtol=0)

@@ -8,7 +8,7 @@ from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
 
-from matvis import conversions
+from matvis import coordinates
 
 np.random.seed(0)
 NTIMES = 24
@@ -34,7 +34,7 @@ def test_equatorial_to_cosines():
     # ---------------------------------------------------------------------------
     # Get ECI direction cosines for RA, Dec1 (source at Dec=90)
     dec1 = 0.5 * np.pi * np.ones(ra.size)  # Dec = 90 deg
-    crd_eq1 = conversions.point_source_crd_eq(ra, dec1)
+    crd_eq1 = coordinates.point_source_crd_eq(ra, dec1)
 
     # The x,y directions should be zero, and the z direction should be 1
     assert np.allclose(crd_eq1[0], 0.0 * np.ones(ra.size))
@@ -45,7 +45,7 @@ def test_equatorial_to_cosines():
     # (2) Source at Dec = -90 degrees (South Celestial Pole)
     # ---------------------------------------------------------------------------
     # Get ECI direction cosines for RA, -Dec1 (source at Dec=-90)
-    crd_eq1 = conversions.point_source_crd_eq(ra, -dec1)
+    crd_eq1 = coordinates.point_source_crd_eq(ra, -dec1)
 
     # The x,y directions should be zero, and the z direction should be 1
     assert np.allclose(crd_eq1[0], 0.0 * np.ones(ra.size))
@@ -56,7 +56,7 @@ def test_equatorial_to_cosines():
     # (3) Source at Dec = 0 degrees (Celestial Equator)
     # ---------------------------------------------------------------------------
     # Get ECI direction cosines for RA, 0 (source at Dec=0)
-    crd_eq1 = conversions.point_source_crd_eq(ra, 0.0 * dec1)
+    crd_eq1 = coordinates.point_source_crd_eq(ra, 0.0 * dec1)
 
     # The z direction should be 0; in plane perpendicular to Celestial poles
     assert np.isclose(crd_eq1[0, 0], 1.0)  # RA=0, should be in x direction
@@ -79,13 +79,13 @@ def test_equatorial_to_enu():
     dec = hera_lat * np.ones(ra.size)  # Dec = HERA latitude
 
     # Get Cartesian coords for these sources in our ECI system
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
+    crd_eq = coordinates.point_source_crd_eq(ra, dec)
 
     # Loop over LSTs
     for i, lst in enumerate(lsts):
         # Rotation matrices from ECI <-> ENU
-        mat_eci_to_enu = conversions.eci_to_enu_matrix(lst, lat=hera_lat)
-        mat_enu_to_eci = conversions.enu_to_eci_matrix(lst, lat=hera_lat)
+        mat_eci_to_enu = coordinates.eci_to_enu_matrix(lst, lat=hera_lat)
+        mat_enu_to_eci = coordinates.enu_to_eci_matrix(lst, lat=hera_lat)
 
         # Test that transforms are one anothers' inverse
         assert np.allclose(np.dot(mat_eci_to_enu, mat_enu_to_eci), np.eye(3))
@@ -104,8 +104,8 @@ def test_equatorial_to_enu():
         assert np.allclose(crd_eq, crd_eq2)
 
         # Check that zenith angle is zero when source with RA = lst is overhead
-        az, za = conversions.enu_to_az_za(tx, ty, orientation="astropy")
-        az_uvb, za_uvb = conversions.enu_to_az_za(tx, ty, orientation="uvbeam")
+        az, za = coordinates.enu_to_az_za(tx, ty, orientation="astropy")
+        az_uvb, za_uvb = coordinates.enu_to_az_za(tx, ty, orientation="uvbeam")
         assert np.isclose(za[i], 0.0)
         assert np.isclose(za_uvb[i], 0.0)
 
@@ -115,36 +115,36 @@ def test_equatorial_to_enu():
         vec_u = np.array([0.0, 0.0, 1.0])
 
         # Pointing East (astropy)
-        _az, _za = conversions.enu_to_az_za(vec_e[0], vec_e[1], orientation="astropy")
+        _az, _za = coordinates.enu_to_az_za(vec_e[0], vec_e[1], orientation="astropy")
         assert np.isclose(_az, 0.5 * np.pi)
         assert np.isclose(_za, 0.5 * np.pi)
 
         # Pointing North (astropy)
-        _az, _za = conversions.enu_to_az_za(vec_n[0], vec_n[1], orientation="astropy")
+        _az, _za = coordinates.enu_to_az_za(vec_n[0], vec_n[1], orientation="astropy")
         assert np.isclose(_az, 0.0)
         assert np.isclose(_za, 0.5 * np.pi)
 
         # Pointing Up (astropy)
-        _az, _za = conversions.enu_to_az_za(vec_u[0], vec_u[1], orientation="astropy")
+        _az, _za = coordinates.enu_to_az_za(vec_u[0], vec_u[1], orientation="astropy")
         assert np.isclose(_az, 0.0)
         assert np.isclose(_za, 0.0)
 
         # Pointing East (UVBeam)
-        _az, _za = conversions.enu_to_az_za(vec_e[0], vec_e[1], orientation="uvbeam")
+        _az, _za = coordinates.enu_to_az_za(vec_e[0], vec_e[1], orientation="uvbeam")
         assert np.isclose(_az, 0.0)
         assert np.isclose(_za, 0.5 * np.pi)
 
         # Pointing North (UVBeam)
-        _az, _za = conversions.enu_to_az_za(vec_n[0], vec_n[1], orientation="uvbeam")
+        _az, _za = coordinates.enu_to_az_za(vec_n[0], vec_n[1], orientation="uvbeam")
         assert np.isclose(_az, 0.5 * np.pi)
         assert np.isclose(_za, 0.5 * np.pi)
 
         # Pointing Up (UVBeam)
-        _az, _za = conversions.enu_to_az_za(vec_u[0], vec_u[1], orientation="uvbeam")
+        _az, _za = coordinates.enu_to_az_za(vec_u[0], vec_u[1], orientation="uvbeam")
         assert np.isclose(_za, 0.0)
 
         # Pointing South (UVBeam) (not 0-2pi)
-        _az, _za = conversions.enu_to_az_za(
+        _az, _za = coordinates.enu_to_az_za(
             vec_n[0], -vec_n[1], orientation="uvbeam", periodic_azimuth=False
         )
         assert np.isclose(_az, -0.5 * np.pi)
@@ -174,7 +174,7 @@ def test_equatorial_to_eci_coords():
     obstime = Time("2018-08-31T04:02:30.11", format="isot", scale="utc")
 
     # Check that function runs
-    new_ra, new_dec = conversions.equatorial_to_eci_coords(
+    new_ra, new_dec = coordinates.equatorial_to_eci_coords(
         ra, dec, obstime, location, unit="rad", frame="icrs"
     )
     assert np.all(~np.isnan(new_ra))  # check that there are no NaN values
@@ -182,10 +182,10 @@ def test_equatorial_to_eci_coords():
 
     # Check that input-checking errors are raised
     with pytest.raises(TypeError):
-        _ra, _dec = conversions.equatorial_to_eci_coords(
+        _ra, _dec = coordinates.equatorial_to_eci_coords(
             ra, dec, "2018-08-31T04:02:30.11", location, unit="rad", frame="icrs"
         )
     with pytest.raises(TypeError):
-        _ra, _dec = conversions.equatorial_to_eci_coords(
+        _ra, _dec = coordinates.equatorial_to_eci_coords(
             ra, dec, obstime, (-30.7, 21.4, 1073.0), unit="rad", frame="icrs"
         )

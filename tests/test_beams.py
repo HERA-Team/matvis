@@ -3,440 +3,255 @@
 import pytest
 
 import numpy as np
-import pyuvdata.utils as uvutils
-from pathlib import Path
+from pytest_lazy_fixtures import lf
 from pyuvdata import UVBeam
-from pyuvdata.data import DATA_PATH
+from pyuvdata.utils.pol import polnum2str, polstr2num
 from pyuvsim import AnalyticBeam
-from typing import List
 
-from matvis import conversions, simulate_vis
-from matvis._uvbeam_to_raw import uvbeam_to_azza_grid
-from matvis.cpu import _evaluate_beam_cpu, simulate
-
-np.random.seed(0)
-NTIMES = 3
-NFREQ = 2
-NPTSRC = 4000
-ants = {0: (0, 0, 0), 1: (1, 1, 0)}
-
-cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
+from matvis import HAVE_GPU
+from matvis.core.beams import _wrangle_beams, prepare_beam_unpolarized
+from matvis.cpu.beams import UVBeamInterpolator
 
 
-class EllipticalBeam:
-    """Add ellipticity/shearing to an existing UVBeam/AnalyticBeam object."""
-
-    def __init__(self, base_beam, xstretch=1.0, ystretch=1.0, rotation=0.0):
-        """
-        Take an existing UVBeam/AnalyticBeam and apply stretching/rotation.
-
-        Parameters
-        ----------
-        base_beam : UVBeam or AnalyticBeam object
-            Existing beam object that will be sheared/stretched/rotated.
-
-        xstretch, ystretch : float, optional
-            Stretching factors to apply to the beam in the x and y directions,
-            which introduces beam ellipticity, as well as an overall
-            stretching/shrinking. Default: 1.0 (no ellipticity or stretching).
-
-        rotation : float, optional
-            Rotation of the beam in the x-y plane, in degrees. Only has an
-            effect if xstretch != ystretch. Default: 0.0.
-        """
-        self.base_beam = base_beam
-        self.xstretch = xstretch
-        self.ystretch = ystretch
-        self.rotation = rotation
-        self.peak_normalize = base_beam.peak_normalize
-        self.data_normalization = base_beam.data_normalization
-
-    @property
-    def beam_type(self) -> str:
-        """Whether the beam is `power` or `efield`."""
-        return self.base_beam.beam_type
-
-    def efield_to_power(self, **kwargs):
-        """Convert from efield to power beam."""
-        self.base_beam.efield_to_power(**kwargs)
-
-    @property
-    def polarization_array(self):
-        """The polarization array of the base beam."""
-        return self.base_beam.polarization_array
-
-    def interp(self, az_array, za_array, freq_array):
-        """Evaluate the beam after applying shearing, stretching, or rotation.
-
-        Parameters
-        ----------
-        az_array : array_like
-            Azimuth values in radians (same length as za_array). The azimuth
-            here has the UVBeam convention: North of East(East=0, North=pi/2)
-
-        za_array : array_like
-            Zenith angle values in radians (same length as az_array).
-
-        freq_array : array_like
-            Frequency values to evaluate at.
-
-        Returns
-        -------
-        interp_data : array_like
-            Array of beam values, shape (Naxes_vec, Nspws, Nfeeds or Npols,
-            Nfreqs or freq_array.size if freq_array is passed,
-            Npixels/(Naxis1, Naxis2) or az_array.size if az/za_arrays are passed)
-
-        interp_basis_vector : array_like
-            Array of interpolated basis vectors (or self.basis_vector_array
-            if az/za_arrays are not passed), shape: (Naxes_vec, Ncomponents_vec,
-            Npixels/(Naxis1, Naxis2) or az_array.size if az/za_arrays are passed)
-        """
-        # Apply shearing, stretching, or rotation
-        if self.xstretch != 1.0 or self.ystretch != 1.0:
-            # Convert sheared Cartesian coords to circular polar coords
-            # mX stretches in x direction, mY in y direction, a is angle
-            # Notation: phi = az, theta = za. Subscript 's' are transformed coords
-            a = self.rotation * np.pi / 180.0
-            X = za_array * np.cos(az_array)
-            Y = za_array * np.sin(az_array)
-            Xs = (X * np.cos(a) - Y * np.sin(a)) / self.xstretch
-            Ys = (X * np.sin(a) + Y * np.cos(a)) / self.ystretch
-
-            # Updated polar coordinates
-            theta_s = np.sqrt(Xs**2.0 + Ys**2.0)
-            phi_s = np.arccos(Xs / theta_s)
-            phi_s[Ys < 0.0] *= -1.0
-
-            # Fix coordinates below the horizon of the unstretched beam
-            theta_s[np.where(theta_s < 0.0)] = 0.5 * np.pi
-            theta_s[np.where(theta_s >= np.pi / 2.0)] = 0.5 * np.pi
-
-            # Update za_array and az_array
-            az_array, za_array = phi_s, theta_s
-
-        # Call interp() method on BaseBeam
-        interp_data, interp_basis_vector = self.base_beam.interp(
-            az_array=az_array, za_array=za_array, freq_array=freq_array
-        )
-
-        return interp_data, interp_basis_vector
+@pytest.fixture(scope="module")
+def efield_beam(uvbeam):
+    """An e-field uvbeam."""
+    return uvbeam
 
 
-def make_cst_beam(beam_type):
-    """Make the default CST testing beam."""
-    extra_keywords = {
-        "software": "CST 2016",
-        "sim_type": "E-farfield",
-        "layout": "1 antenna",
-        "port_num": 1,
-    }
+@pytest.fixture(scope="function")
+def efield_single_freq(uvbeam):
+    """Single frequency beam."""
+    return uvbeam.select(freq_chans=[0], inplace=False)
 
-    beam = UVBeam()
-    beam.read_cst_beam(
-        str(cst_file),
-        beam_type=beam_type,
-        frequency=[150e6],
-        telescope_name="HERA",
-        feed_name="Dipole",
-        feed_version="1.0",
-        feed_pol=["x"],
-        model_name="Dipole - Rigging height 4.9 m",
-        model_version="1.0",
-        x_orientation="east",
-        reference_impedance=100,
-        history=(
-            "Derived from https://github.com/Nicolas-Fagnoni/Simulations."
-            "\nOnly 1 file included to keep test data volume low."
-        ),
-        extra_keywords=extra_keywords,
-    )
+
+@pytest.fixture(scope="module")
+def power_beam(uvbeam):
+    """A power-beam."""
+    beam = uvbeam.copy()
+    beam.efield_to_power()
     return beam
 
 
-@pytest.fixture(scope="module")
-def freq() -> np.ndarray:
-    """Frequencies for tests."""
-    return np.linspace(100.0e6, 120.0e6, NFREQ)  # Hz
+@pytest.fixture(scope="function")
+def efield_analytic_beam() -> AnalyticBeam:
+    """An efield analytic beam."""
+    return AnalyticBeam("gaussian", diameter=14.0)
 
 
 @pytest.fixture(scope="function")
-def beam_list_unpol() -> list[EllipticalBeam]:
-    """Get Gaussian beam and transform into an elliptical version."""
-    base_beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-    beam_analytic = conversions.prepare_beam(
-        beam_analytic, polarized=False, use_feed="x"
-    )
-
-    return [beam_analytic, beam_analytic]
-
-
-@pytest.fixture(scope="function")
-def beam_list_pol() -> list[EllipticalBeam]:
-    """Get Gaussian beam and transform into an elliptical version with polarization."""
-    base_beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-    beam_analytic = conversions.prepare_beam(
-        beam_analytic, polarized=True, use_feed="x"
-    )
-
-    return [beam_analytic, beam_analytic]
-
-
-@pytest.fixture(scope="function")
-def beam_cube(beam_list_unpol, freq) -> np.ndarray:
-    """Construct pixel beam from analytic beam."""
-    beam_pix = conversions.uvbeam_to_lm(
-        beam_list_unpol[0], freq, n_pix_lm=1001, polarized=False
-    )
-    return np.array([beam_pix, beam_pix])
-
-
-@pytest.fixture(scope="module")
-def point_source_pos():
-    """Some simple point source positions."""
-    ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
-    dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
-
-    return ra, dec
-
-
-@pytest.fixture(scope="module")
-def sky_flux(freq):
-    """Array of sky intensity."""
-    fluxes = np.ones(NPTSRC)
-    return fluxes[:, np.newaxis] * (freq[np.newaxis, :] / 100.0e6) ** -2.7
-
-
-@pytest.fixture(scope="module")
-def crd_eq(point_source_pos):
-    """Equatorial coordinates for the point sources."""
-    ra, dec = point_source_pos
-    return conversions.point_source_crd_eq(ra, dec)
-
-
-@pytest.fixture(scope="module")
-def eq2tops():
-    """Get coordinate transforms as a function of LST."""
-    hera_lat = -30.7215 * np.pi / 180.0
-    lsts = np.linspace(0.0, 2.0 * np.pi, NTIMES)
-    return np.array([conversions.eci_to_enu_matrix(lst, lat=hera_lat) for lst in lsts])
-
-
-@pytest.fixture(scope="module")
-def antpos():
-    """Antenna positions in the test array."""
-    return np.array([ants[k] for k in ants.keys()])
-
-
-def test_polarized_not_efield(beam_list_unpol, crd_eq, eq2tops, sky_flux, freq, antpos):
-    """Test that when doing polarized sim, error is raised if beams aren't efield."""
-    with pytest.raises(ValueError, match="beam type must be efield"):
-        simulate(
-            antpos=antpos,
-            freq=freq[0],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
-            I_sky=sky_flux[:, 0],
-            beam_list=beam_list_unpol,
-            precision=2,
-            polarized=True,
-        )
-
-
-def test_unpolarized_efield(beam_list_pol, crd_eq, eq2tops, sky_flux, freq, antpos):
-    """Test that when doing unpolarized sim, error is raised if beams aren't power."""
-    with pytest.raises(ValueError, match="beam type must be power"):
-        simulate(
-            antpos=antpos,
-            freq=freq[0],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
-            I_sky=sky_flux[:, 0],
-            beam_list=beam_list_pol,
-            precision=2,
-            polarized=False,
-        )
-
-
-def test_prepare_beams_wrong_feed():
-    """Test that error is raised feed not in 'xy'."""
-    base_beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-    with pytest.raises(ValueError, match="use_feed must be"):
-        conversions.prepare_beam(beam_analytic, polarized=False, use_feed="z")
-
-
-def test_prepare_beams_pol_power():
-    """Test that error is raised if power beam passed to polarized sim."""
-    base_beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam_analytic = EllipticalBeam(base_beam, xstretch=2.2, ystretch=1.0, rotation=40.0)
-    beam_analytic.efield_to_power()
-
-    with pytest.raises(ValueError, match="Beam type must be efield"):
-        conversions.prepare_beam(beam_analytic, polarized=True, use_feed="x")
-
-
-def test_prepare_beam_unpol_uvbeam():
-    """Test that prepare_beam correctly handles an efield beam input to unpol sim."""
-    beam = make_cst_beam("efield")
-    new_beam = conversions.prepare_beam(beam, polarized=False, use_feed="x")
-
-    assert new_beam.beam_type == "power"
-    assert len(new_beam.polarization_array) == 1
-    assert uvutils.polnum2str(new_beam.polarization_array[0]).lower() == "xx"
-
-    assert beam.beam_type == "efield"
-
-
-def test_prepare_beam_unpol_uvbeam_npols():
-    """Test that prepare_beam correctly handles multiple pols to unpol simulation."""
-    beam = make_cst_beam("power")
-    new_beam = conversions.prepare_beam(beam, polarized=False, use_feed="x")
-
-    assert new_beam.beam_type == "power"
-    assert len(new_beam.polarization_array) == 1
-    assert uvutils.polnum2str(new_beam.polarization_array[0]).lower() == "xx"
-
-    assert len(beam.polarization_array) > 1
-
-
-def test_prepare_beam_unpol_uvbeam_pol_no_exist():
-    """Test that error is raised if desired polarization doesn't exist."""
-    beam = make_cst_beam("efield")
+def power_analytic_beam() -> AnalyticBeam:
+    """A power analytic beam."""
+    beam = AnalyticBeam("gaussian", diameter=14.0)
     beam.efield_to_power()
-
-    beam.select(polarizations=[uvutils.polstr2num("yy"), uvutils.polstr2num("xy")])
-
-    with pytest.raises(
-        ValueError, match="You want to use x feed, but it does not exist in the UVBeam"
-    ):
-        conversions.prepare_beam(beam, polarized=False, use_feed="x")
+    return beam
 
 
-def test_unique_beam_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
-    """Test passing different numbers of beams than nant."""
-    antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
+class TestWrangleBeams:
+    """Test the _wrangle_beams function."""
 
-    for i in range(freq.size):
-        # Analytic beams
-        vis_analytic = simulate(
-            antpos=antpos,
-            freq=freq[i],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
-            I_sky=sky_flux[:, i],
-            beam_list=beam_list_unpol[:1],
-            precision=2,
-            polarized=False,
-        )
+    def test_exceptions(self, efield_analytic_beam, power_beam):
+        """Test that errors are raised for incorrect arguments."""
+        default_kw = {
+            "beam_idx": None,
+            "beam_list": [efield_analytic_beam],
+            "polarized": True,
+            "nant": 3,
+            "freq": 100e6,
+        }
 
-        assert np.all(~np.isnan(vis_analytic))
+        with pytest.raises(ValueError, match="beam_idx must be provided"):
+            _wrangle_beams(
+                **(
+                    default_kw
+                    | {"beam_list": [efield_analytic_beam, efield_analytic_beam]}
+                )
+            )
+
+        with pytest.raises(ValueError, match="beam_idx must be length nant"):
+            _wrangle_beams(**(default_kw | {"beam_idx": np.zeros(2, dtype=int)}))
+
+        with pytest.raises(
+            ValueError,
+            match="beam_idx contains indices greater than the number of beams",
+        ):
+            _wrangle_beams(**(default_kw | {"beam_idx": np.array([0, 1, 1])}))
+
+        with pytest.raises(
+            ValueError, match="beam type must be efield if using polarized=True"
+        ):
+            _wrangle_beams(**(default_kw | {"beam_list": [power_beam]}))
+
+        with pytest.raises(ValueError, match="beam type must be power"):
+            _wrangle_beams(
+                **(
+                    default_kw
+                    | {"polarized": False, "beam_list": [efield_analytic_beam]}
+                )
+            )
 
 
-def test_wrong_numbeams_passed(beam_list_unpol, freq, sky_flux, crd_eq, eq2tops):
-    """Test passing different numbers of beams than nant."""
-    antpos = np.array([[0, 0, 0], [1, 1, 0], [-1, 1, 0]])
+class TestPrepareBeamUnpolarized:
+    """Test the prepare_beam_unpolarized function."""
 
-    # Pixel beams
-    with pytest.raises(ValueError, match="beam_idx must be provided"):
-        simulate(
-            antpos=antpos,
-            freq=freq[0],
-            eq2tops=eq2tops,
-            crd_eq=crd_eq,
-            I_sky=sky_flux[:, 0],
-            beam_list=beam_list_unpol,
-            precision=2,
-            polarized=False,
-        )
-
-
-def test_wrong_coord_system(uvbeam):
-    """Test passing wrong beams/parameters to uvbeam_to_azza_grid."""
-    beam = uvbeam.copy()
-    beam.pixel_coordinate_system = "healpix"
-
-    with pytest.raises(ValueError, match="pixel_coordinate_system must be"):
-        uvbeam_to_azza_grid(beam)
-
-    with pytest.raises(ValueError, match="Can only handle one frequency"):
-        uvbeam_to_azza_grid(uvbeam)
-
-    newfreq = np.array([beam.freq_array[0]])
-    print(newfreq.shape)
-    newuv = uvbeam.interp(
-        freq_array=newfreq,
-        az_array=np.array([0, 0.5, 1.2]),
-        za_array=np.array([0, 0.2, 0.4]),
-        az_za_grid=True,
-        new_object=True,
+    @pytest.mark.parametrize(
+        "beam",
+        [
+            lf("efield_beam"),
+            lf("power_beam"),
+            lf("efield_analytic_beam"),
+            lf("power_analytic_beam"),
+        ],
     )
+    def test_different_input_beams(self, beam):
+        """Test that prepare_beam correctly handles different beam inputs."""
+        new_beam = prepare_beam_unpolarized(beam)
 
-    with pytest.raises(ValueError, match="Input UVBeam is not regular"):
-        uvbeam_to_azza_grid(newuv)
+        assert new_beam.beam_type == "power"
 
-    newuv = uvbeam.interp(
-        freq_array=newfreq,
-        az_array=np.array([0, 0.6, 1.2]),
-        za_array=np.array([0, 0.2, 0.4]),
-        az_za_grid=True,
-        new_object=True,
-    )
+        if isinstance(beam, UVBeam):
+            assert len(new_beam.polarization_array) == 1
+            assert polnum2str(new_beam.polarization_array[0]).lower() == "xx"
 
-    with pytest.raises(ValueError, match="The beam data does not cover the full sky"):
-        uvbeam_to_azza_grid(newuv)
+    def test_exceptions(self, power_beam):
+        """Test that error is raised if desired polarization doesn't exist."""
+        beam = power_beam.copy()
+        beam.select(polarizations=[polstr2num("yy"), polstr2num("xy")])
+
+        with pytest.raises(
+            ValueError,
+            match="You want to use xx pol, but it does not exist in the UVBeam",
+        ):
+            prepare_beam_unpolarized(beam)
 
 
-def test_nan_in_cpu_beam(uvbeam):
-    """Test nan in cpu beam."""
-    beam = uvbeam.copy()
-    beam.data_array[1] = np.nan
+class TestUVBeamInterpolator:
+    """Test the UVBeamInterpolator."""
 
-    tx = np.linspace(-1, 1, 100)
-    ty = tx
+    def test_nan_in_cpu_beam(self, efield_beam):
+        """Test nan in cpu beam."""
+        beam = efield_beam.copy()
+        beam.data_array[1] = np.nan
 
-    freq = np.array([beam.freq_array[0]])
+        tx = np.linspace(-1, 1, 100)
+        ty = tx
 
-    A_s = np.zeros((2, 2, 1, 100))
-    with pytest.raises(
-        ValueError, match="Beam interpolation resulted in an invalid value"
-    ):
-        _evaluate_beam_cpu(
-            A_s,
-            [beam],
-            tx,
-            ty,
+        freq = beam.freq_array[0]
+
+        bmfunc = UVBeamInterpolator(
+            beam_list=[beam],
+            beam_idx=np.zeros(1, dtype=int),
             polarized=True,
-            check=True,
+            nant=1,
             freq=freq,
+            nsrc=len(tx),
+        )
+        bmfunc.setup()
+        with pytest.raises(
+            ValueError, match="Beam interpolation resulted in an invalid value"
+        ):
+            bmfunc(tx, ty, check=True)
+
+
+@pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
+class TestGPUBeamInterpolator:
+    """Test the GPUBeamInterpolator."""
+
+    def setup_class(self):
+        """Import the GPUBeamInterpolator."""
+        from matvis.gpu.beams import GPUBeamInterpolator
+
+        self.gpuinterp = GPUBeamInterpolator
+
+    @pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
+    def test_exceptions(self, efield_single_freq: UVBeam):
+        """Test that proper exceptions are raised when bad params are passed."""
+        beam = efield_single_freq.copy()
+        beam.to_healpix()
+        bm = self.gpuinterp(
+            beam_list=[beam],
+            beam_idx=np.zeros(1, dtype=int),
+            polarized=True,
+            nant=1,
+            freq=100e6,
+            nsrc=100,
+            spline_opts={"order": 1},
+            precision=2,
         )
 
+        with pytest.raises(ValueError, match="pixel coordinate system must be"):
+            bm.setup()
 
-def test_covers_sky_almost_strong(uvbeam):
-    """Test that beam covers sky almost completely."""
-    beam1 = uvbeam.copy()
-    beam2 = uvbeam.copy()
+    def test_analytic_beam(self, efield_analytic_beam):
+        """Test that using analytic beams still works."""
+        import cupy as cp
 
-    # Restrict to a certain frequency
-    beam1.data_array = beam1.data_array[:, :, :, [0]]
-    beam2.data_array = beam2.data_array[:, :, :, [0]]
+        tx = np.linspace(-0.7, 0.7, 100)
+        ty = np.linspace(-0.7, 0.7, 100)
 
-    beam1.Nfreqs = 1
-    beam2.Nfreqs = 1
+        bm = self.gpuinterp(
+            beam_list=[efield_analytic_beam],
+            beam_idx=np.zeros(1, dtype=int),
+            polarized=True,
+            nant=1,
+            freq=100e6,
+            nsrc=len(tx),
+            spline_opts={"order": 1},
+            precision=2,
+        )
 
-    beam1.axis1_array = np.linspace(0, 2 * np.pi, beam1.axis1_array.size)
-    beam2.axis1_array = np.linspace(0, 2 * np.pi, beam2.axis1_array.size)
+        bm.setup()
+        interp_beam = bm(tx, ty)
+        assert interp_beam.shape == (1, 2, 2, len(tx))
+        assert isinstance(interp_beam, cp.ndarray)
 
-    beam1.data_array[..., -1] = beam1.data_array[..., 0]
 
-    # take out the last az value (the wrapped one)
-    beam2.data_array = beam2.data_array[..., :-1]
-    beam2.axis1_array = beam2.axis1_array[:-1]
-    beam2.Naxes1 = beam2.Naxes1 - 1
+def test_gpu_beam_interp_against_cpu(efield_single_freq):
+    """Test that GPU beam interpolation matches the CPU interpolation."""
+    if not HAVE_GPU:
+        pytest.skip("GPU is not available")
 
-    beam1_interp, daz1, dza1 = uvbeam_to_azza_grid(beam1)
-    beam2_interp, daz2, dza2 = uvbeam_to_azza_grid(beam2)
+    from matvis.gpu.beams import GPUBeamInterpolator
 
-    np.testing.assert_allclose(beam1_interp, beam2_interp, atol=1e-6)
+    rt = np.linspace(0, 1, 100)
+    tht = np.linspace(0, 2 * np.pi, 100)
+
+    tx = rt * np.cos(tht)
+    ty = rt * np.sin(tht)
+
+    cpu_bmfunc = UVBeamInterpolator(
+        beam_list=[efield_single_freq],
+        beam_idx=np.zeros(1, dtype=int),
+        polarized=True,
+        nant=1,
+        freq=100e6,
+        nsrc=len(tx),
+        spline_opts={"order": 1},
+        precision=2,
+    )
+
+    gpu_bmfunc = GPUBeamInterpolator(
+        beam_list=[efield_single_freq],
+        beam_idx=np.zeros(1, dtype=int),
+        polarized=True,
+        nant=1,
+        freq=100e6,
+        nsrc=len(tx),
+        spline_opts={"order": 1},
+        precision=2,
+    )
+
+    np.testing.assert_allclose(
+        cpu_bmfunc.beam_list[0].data_array,
+        gpu_bmfunc.beam_list[0].data_array,
+        atol=1e-8,
+    )
+    cpu_bmfunc.setup()
+    gpu_bmfunc.setup()
+
+    cpu_bmfunc(tx, ty)
+    gpu_bmfunc(tx, ty)
+
+    np.testing.assert_allclose(
+        cpu_bmfunc.interpolated_beam, gpu_bmfunc.interpolated_beam.get(), atol=1e-6
+    )
