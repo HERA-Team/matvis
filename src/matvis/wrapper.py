@@ -83,7 +83,7 @@ def simulate_vis(
     -------
     vis : array_like
         Complex array of shape (NFREQS, NTIMES, NBLS, NFEED, NFEED)
-        if ``polarized == True``, or (NFREQS, NBLS, NTIMES) otherwise.
+        if ``polarized == True``, or (NFREQS, NTIMES, NBLS) otherwise.
     """
     if use_gpu:
         if not HAVE_GPU:
