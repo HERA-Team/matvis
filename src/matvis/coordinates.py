@@ -13,6 +13,18 @@ from numpy import typing as npt
 from pyuvdata.uvbeam import UVBeam
 from typing import Literal
 
+from . import HAVE_GPU
+
+if HAVE_GPU:
+    import cupy as cp
+
+    get_array_module = cp.get_array_module
+else:
+
+    def get_array_module(*x):
+        """Return numpy as the array module."""
+        return np
+
 
 def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     """Convert angle cosines in ENU coordinates into azimuth and zenith angle.
@@ -51,6 +63,8 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     az, za : array_like
         Corresponding azimuth and zenith angles (in radians).
     """
+    xp = get_array_module(enu_e, enu_n)
+
     assert orientation in [
         "astropy",
         "uvbeam",
@@ -58,17 +72,17 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
 
     lsqr = enu_n**2.0 + enu_e**2.0
     mask = lsqr < 1
-    zeta = np.zeros_like(lsqr)
-    zeta[mask] = np.sqrt(1 - lsqr[mask])
+    zeta = xp.zeros_like(lsqr)
+    zeta[mask] = xp.sqrt(1 - lsqr[mask])
 
-    az = np.arctan2(enu_e, enu_n)
-    za = 0.5 * np.pi - np.arcsin(zeta)
+    az = xp.arctan2(enu_e, enu_n)
+    za = 0.5 * np.pi - xp.arcsin(zeta)
 
     # Flip and rotate azimuth coordinate if uvbeam convention is used
     if orientation == "uvbeam":
         az = 0.5 * np.pi - az
     if periodic_azimuth:
-        az = np.mod(az, 2 * np.pi)
+        az = xp.mod(az, 2 * np.pi)
     return az, za
 
 
@@ -144,6 +158,17 @@ def enu_to_eci_matrix(ha, lat):
     )
 
 
+def altaz_to_enu(el, az):
+    """Convert alt/az coordinates as given by Astropy, into ENU coordinates.
+
+    Astropy has Az oriented East of North, i.e. Az(N) = 0 deg, Az(E) = +90 deg.
+    See: https://gssc.esa.int/navipedia/index.php/Transformations_between_ECEF_and_ENU_coordinates
+    """
+    xp = get_array_module(el)
+
+    return xp.array([xp.cos(el) * xp.sin(az), xp.cos(el) * xp.cos(az), xp.sin(el)])
+
+
 def point_source_crd_eq(ra, dec):
     """Coordinate transform of source locations from equatorial to Cartesian.
 
@@ -170,7 +195,8 @@ def point_source_crd_eq(ra, dec):
         Equatorial coordinates of sources, in Cartesian
         system. Shape=(3, NSRCS).
     """
-    return np.asarray([np.cos(ra) * np.cos(dec), np.cos(dec) * np.sin(ra), np.sin(dec)])
+    xp = get_array_module(ra, dec)
+    return xp.asarray([xp.cos(ra) * xp.cos(dec), xp.cos(dec) * xp.sin(ra), xp.sin(dec)])
 
 
 def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs"):
@@ -249,12 +275,7 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     # Get AltAz and ENU coords of sources at reference time and location. Ref:
     # https://gssc.esa.int/navipedia/index.php/Transformations_between_ECEF_and_ENU_coordinates
     alt_az = skycoords.transform_to(AltAz(obstime=obstime, location=location))
-    el, az = alt_az.alt.rad, alt_az.az.rad
-    astropy_enu = np.array(
-        [np.cos(el) * np.sin(az), np.cos(el) * np.cos(az), np.sin(el)]
-    )
-    # astropy has Az oriented East of North, i.e. Az(N) = 0 deg, Az(E) = +90 deg
-
+    astropy_enu = altaz_to_enu(alt_az.alt.rad, alt_az.az.rad)
     # Convert to ECI coordinates using ENU->ECI transform
     astropy_eci = np.dot(m, astropy_enu)
 
@@ -263,49 +284,3 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     pdec = np.arcsin(pz)
     pra = np.arctan2(py, px)
     return pra, pdec
-
-
-def prepare_beam(
-    uvbeam: UVBeam, polarized: bool = False, use_feed: Literal["x", "y"] = "x"
-) -> UVBeam:
-    """Prepare an imput beam for either interpolation or simulation.
-
-    The point of this function is to take an arbitrary UVBeam (or AnalyticBeam) and
-    do the necessary checks and conversions to convert it to a format that can be
-    interpolated to an (l,m) grid, or passed to  matvis. The output beam type is
-    dependent on the input parameters ``polarized`` and ``use_feed``.
-    """
-    use_feed = use_feed.lower()
-    if use_feed not in "xy":
-        raise ValueError("use_feed must be either 'x' or 'y'")
-    use_pol = use_feed * 2
-
-    # Interpolate beam onto cube
-    if polarized:
-        if uvbeam.beam_type != "efield":
-            raise ValueError("Beam type must be efield")
-        uvbeam_ = uvbeam
-    elif uvbeam.beam_type == "efield":
-        uvbeam_ = uvbeam.copy() if isinstance(uvbeam, UVBeam) else deepcopy(uvbeam)
-        # Analytic beams have no concept of feeds, so assume they have a "single" feed
-        if getattr(uvbeam_, "Nfeeds", 1) > 1:
-            uvbeam_.select(feeds=[use_feed])
-
-        if isinstance(uvbeam, UVBeam):
-            uvbeam_.efield_to_power(calc_cross_pols=False)
-        else:
-            uvbeam_.efield_to_power()
-
-    elif getattr(uvbeam, "Npols", 1) > 1:
-        pol = uvutils.polstr2num(use_pol)
-
-        if pol not in uvbeam.polarization_array:
-            raise ValueError(
-                f"You want to use {use_feed} feed, but it does not exist in the UVBeam"
-            )
-
-        uvbeam_ = uvbeam.select(polarizations=[pol], inplace=False)
-    else:
-        uvbeam_ = uvbeam
-
-    return uvbeam_
