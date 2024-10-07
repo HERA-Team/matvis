@@ -61,9 +61,9 @@ class CoordinateRotation(ABC):
         self.telescope_loc = telescope_loc
         self.skycoords = skycoords
 
-        assert flux.ndim == 1
         assert times.ndim == 1
         assert len(skycoords) == self.nsrc
+        assert len(flux) == self.nsrc
 
         self.chunk_size = chunk_size or self.nsrc
         self.source_buffer = source_buffer
@@ -79,7 +79,7 @@ class CoordinateRotation(ABC):
             (3, self.nsrc_alloc), self.rtype(0.0), dtype=self.rtype
         )
         self.flux_above_horizon = self.xp.full(
-            (self.nsrc_alloc,), self.rtype(0.0), dtype=self.rtype
+            (self.nsrc_alloc,) + self.flux.shape[1:], self.rtype(0.0), dtype=self.rtype
         )
 
     def select_chunk(self, chunk: int):
