@@ -64,21 +64,25 @@ class CoordinateRotationERFA(CoordinateRotation):
         super().__init__(*args, **kwargs)
         self.update_bcrs_every = update_bcrs_every * un.s
 
-    def setup(self):
-        """Standard setup, as well as storing the cartesian representation of ECI."""
-        super().setup()
+        # Do one rotation to warm up the cache. This reads the IERS table.
+        frame = AltAz(obstime=self.times[0], location=self.telescope_loc)
+        self.skycoords[0].transform_to(frame)
+        self._time_of_last_evaluation = None
+
+        # These are unchanging over time, so init them outside the setup() to save
+        # memory when multi-processing.
         self._eci = self.xp.asarray(
             point_source_crd_eq(self.skycoords.ra, self.skycoords.dec)
         )
 
+    def setup(self):
+        """Standard setup, as well as storing the cartesian representation of ECI."""
+        super().setup()
+
         # BCRS holds the deflected, aberrated bnp-d coordinates, which don't change
         # significantly over time.
-        self._bcrs = self._eci.copy()
-        self._time_of_last_evaluation = None
-
-        # Do one rotation to warm up the cache.
-        frame = AltAz(obstime=self.times[0], location=self.telescope_loc)
-        self.skycoords[0].transform_to(frame)
+        if not hasattr(self, "_bcrs"):
+            self._bcrs = self.xp.full(self._eci.shape, dtype=self._eci.dtype)
 
     def _atioq(self, xyz: np.ndarray, astrom):
         # cirs to hadec rot
@@ -177,21 +181,22 @@ class CoordinateRotationERFA(CoordinateRotation):
     def _get_obsf(self, obstime, location):
         return AltAz(obstime=obstime, location=location)
 
-    def rotate(self, t: int) -> tuple[np.ndarray, np.ndarray]:
-        """Rotate the coordinates into the observed frame."""
-        obsf = self._get_obsf(self.times[t], self.telescope_loc)
-        astrom = self._apco(obsf)
-
-        # Copy the eci coordinates, because these routines modify them in-place
-
+    def _set_bcrs(self, t, astrom=None):
         # convert to topocentric CIRS
         # together, _ld + _ab take ~90% of the time.
+        if astrom is None:
+            obsf = self._get_obsf(self.times[t], self.telescope_loc)
+            astrom = self._apco(obsf)
+
         if (
             self._time_of_last_evaluation is None
             or self.times[t] - self.times[self._time_of_last_evaluation]
             > self.update_bcrs_every
         ):
-            self._bcrs[:] = self._eci[:]
+            if hasattr(self, "_bcrs"):
+                self._bcrs[:] = self._eci[:]
+            else:
+                self._bcrs = self._eci.copy()
 
             # Light deflection by the Sun, giving BCRS natural direction.
             self._ld(self._bcrs, self.xp.asarray(astrom["eh"]), astrom["em"], 1e-6)
@@ -206,6 +211,13 @@ class CoordinateRotationERFA(CoordinateRotation):
             self._bpn(self._bcrs, astrom)
 
             self._time_of_last_evaluation = t
+
+    def rotate(self, t: int) -> tuple[np.ndarray, np.ndarray]:
+        """Rotate the coordinates into the observed frame."""
+        obsf = self._get_obsf(self.times[t], self.telescope_loc)
+        astrom = self._apco(obsf)
+
+        self._set_bcrs(t, astrom)
 
         self.all_coords_topo[:] = self._bcrs[:]
 
