@@ -82,7 +82,9 @@ class CoordinateRotationERFA(CoordinateRotation):
         # BCRS holds the deflected, aberrated bnp-d coordinates, which don't change
         # significantly over time.
         if not hasattr(self, "_bcrs"):
-            self._bcrs = self.xp.full(self._eci.shape, dtype=self._eci.dtype)
+            self._bcrs = self.xp.full(
+                self._eci.shape, dtype=self._eci.dtype, fill_value=0.0
+            )
 
     def _atioq(self, xyz: np.ndarray, astrom):
         # cirs to hadec rot
