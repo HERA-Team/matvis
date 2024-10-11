@@ -157,20 +157,8 @@ def simulate(
         precision,
         source_buffer=source_buffer,
     )
-    nsrc_alloc = int(npixc * source_buffer)
-
-    bmfunc = UVBeamInterpolator(
-        beam_list=beam_list,
-        beam_idx=beam_idx,
-        polarized=polarized,
-        nant=nant,
-        freq=freq,
-        spline_opts=beam_spline_opts,
-        precision=precision,
-        nsrc=nsrc_alloc,
-    )
-
     coord_method = CoordinateRotation._methods[coord_method]
+
     coord_method_params = coord_method_params or {}
     coords = coord_method(
         flux=np.sqrt(0.5 * I_sky),
@@ -182,6 +170,19 @@ def simulate(
         source_buffer=source_buffer,
         **coord_method_params,
     )
+
+    nsrc_alloc = coords.nsrc_alloc
+    bmfunc = UVBeamInterpolator(
+        beam_list=beam_list,
+        beam_idx=beam_idx,
+        polarized=polarized,
+        nant=nant,
+        freq=freq,
+        spline_opts=beam_spline_opts,
+        precision=precision,
+        nsrc=nsrc_alloc,
+    )
+
     taucalc = TauCalculator(
         antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc
     )

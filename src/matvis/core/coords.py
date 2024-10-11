@@ -67,7 +67,10 @@ class CoordinateRotation(ABC):
 
         self.chunk_size = chunk_size or self.nsrc
         self.source_buffer = source_buffer
-        self.nsrc_alloc = int(self.chunk_size * self.source_buffer)
+        if self.chunk_size > 1000:
+            self.nsrc_alloc = int(self.chunk_size * self.source_buffer)
+        else:
+            self.nsrc_alloc = self.chunk_size
 
     def setup(self):
         """Allocate memory for the rotation."""
