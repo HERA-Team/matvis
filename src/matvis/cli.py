@@ -21,8 +21,8 @@ from astropy.time import Time
 from line_profiler import LineProfiler
 from pathlib import Path
 from pyuvdata import UVBeam
+from pyuvdata.analytic_beam import GaussianBeam
 from pyuvdata.telescopes import get_telescope
-from pyuvsim import AnalyticBeam, simsetup
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.rule import Rule
@@ -400,24 +400,17 @@ def get_standard_sim_params(
     # Set the seed so that different runs take about the same time.
     rng = np.random.default_rng()
 
-    # Beam model
-    if use_analytic_beam:
-        beam = AnalyticBeam("gaussian", diameter=14.0)
-    else:
-        # This is a peak-normalized e-field beam file at 100 and 101 MHz,
-        # downsampled to roughly 4 square-degree resolution.
-        beam = UVBeam()
-        beam.read_beamfits(beam_file, use_future_array_shapes=True)
+    # Source locations and frequencies
+    freqs = np.linspace(freq_min, freq_max, nfreq)
 
-        # Up/down sample the beam
-        beam.interpolation_function = "az_za_simple"
-        beam = beam.interp(
-            az_array=np.linspace(0, 2 * np.pi, naz + 1)[:-1],
-            za_array=np.linspace(0, np.pi, nza + 1),
-            freq_array=beam.freq_array,
-            reuse_spline=True,
-            new_object=True,
-            az_za_grid=True,
+    # Beam model
+    beam = GaussianBeam(diameter=14.0)
+
+    if not use_analytic_beam:
+        beam = beam.to_uvbeam(
+            freq_array=freqs,
+            axis1_array=np.linspace(0, 2 * np.pi, naz + 1)[:-1],
+            axis2_array=np.linspace(0, np.pi, nza + 1),
         )
 
     beams = [beam] * nbeams
@@ -453,9 +446,6 @@ def get_standard_sim_params(
 
     flux0 = np.random.random(nsource) * 4
     spec_indx = np.random.normal(0.8, scale=0.05, size=nsource)
-
-    # Source locations and frequencies
-    freqs = np.linspace(freq_min, freq_max, nfreq)
 
     # Calculate source fluxes for matvis
     flux = ((freqs[:, np.newaxis] / freqs[0]) ** spec_indx.T * flux0.T).T
