@@ -382,7 +382,16 @@ def get_stats_and_lines(filename, start_lineno, timings, time_unit):
 
 
 def get_standard_sim_params(
-    use_analytic_beam: bool, nfreq, ntime, nants, nsource, nbeams, naz=360, nza=180
+    use_analytic_beam: bool,
+    nfreq,
+    ntime,
+    nants,
+    nsource,
+    nbeams,
+    naz=360,
+    nza=180,
+    freq_min=100e6,
+    freq_max=200e6,
 ):
     """Create some standard random simulation parameters for use in profiling.
 
@@ -446,7 +455,7 @@ def get_standard_sim_params(
     spec_indx = np.random.normal(0.8, scale=0.05, size=nsource)
 
     # Source locations and frequencies
-    freqs = np.linspace(100e6, 200e6, nfreq)
+    freqs = np.linspace(freq_min, freq_max, nfreq)
 
     # Calculate source fluxes for matvis
     flux = ((freqs[:, np.newaxis] / freqs[0]) ** spec_indx.T * flux0.T).T
