@@ -10,7 +10,7 @@ from pyuvdata.telescopes import get_telescope
 
 from matvis import HAVE_GPU
 from matvis.core.coords import CoordinateRotation
-from matvis.cpu.coords import CoordinateRotationAstropy
+from matvis.cpu.coords import CoordinateRotationAstropy, CoordinateRotationERFA
 
 if HAVE_GPU:
     import cupy as cp
@@ -35,7 +35,7 @@ def get_angles(x, y):
     return xp.arccos(ratio)
 
 
-def get_random_coordrot(n, method, gpu, seed, precision=2):
+def get_random_coordrot(n, method, gpu, seed, precision=2, setup: bool = True, **kw):
     """Get a random coordinate rotation object."""
     rng = np.random.default_rng(seed)
     location = get_telescope("hera").location
@@ -51,8 +51,10 @@ def get_random_coordrot(n, method, gpu, seed, precision=2):
         skycoords=skycoords,
         gpu=gpu,
         precision=precision,
+        **kw
     )
-    coords.setup()
+    if setup:
+        coords.setup()
     return coords
 
 
@@ -101,3 +103,43 @@ def test_accuracy_against_astropy(method, gpu, precision):
         np.testing.assert_allclose(angles, 0, atol=0.01)  # 10 mas
     else:
         np.testing.assert_allclose(angles, 0, atol=150)  # 50 mas
+
+
+def test_coord_rot_erfa_set_bcrs():
+    """Test that setting bcrs before setup works as expected."""
+    normal = get_random_coordrot(
+        1000, CoordinateRotationERFA, gpu=False, seed=1, precision=1
+    )
+    bcrs = get_random_coordrot(
+        1000, CoordinateRotationERFA, gpu=False, seed=1, precision=1, setup=False
+    )
+    bcrs._set_bcrs(0)
+    bcrs.setup()
+
+    normal.rotate(0)
+    bcrs.rotate(0)
+
+    np.testing.assert_allclose(normal.all_coords_topo, bcrs.all_coords_topo)
+
+
+def test_larger_chunksize():
+    """Test that using different chunk sizes results in the same output."""
+    small = get_random_coordrot(
+        10000, CoordinateRotationERFA, gpu=False, seed=1, precision=1, chunk_size=100
+    )
+    large = get_random_coordrot(
+        10000, CoordinateRotationERFA, gpu=False, seed=1, precision=1, chunk_size=5000
+    )
+    default = get_random_coordrot(
+        10000, CoordinateRotationERFA, gpu=False, seed=1, precision=1
+    )
+    small.select_chunk(0)
+    large.select_chunk(0)
+    default.select_chunk(0)
+
+    np.testing.assert_allclose(
+        small.coords_above_horizon, large.coords_above_horizon[:, :100]
+    )
+    np.testing.assert_allclose(
+        small.coords_above_horizon, default.coords_above_horizon[:, :100]
+    )
