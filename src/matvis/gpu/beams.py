@@ -30,8 +30,8 @@ class GPUBeamInterpolator(BeamInterpolator):
         Decides if the beam_list is a list of UVBeam objects or AnalyticBeam objects,
         and dispatches accordingly.
         """
-        self.use_interp = isinstance(self.beam_list[0], UVBeam)
-        if self.use_interp and not all(isinstance(b, UVBeam) for b in self.beam_list):
+        self.use_interp = self.beam_list[0]._isuvbeam
+        if self.use_interp and not all(b._isuvbeam for b in self.beam_list):
             raise ValueError(
                 "GPUBeamInterpolator only supports beam_lists with either all UVBeam or all AnalyticBeam objects."
             )

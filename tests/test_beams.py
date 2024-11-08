@@ -2,11 +2,13 @@
 
 import pytest
 
+import copy
 import numpy as np
 from pytest_lazy_fixtures import lf
 from pyuvdata import UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam, GaussianBeam
+from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.utils.pol import polnum2str, polstr2num
-from pyuvsim import AnalyticBeam
 
 from matvis import HAVE_GPU
 from matvis.core.beams import _wrangle_beams, prepare_beam_unpolarized
@@ -16,35 +18,32 @@ from matvis.cpu.beams import UVBeamInterpolator
 @pytest.fixture(scope="module")
 def efield_beam(uvbeam):
     """An e-field uvbeam."""
-    return uvbeam
+    return BeamInterface(uvbeam)
 
 
 @pytest.fixture(scope="function")
 def efield_single_freq(uvbeam):
     """Single frequency beam."""
-    return uvbeam.select(freq_chans=[0], inplace=False)
+    return BeamInterface(uvbeam.select(freq_chans=[0], inplace=False))
 
 
 @pytest.fixture(scope="module")
 def power_beam(uvbeam):
     """A power-beam."""
     beam = uvbeam.copy()
-    beam.efield_to_power()
-    return beam
+    return BeamInterface(beam, beam_type="power")
 
 
 @pytest.fixture(scope="function")
 def efield_analytic_beam() -> AnalyticBeam:
     """An efield analytic beam."""
-    return AnalyticBeam("gaussian", diameter=14.0)
+    return BeamInterface(GaussianBeam(diameter=14.0), beam_type="efield")
 
 
 @pytest.fixture(scope="function")
 def power_analytic_beam() -> AnalyticBeam:
     """A power analytic beam."""
-    beam = AnalyticBeam("gaussian", diameter=14.0)
-    beam.efield_to_power()
-    return beam
+    return BeamInterface(GaussianBeam(diameter=14.0), beam_type="efield")
 
 
 class TestWrangleBeams:
@@ -82,14 +81,6 @@ class TestWrangleBeams:
         ):
             _wrangle_beams(**(default_kw | {"beam_list": [power_beam]}))
 
-        with pytest.raises(ValueError, match="beam type must be power"):
-            _wrangle_beams(
-                **(
-                    default_kw
-                    | {"polarized": False, "beam_list": [efield_analytic_beam]}
-                )
-            )
-
 
 class TestPrepareBeamUnpolarized:
     """Test the prepare_beam_unpolarized function."""
@@ -109,20 +100,8 @@ class TestPrepareBeamUnpolarized:
 
         assert new_beam.beam_type == "power"
 
-        if isinstance(beam, UVBeam):
-            assert len(new_beam.polarization_array) == 1
-            assert polnum2str(new_beam.polarization_array[0]).lower() == "xx"
-
-    def test_exceptions(self, power_beam):
-        """Test that error is raised if desired polarization doesn't exist."""
-        beam = power_beam.copy()
-        beam.select(polarizations=[polstr2num("yy"), polstr2num("xy")])
-
-        with pytest.raises(
-            ValueError,
-            match="You want to use xx pol, but it does not exist in the UVBeam",
-        ):
-            prepare_beam_unpolarized(beam)
+        assert len(new_beam.beam.polarization_array) == 1
+        assert polnum2str(new_beam.beam.polarization_array[0]).lower() == "xx"
 
 
 class TestUVBeamInterpolator:
@@ -130,13 +109,13 @@ class TestUVBeamInterpolator:
 
     def test_nan_in_cpu_beam(self, efield_beam):
         """Test nan in cpu beam."""
-        beam = efield_beam.copy()
-        beam.data_array[1] = np.nan
+        beam = copy.deepcopy(efield_beam)
+        beam.beam.data_array[1] = np.nan
 
         tx = np.linspace(-1, 1, 100)
         ty = tx
 
-        freq = beam.freq_array[0]
+        freq = beam.beam.freq_array[0]
 
         bmfunc = UVBeamInterpolator(
             beam_list=[beam],

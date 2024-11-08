@@ -11,6 +11,8 @@ from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
 from collections.abc import Sequence
 from pyuvdata import UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam
+from pyuvdata.beam_interface import BeamInterface
 from typing import Callable, Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
@@ -32,7 +34,7 @@ def simulate(
     skycoords: SkyCoord,
     telescope_loc: EarthLocation,
     I_sky: np.ndarray,
-    beam_list: Sequence[UVBeam | Callable] | None,
+    beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     precision: int = 1,
     polarized: bool = False,

@@ -6,6 +6,11 @@ import logging
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, SkyCoord
+from astropy.time import Time
+from pyuvdata import UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam
+from pyuvdata.beam_interface import BeamInterface
+from typing import Literal
 
 from . import HAVE_GPU, cpu
 from .core.beams import prepare_beam_unpolarized
@@ -17,17 +22,17 @@ logger = logging.getLogger(__name__)
 
 
 def simulate_vis(
-    ants,
-    fluxes,
-    ra,
-    dec,
-    freqs,
-    times,
-    beams,
+    ants: dict[int, np.ndarray],
+    fluxes: np.ndarray,
+    ra: np.ndarray,
+    dec: np.ndarray,
+    freqs: np.ndarray,
+    times: Time,
+    beams: list[AnalyticBeam | UVBeam | BeamInterface],
     telescope_loc: EarthLocation,
-    polarized=False,
-    precision=1,
-    use_feed="x",
+    polarized: bool = False,
+    precision: Literal[1, 2] = 1,
+    use_feed: Literal["x", "y"] = "x",
     use_gpu: bool = False,
     beam_spline_opts: dict | None = None,
     beam_idx: np.ndarray | None = None,
@@ -54,17 +59,12 @@ def simulate_vis(
         and Dec from [-pi/2, +pi/2].
     freqs : array_like
         Frequency channels for the simulation, in Hz.
-    lsts : array_like
-        Local sidereal times for the simulation, in radians. Range is [0, 2 pi].
-    beams : list of ``UVBeam`` objects
+    times : astropy.Time instance
+        Times of the observation (can be an array of times).
+    beams : list of ``UVBeam``, ``AnalyticBeam`` or ``BeamInterface`` objects
         Beam objects to use for each antenna.
-    pixel_beams : bool, optional
-        If True, interpolate the beams onto a pixel grid. Otherwise, use the
-        ``UVBeam`` interpolation method directly.
-    beam_npix : int, optional
-        If ``pixel_beam == True``, sets the pixel grid resolution along each
-        dimension (corresponds to the ``n_pix_lm`` parameter of the
-        `conversions.uvbeam_to_lm` function).
+    telescope_loc
+        An EarthLocation object representing the center of the array.
     polarized : bool, optional
         If True, use polarized beams and calculate all available linearly-
         polarized visibilities, e.g. V_nn, V_ne, V_en, V_ee.
@@ -73,11 +73,23 @@ def simulate_vis(
         Which precision setting to use for :func:`~matvis`. If set to ``1``,
         uses the (``np.float32``, ``np.complex64``) dtypes. If set to ``2``,
         uses the (``np.float64``, ``np.complex128``) dtypes.
-    latitude : float, optional
-        The latitude of the center of the array, in radians. The default is the
-        HERA latitude = -30.7215 * pi / 180.
+    use_feed
+        Either 'x' or 'y'. Only used if polarized is False.
+    use_gpu : bool, optional
+        Whether to use the GPU for simulation.
     beam_spline_opts : dict, optional
         Options to be passed to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
+    beam_idx
+        An array of integers, of the same length as ``ants``. Each entry is for an
+        antenna of the same index, and its value should be the index of the beam in
+        the beam list that corresponds to the antenna.
+    antpairs
+        A list of antpairs (in the form of 2-tuples of integers) to actually
+        calculate visibility for. If None, all feed-pairs are calculated.
+    source_buffer : float, optional
+        The fraction of the total number of sources to use when allocating memory
+        for the sources above horizon. For large numbers of sources, a fraction of
+        ~0.55 should be sufficient.
 
     Returns
     -------
@@ -115,8 +127,6 @@ def simulate_vis(
     # Get polarization information from beams
     if polarized:
         nfeeds = getattr(beams[0], "Nfeeds", 2)
-    else:
-        beams = [prepare_beam_unpolarized(beam) for beam in beams]
 
     # Antenna x,y,z positions
     antpos = np.array([ants[k] for k in ants.keys()])

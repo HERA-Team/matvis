@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("cupy")
 
 import numpy as np
-from pyuvsim.analyticbeam import AnalyticBeam
+from pyuvdata.analytic_beam import GaussianBeam
 
 from matvis import simulate_vis
 
@@ -48,7 +48,7 @@ def test_mixed_beams(uvbeam):
     """Test that error is raised when using a mixed beam list."""
     kw, *_ = get_standard_sim_params(use_analytic_beam=True, polarized=False)
 
-    anl = AnalyticBeam("gaussian", diameter=14.0)
+    anl = GaussianBeam(diameter=14.0)
     cpu_beams = [uvbeam, anl, anl]
     del kw["beams"]
 

@@ -4,8 +4,8 @@ import pytest
 
 import numpy as np
 from astropy.time import Time
+from pyuvdata.analytic_beam import GaussianBeam
 from pyuvdata.telescopes import get_telescope
-from pyuvsim.analyticbeam import AnalyticBeam
 
 from matvis import simulate_vis
 
@@ -38,7 +38,7 @@ def test_simulate_vis(polarized):
     times = Time(np.linspace(2459863.0, 2459864.0, NTIMES), format="jd")
 
     # Create beam models
-    beam = AnalyticBeam("gaussian", diameter=14.0)
+    beam = GaussianBeam(diameter=14.0)
 
     # Run matvis on CPUs with pixel beams
     vis = simulate_vis(

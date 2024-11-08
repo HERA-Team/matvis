@@ -3,43 +3,41 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import replace
 from pyuvdata import UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam
+from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.utils.pol import polstr2num
 from typing import Any, Literal
 
 
-def prepare_beam_unpolarized(uvbeam, use_pol: Literal["xy", "xx", "yx", "yy"] = "xx"):
-    """Given a UVBeam or AnalyticBeam, prepare it for an un-polarized simulation."""
-    if uvbeam.beam_type == "power" and getattr(uvbeam, "Npols", 1) == 1:
-        return uvbeam
+def prepare_beam_unpolarized(
+    beam: BeamInterface,
+    use_feed: Literal["x", "y"] = "x",
+    allow_beam_mutation: bool = False,
+) -> BeamInterface:
+    """Given a BeamInterface, prepare it for an un-polarized simulation."""
+    if beam.beam_type == "power" and beam.Npols == 1:
+        return beam
 
-    uvbeam_ = uvbeam.copy() if isinstance(uvbeam, UVBeam) else deepcopy(uvbeam)
+    if beam.beam_type == "efield":
+        beam = beam.as_power_beam(
+            include_cross_pols=False, allow_beam_mutation=allow_beam_mutation
+        )
 
-    if uvbeam_.beam_type == "efield":
-        if isinstance(uvbeam, UVBeam):
-            uvbeam_.efield_to_power(calc_cross_pols=False)
-        else:
-            uvbeam_.efield_to_power()
+    if beam.Npols > 1:
+        beam = beam.with_feeds([use_feed])
 
-    if getattr(uvbeam_, "Npols", 1) > 1:
-        pol = polstr2num(use_pol)
-
-        if pol not in uvbeam_.polarization_array:
-            raise ValueError(
-                f"You want to use {use_pol} pol, but it does not exist in the UVBeam"
-            )
-        uvbeam_.select(polarizations=[pol])
-
-    return uvbeam_
+    return beam
 
 
 def _wrangle_beams(
     beam_idx: np.ndarray | None,
-    beam_list: list[UVBeam],
+    beam_list: list[BeamInterface | UVBeam | AnalyticBeam],
     polarized: bool,
     nant: int,
     freq: float,
-) -> tuple[list[UVBeam], int, np.ndarray]:
+) -> tuple[list[BeamInterface], int, np.ndarray]:
     """Perform all the operations and checks on the input beams.
 
     Checks that the beam indices match the number of antennas, pre-interpolates to the
@@ -61,6 +59,12 @@ def _wrangle_beams(
     """
     # Get the number of unique beams
     nbeam = len(beam_list)
+    beam_list = [
+        beam if isinstance(beam, BeamInterface) else BeamInterface(beam)
+        for beam in beam_list
+    ]
+    if not polarized:
+        beam_list = [prepare_beam_unpolarized(beam) for beam in beam_list]
 
     # Check the beam indices
     if beam_idx is None and nbeam not in (1, nant):
@@ -78,8 +82,12 @@ def _wrangle_beams(
     # make sure we interpolate to the right frequency first.
     beam_list = [
         (
-            bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
-            if isinstance(bm, UVBeam)
+            bm.clone(
+                beam=bm.beam.interp(
+                    freq_array=np.array([freq]), new_object=True, run_check=False
+                )
+            )
+            if bm._isuvbeam
             else bm
         )
         for bm in beam_list
@@ -88,19 +96,22 @@ def _wrangle_beams(
     if polarized:
         if any(b.beam_type != "efield" for b in beam_list):
             raise ValueError("beam type must be efield if using polarized=True")
+    else:
+        # The following applies if we're not polarized
+        for b in beam_list:
+            if b.beam_type != "power":
+                raise ValueError(
+                    f"beam type must be power if polarized=False. Have beam_type={b.beam_type}"
+                )
+            if b.Npols > 1:
+                raise ValueError(
+                    f"beam type must be power and have only one pol if polarized=False. Have {b.Npols}"
+                )
 
-    # The following applies if we're not polarized
-    elif any(
-        (
-            b.beam_type != "power"
-            or getattr(b, "Npols", 1) > 1
-            or b.polarization_array[0] not in [-5, -6]
-        )
-        for b in beam_list
-    ):
-        raise ValueError(
-            "beam type must be power and have only one pol (either xx or yy) if polarized=False"
-        )
+            if b.polarization_array[0] not in [-5, -6]:
+                raise ValueError(
+                    f"beam type must be power and have only one pol (either xx or yy) if polarized=False. Have {b.polarization_array[0]}"
+                )
 
     return beam_list, nbeam, beam_idx
 
@@ -132,7 +143,7 @@ class BeamInterpolator(ABC):
 
     def __init__(
         self,
-        beam_list: list[UVBeam],
+        beam_list: list[BeamInterface],
         beam_idx: np.ndarray,
         polarized: bool,
         nant: int,
@@ -142,6 +153,7 @@ class BeamInterpolator(ABC):
         precision: int = 1,
     ):
         self.polarized = polarized
+
         self.beam_list, self.nbeam, self.beam_idx = _wrangle_beams(
             beam_idx=beam_idx,
             beam_list=beam_list,
