@@ -8,8 +8,7 @@ import numpy as np
 from pyuvdata.analytic_beam import GaussianBeam
 
 from matvis import simulate_vis
-
-from . import get_standard_sim_params
+from matvis._test_utils import get_standard_sim_params
 
 
 def test_antizenith():

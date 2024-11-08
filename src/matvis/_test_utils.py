@@ -15,7 +15,7 @@ from pyuvdata.telescopes import get_telescope
 from pyuvsim import simsetup
 from pyuvsim.telescope import BeamList
 
-from matvis import DATA_PATH, coordinates
+from matvis import DATA_PATH
 
 nfreq = 1
 ntime = 5  # 20
