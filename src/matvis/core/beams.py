@@ -59,10 +59,8 @@ def _wrangle_beams(
     """
     # Get the number of unique beams
     nbeam = len(beam_list)
-    beam_list = [
-        beam if isinstance(beam, BeamInterface) else BeamInterface(beam)
-        for beam in beam_list
-    ]
+    beam_list = [BeamInterface(beam) for beam in beam_list]
+
     if not polarized:
         beam_list = [prepare_beam_unpolarized(beam) for beam in beam_list]
 

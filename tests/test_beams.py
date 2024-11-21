@@ -8,7 +8,7 @@ from pytest_lazy_fixtures import lf
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam, GaussianBeam
 from pyuvdata.beam_interface import BeamInterface
-from pyuvdata.utils.pol import polnum2str, polstr2num
+from pyuvdata.utils.pol import polnum2str
 
 from matvis import HAVE_GPU
 from matvis.core.beams import _wrangle_beams, prepare_beam_unpolarized
