@@ -143,10 +143,10 @@ class TestGPUBeamInterpolator:
         self.gpuinterp = GPUBeamInterpolator
 
     @pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
-    def test_exceptions(self, efield_single_freq: UVBeam):
+    def test_exceptions(self, efield_single_freq: BeamInterface):
         """Test that proper exceptions are raised when bad params are passed."""
-        beam = efield_single_freq.copy()
-        beam.to_healpix()
+        beam = efield_single_freq
+        beam = beam.clone(beam=beam.beam.to_healpix(inplace=False))
         bm = self.gpuinterp(
             beam_list=[beam],
             beam_idx=np.zeros(1, dtype=int),
@@ -221,8 +221,8 @@ def test_gpu_beam_interp_against_cpu(efield_single_freq):
     )
 
     np.testing.assert_allclose(
-        cpu_bmfunc.beam_list[0].data_array,
-        gpu_bmfunc.beam_list[0].data_array,
+        cpu_bmfunc.beam_list[0].beam.data_array,
+        gpu_bmfunc.beam_list[0].beam.data_array,
         atol=1e-8,
     )
     cpu_bmfunc.setup()
