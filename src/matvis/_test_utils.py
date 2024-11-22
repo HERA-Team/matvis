@@ -5,14 +5,17 @@ from astropy import units as un
 from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
 from astropy.units import Quantity
+from dataclasses import replace
 from pathlib import Path
 from pyradiosky import SkyModel
 from pyuvdata import UVBeam
+from pyuvdata.analytic_beam import GaussianBeam
+from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.telescopes import get_telescope
-from pyuvsim import AnalyticBeam, simsetup
+from pyuvsim import simsetup
 from pyuvsim.telescope import BeamList
 
-from matvis import DATA_PATH, coordinates
+from matvis import DATA_PATH
 
 nfreq = 1
 ntime = 5  # 20
@@ -39,34 +42,36 @@ def get_standard_sim_params(
     # Beam model
     if use_analytic_beam:
         n_freq = nfreq
-        beam = AnalyticBeam("gaussian", diameter=14.0)
+        beam = BeamInterface(
+            GaussianBeam(diameter=14.0), beam_type="efield" if polarized else "power"
+        )
     else:
         n_freq = min(nfreq, 2)
         # This is a peak-normalized e-field beam file at 100 and 101 MHz,
         # downsampled to roughly 4 square-degree resolution.
         beam = UVBeam()
         beam.read_beamfits(beam_file)
-        if not polarized:
-            uvsim_beam = beam.copy()
-            beam.efield_to_power(calc_cross_pols=False, inplace=True)
-            beam.select(polarizations=["xx"], inplace=True)
+        # Even though we sometimes want a power beam for matvis, we always need
+        # an efield beam for pyuvsim, so we create an efield beam here, and let matvis
+        # take care of conversion later.
+        beam = BeamInterface(beam, beam_type="efield")
 
         # Now, the beam we have on file doesn't actually properly wrap around in azimuth.
         # This is fine -- the uvbeam.interp() handles the interpolation well. However, when
         # comparing to the GPU interpolation, which first has to interpolate to a regular
         # grid that ends right at 2pi, it's better to compare like for like, so we
         # interpolate to such a grid here.
-        beam = beam.interp(
-            az_array=np.linspace(0, 2 * np.pi, 181),
-            za_array=np.linspace(0, np.pi / 2, 46),
-            az_za_grid=True,
-            new_object=True,
+        beam = beam.clone(
+            beam=beam.beam.interp(
+                az_array=np.linspace(0, 2 * np.pi, 181),
+                za_array=np.linspace(0, np.pi / 2, 46),
+                az_za_grid=True,
+                new_object=True,
+            )
         )
 
-    if polarized or use_analytic_beam:
-        uvsim_beams = BeamList([beam])
-    else:
-        uvsim_beams = BeamList([uvsim_beam])
+    # The UVSim beams must be efield all the time.
+    uvsim_beams = BeamList([beam])
 
     beam_dict = {str(i): 0 for i in range(nants)}
 

@@ -24,24 +24,19 @@ class UVBeamInterpolator(BeamInterpolator):
         # Primary beam pattern using direct interpolation of UVBeam object
         az, za = enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
+        kw = {
+            "reuse_spline": True,
+            "check_azza_domain": False,
+            "interpolation_function": "az_za_map_coordinates",
+            "spline_opts": self.spline_opts,
+        }
         for i, bm in enumerate(self.beam_list):
-            kw = (
-                {
-                    "reuse_spline": True,
-                    "check_azza_domain": False,
-                    "interpolation_function": "az_za_map_coordinates",
-                    "spline_opts": self.spline_opts,
-                }
-                if isinstance(bm, UVBeam)
-                else {}
-            )
-
-            interp_beam = bm.interp(
+            interp_beam = bm.compute_response(
                 az_array=az,
                 za_array=za,
                 freq_array=np.array([self.freq]),
                 **kw,
-            )[0]
+            )
 
             if self.polarized:
                 interp_beam = interp_beam[:, :, 0, :].transpose((1, 0, 2))

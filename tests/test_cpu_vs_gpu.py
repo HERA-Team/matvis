@@ -7,8 +7,7 @@ pytest.importorskip("pycuda")
 import numpy as np
 
 from matvis import simulate_vis
-
-from . import get_standard_sim_params, nants
+from matvis._test_utils import get_standard_sim_params, nants
 
 
 @pytest.mark.parametrize("polarized", (True, False))

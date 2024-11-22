@@ -7,8 +7,7 @@ from pyuvdata import UVData
 from pyuvsim import simsetup, uvsim
 
 from matvis import simulate_vis
-
-from . import get_standard_sim_params, nants
+from matvis._test_utils import get_standard_sim_params, nants
 
 
 @pytest.fixture(scope="function")

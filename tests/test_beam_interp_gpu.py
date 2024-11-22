@@ -5,11 +5,8 @@ import pytest
 pytest.importorskip("cupy")
 
 import numpy as np
-from pyuvdata import UVBeam
 
-from matvis import DATA_PATH
-from matvis.core.beams import prepare_beam_unpolarized
-from matvis.gpu.beams import gpu_beam_interpolation, prepare_for_map_coords
+from matvis.gpu.beams import gpu_beam_interpolation
 
 
 def test_identity():
