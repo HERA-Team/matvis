@@ -21,6 +21,12 @@ def efield_beam(uvbeam):
     return BeamInterface(uvbeam)
 
 
+@pytest.fixture(scope="module")
+def efield_beam_single_feed(efield_beam):
+    """An e-field uvbeam."""
+    return efield_beam.with_feeds(["x"])
+
+
 @pytest.fixture(scope="function")
 def efield_single_freq(uvbeam):
     """Single frequency beam."""
@@ -92,6 +98,7 @@ class TestPrepareBeamUnpolarized:
             lf("power_beam"),
             lf("efield_analytic_beam"),
             lf("power_analytic_beam"),
+            lf("efield_beam_single_feed"),
         ],
     )
     def test_different_input_beams(self, beam):
@@ -102,6 +109,13 @@ class TestPrepareBeamUnpolarized:
 
         assert len(new_beam.beam.polarization_array) == 1
         assert polnum2str(new_beam.beam.polarization_array[0]).lower() == "xx"
+
+    def test_noop(self, power_beam):
+        """Test that passing in a power beam with a single pol is a no-op."""
+        new_beam = power_beam.with_feeds(["x"])
+
+        same_beam = prepare_beam_unpolarized(new_beam)
+        assert same_beam is new_beam
 
 
 class TestUVBeamInterpolator:

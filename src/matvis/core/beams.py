@@ -94,22 +94,6 @@ def _wrangle_beams(
     if polarized:
         if any(b.beam_type != "efield" for b in beam_list):
             raise ValueError("beam type must be efield if using polarized=True")
-    else:
-        # The following applies if we're not polarized
-        for b in beam_list:
-            if b.beam_type != "power":
-                raise ValueError(
-                    f"beam type must be power if polarized=False. Have beam_type={b.beam_type}"
-                )
-            if b.Npols > 1:
-                raise ValueError(
-                    f"beam type must be power and have only one pol if polarized=False. Have {b.Npols}"
-                )
-
-            if b.polarization_array[0] not in [-5, -6]:
-                raise ValueError(
-                    f"beam type must be power and have only one pol (either xx or yy) if polarized=False. Have {b.polarization_array[0]}"
-                )
 
     return beam_list, nbeam, beam_idx
 
