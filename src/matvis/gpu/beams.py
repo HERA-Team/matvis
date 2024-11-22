@@ -11,7 +11,7 @@ from ..core.beams import BeamInterpolator
 from ..cpu.beams import UVBeamInterpolator
 
 
-def prepare_for_map_coords(uvbeam):
+def prepare_for_map_coords(uvbeam: UVBeam):
     """Obtain coordinates for doing map_coordinates interpolation from a UVBeam."""
     d0, az, za = uvbeam._prepare_coordinate_data(uvbeam.data_array)
     d0 = d0[:, :, 0]  # only one frequency
@@ -48,7 +48,7 @@ class GPUBeamInterpolator(BeamInterpolator):
             # we might want to do cubic interpolation with pyuvbeam onto a much higher-res
             # grid, then use linear interpolation on the GPU with that high-res grid.
             # We can explore this later...
-            if any(bm.pixel_coordinate_system != "az_za" for bm in self.beam_list):
+            if any(bm.beam.pixel_coordinate_system != "az_za" for bm in self.beam_list):
                 raise ValueError('pixel coordinate system must be "az_za"')
 
             self.daz = np.zeros(len(self.beam_list))
@@ -56,7 +56,7 @@ class GPUBeamInterpolator(BeamInterpolator):
             self.azmin = np.zeros(len(self.beam_list))
 
             d0, self.daz[0], self.dza[0], self.azmin[0] = prepare_for_map_coords(
-                self.beam_list[0]
+                self.beam_list[0].beam
             )
 
             self.beam_data = cp.zeros(
@@ -68,7 +68,7 @@ class GPUBeamInterpolator(BeamInterpolator):
             if len(self.beam_list) > 1:
                 for i, b in enumerate(self.beam_list[1:]):
                     d, self.daz[i + 1], self.dza[i + 1], self.azmin[i + 1] = (
-                        prepare_for_map_coords(b)
+                        prepare_for_map_coords(b.beam)
                     )
                     self.beam_data[i + 1].set(d)
         else:
