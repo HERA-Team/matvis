@@ -6,7 +6,7 @@ import numpy as np
 from astropy import units as un
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
-from pyuvdata.telescopes import get_telescope
+from pyuvdata.telescopes import Telescope
 
 from matvis import HAVE_GPU
 from matvis.core.coords import CoordinateRotation
@@ -38,7 +38,7 @@ def get_angles(x, y):
 def get_random_coordrot(n, method, gpu, seed, precision=2, setup: bool = True, **kw):
     """Get a random coordinate rotation object."""
     rng = np.random.default_rng(seed)
-    location = get_telescope("hera").location
+    location = Telescope.from_known_telescopes('hera').location
     skycoords = SkyCoord(
         ra=rng.uniform(0, 2 * np.pi, size=n) * un.rad,
         dec=rng.uniform(-np.pi / 2, np.pi / 2, size=n) * un.rad,

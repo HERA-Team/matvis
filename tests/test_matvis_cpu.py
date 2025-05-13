@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 from astropy.time import Time
 from pyuvdata.analytic_beam import GaussianBeam
-from pyuvdata.telescopes import get_telescope
+from pyuvdata.telescopes import Telescope
 
 from matvis import simulate_vis
 
@@ -23,7 +23,7 @@ ants = {0: (0.0, 0.0, 0.0), 1: (20.0, 20.0, 0.0)}
 def test_simulate_vis(polarized):
     """Test basic operation of simple wrapper around matvis, `simulate_vis`."""
     # Point source equatorial coords (radians)
-    hera = get_telescope("hera")
+    hera = Telescope.from_known_telescopes('hera')
     ra = np.linspace(0.0, 2.0 * np.pi, NPTSRC)
     dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, NPTSRC)
 
