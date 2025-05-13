@@ -53,8 +53,15 @@ class CoordinateRotation(ABC):
         self.xp = cp if self.gpu else np
 
         self.precision = precision
-        self.rtype, _ = get_dtypes(precision)
-        self.flux = self.xp.asarray(flux.astype(self.rtype))
+        self.rtype, self.ctype = get_dtypes(precision)
+
+        # Check if the flux is complex and set the dtype accordingly.
+        if self.xp.iscomplexobj(flux):
+            self.sky_model_dtype = self.ctype
+        else:
+            self.sky_model_dtype = self.rtype
+
+        self.flux = self.xp.asarray(flux.astype(self.sky_model_dtype))
 
         self.nsrc = len(flux)
         self.times = times
@@ -82,7 +89,7 @@ class CoordinateRotation(ABC):
             (3, self.nsrc_alloc), self.rtype(0.0), dtype=self.rtype
         )
         self.flux_above_horizon = self.xp.full(
-            (self.nsrc_alloc,) + self.flux.shape[1:], self.rtype(0.0), dtype=self.rtype
+            (self.nsrc_alloc,) + self.flux.shape[1:], self.sky_model_dtype(0.0), dtype=self.sky_model_dtype
         )
 
     def select_chunk(self, chunk: int):
