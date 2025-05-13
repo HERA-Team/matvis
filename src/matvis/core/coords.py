@@ -89,7 +89,9 @@ class CoordinateRotation(ABC):
             (3, self.nsrc_alloc), self.rtype(0.0), dtype=self.rtype
         )
         self.flux_above_horizon = self.xp.full(
-            (self.nsrc_alloc,) + self.flux.shape[1:], self.sky_model_dtype(0.0), dtype=self.sky_model_dtype
+            (self.nsrc_alloc,) + self.flux.shape[1:],
+            self.sky_model_dtype(0.0),
+            dtype=self.sky_model_dtype,
         )
 
     def select_chunk(self, chunk: int):
