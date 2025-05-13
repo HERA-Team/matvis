@@ -38,7 +38,7 @@ def get_angles(x, y):
 def get_random_coordrot(n, method, gpu, seed, precision=2, setup: bool = True, **kw):
     """Get a random coordinate rotation object."""
     rng = np.random.default_rng(seed)
-    location = Telescope.from_known_telescopes('hera').location
+    location = Telescope.from_known_telescopes("hera").location
     skycoords = SkyCoord(
         ra=rng.uniform(0, 2 * np.pi, size=n) * un.rad,
         dec=rng.uniform(-np.pi / 2, np.pi / 2, size=n) * un.rad,
