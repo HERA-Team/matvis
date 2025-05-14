@@ -11,7 +11,7 @@ from pyradiosky import SkyModel
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import GaussianBeam
 from pyuvdata.beam_interface import BeamInterface
-from pyuvdata.telescopes import get_telescope
+from pyuvdata.telescopes import Telescope
 from pyuvsim import simsetup
 from pyuvsim.telescope import BeamList
 
@@ -34,7 +34,7 @@ def get_standard_sim_params(
     first_source_antizenith=False,
 ):
     """Create some standard random simulation parameters for use in tests."""
-    hera = get_telescope("hera")
+    hera = Telescope.from_known_telescopes("hera")
     obstime = Time("2018-08-31T04:02:30.11", format="isot", scale="utc")
 
     rng = np.random.default_rng(1)

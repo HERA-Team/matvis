@@ -6,7 +6,7 @@ import numpy as np
 from astropy import units as un
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
-from pyuvdata.telescopes import get_telescope
+from pyuvdata.telescopes import Telescope
 
 from matvis import HAVE_GPU
 from matvis.core.coords import CoordinateRotation
@@ -35,10 +35,32 @@ def get_angles(x, y):
     return xp.arccos(ratio)
 
 
+def test_complex_flux():
+    """Test that using a complex flux works appropriately."""
+    rng = np.random.default_rng(1234)
+    n = 23
+    location = Telescope.from_known_telescopes("hera").location
+    skycoords = SkyCoord(
+        ra=rng.uniform(0, 2 * np.pi, size=n) * un.rad,
+        dec=rng.uniform(-np.pi / 2, np.pi / 2, size=n) * un.rad,
+        frame="icrs",
+    )
+
+    coords = CoordinateRotationAstropy(
+        flux=rng.normal(100, 2, size=n) + 1j * rng.normal(100, 2, size=n),
+        times=Time(np.array([2459863.0]), format="jd", scale="utc"),
+        telescope_loc=location,
+        skycoords=skycoords,
+        gpu=False,
+        precision=2,
+    )
+    assert coords.sky_model_dtype == coords.ctype == np.complex128
+
+
 def get_random_coordrot(n, method, gpu, seed, precision=2, setup: bool = True, **kw):
     """Get a random coordinate rotation object."""
     rng = np.random.default_rng(seed)
-    location = get_telescope("hera").location
+    location = Telescope.from_known_telescopes("hera").location
     skycoords = SkyCoord(
         ra=rng.uniform(0, 2 * np.pi, size=n) * un.rad,
         dec=rng.uniform(-np.pi / 2, np.pi / 2, size=n) * un.rad,
