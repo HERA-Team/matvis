@@ -8,6 +8,7 @@ import pyuvdata.utils as uvutils
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
+from scipy.linalg import orthogonal_procrustes as ortho_procr
 from copy import deepcopy
 from numpy import typing as npt
 from pyuvdata.uvbeam import UVBeam
@@ -284,3 +285,304 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     pdec = np.arcsin(pz)
     pra = np.arctan2(py, px)
     return pra, pdec
+
+def calc_coherency_rotation(ra, dec, alt, az, location, time):
+    """
+    Compute the rotation matrix needed to rotate a source's coherency 
+    from equatorial (RA/Dec) frame into the local alt/az frame. Adopted 
+    from the pyradiosky coherency calculation, but modified for better vectorization.
+
+    Parameters
+    ----------
+    ra : array_like
+        Right ascension(s) of source(s), in radians.
+    dec : array_like
+        Declination(s) of source(s), in radians. Same shape as `ra`.
+    alt : array_like
+        Altitude angle(s) of source(s), in radians.
+    az : array_like
+        Azimuth angle(s) of source(s), in radians. Same shape as `alt`.
+    location : astropy.coordinates.EarthLocation
+        Observatory location for the alt/az frame.
+    time : astropy.time.Time
+        Observation time, used to compute the ICRS→altaz rotation.
+
+    Returns
+    -------
+    coherency_rot_matrix : array_like
+        2x2 rotation matrix that carries the coherency from the
+        equatorial frame to the alt/az frame. Shape=(2, 2, N), where 
+        N is the number of sources.
+    """
+    # compute the bulk rotation from equatorial→altaz
+    basis_rotation_matrix = _calc_rotation_matrix(
+        ra=ra,
+        dec=dec,
+        alt=alt,
+        az=az,
+        location=location,
+        time=time
+    )
+
+    # spherical angles in the RA/Dec frame
+    theta_frame = np.pi / 2.0 - dec
+    phi_frame = ra  # longitude = RA
+
+    # spherical angles in the alt/az frame
+    theta_altaz = np.pi / 2.0 - alt
+    phi_altaz = az  # longitude = azimuth
+
+    coherency_rot_matrix = spherical_basis_vector_rotation_matrix(
+        theta_frame,
+        phi_frame,
+        basis_rotation_matrix,
+        theta_altaz,
+        phi_altaz
+    )
+    return coherency_rot_matrix
+
+
+def _calc_rotation_matrix(ra, dec, alt, az, time, location):
+    """
+    Build the full 3×3 rotation matrix that carries unit vectors
+    at (RA, Dec) in ICRS into unit vectors at (alt,az) in the local altaz frame.
+    Adopted from pyradiosky.
+
+    Parameters
+    ----------
+    ra, dec : array_like
+        Equatorial coordinates of the source(s) in radians.
+    alt, az : array_like
+        Local horizontal coordinates of the same source(s).
+    time : astropy.time.Time
+        Observation time for Earth rotation.
+    location : astropy.coordinates.EarthLocation
+        Observatory location.
+
+    Returns
+    -------
+    R_exact : ndarray
+        3×3[×N] rotation matrix(s) from ICRS→altaz.
+
+    Steps
+    -----
+    1. Compute the point-source unit vector in ICRS (frame_vec).
+    2. Compute the target unit vector in altaz (altaz_vec).
+    3. Get the average ICRS→altaz rotation at this time/location (R_avg).
+    4. Compute a small perturbation rotation R_perturb so that R_perturb · frame_vec = altaz_vec.
+    5. Compose R_exact = R_perturb ⋅ R_avg.
+    """
+    # 1) vector in ICRS from (ra, dec)
+    frame_vec = point_source_crd_eq(ra, dec)
+
+    # 2) vector in ICRS from (az, alt) — same routine, swapping args
+    altaz_vec = point_source_crd_eq(az, alt)
+
+    # 3) base rotation from ICRS → altaz at this time/location
+    R_avg = _calc_average_rotation_matrix(time, location)
+
+    # apply R_avg to the equatorial vector
+    intermediate_vec = np.matmul(R_avg, frame_vec)
+
+    # 4) find the rotation that carries intermediate_vec → altaz_vec
+    R_perturb = vecs2rot(r1=intermediate_vec, r2=altaz_vec)
+
+    # 5) full exact rotation
+    R_exact = np.einsum("ab...,bc->ac...", R_perturb, R_avg)
+    return R_exact
+
+
+def vecs2rot(r1, r2):
+    """
+    Construct an axis-angle rotation matrix R that carries vector r1 to r2.
+    Adopted from pyradiosky.
+
+    Parameters
+    ----------
+    r1, r2 : ndarray, shape (3, N)
+        Sets of 3D vectors.
+
+    Returns
+    -------
+    R : ndarray, shape (3, 3, N)
+        Rotation matrices such that R[..., i] @ r1[:, i] = r2[:, i].
+
+    Method
+    ------
+    - rotation axis = (r1 × r2) / |r1 × r2|
+    - rotation angle = arctan2(‖r1×r2‖, r1·r2)
+    - use Rodrigues’ formula via `axis_angle_rotation_matrix`.
+    """
+    # axis of rotation ∝ cross product
+    norm = np.cross(r1, r2, axis=0)
+    sinPsi = np.linalg.norm(norm, axis=0)
+    n_hat = norm / sinPsi  # unit rotation axis
+    cosPsi = np.sum(r1 * r2, axis=0)
+    Psi = np.arctan2(sinPsi, cosPsi)
+    return axis_angle_rotation_matrix(n_hat, Psi)
+
+
+def axis_angle_rotation_matrix(axis, angle):
+    """
+    Build rotation matrix via Rodrigues’ formula.
+
+    Parameters
+    ----------
+    axis : ndarray, shape (3, N)
+        Unit rotation axis for each of N rotations.
+    angle : array_like, shape (N,)
+        Rotation angles in radians.
+
+    Returns
+    -------
+    rot_matrix : ndarray, shape (3, 3, N)
+        The rotation matrices R such that R[..., i] rotates by angle[i]
+        about axis[:, i].
+    """
+    # skew-symmetric K-matrix for each axis
+    # K_{ab} = ε_{abc} axis_c
+    nsrc = axis.shape[1]
+    K_matrix = np.array([
+        [np.zeros(nsrc),       -axis[2],        axis[1]],
+        [axis[2],        np.zeros(nsrc),       -axis[0]],
+        [-axis[1],            axis[0],    np.zeros(nsrc)]
+    ])
+
+    I_matrix = np.eye(3)
+    # K^2 term
+    K2 = np.einsum("ab...,bc...->ac...", K_matrix, K_matrix)
+
+    # Rodrigues: R = I + sin(angle) K + (1−cos(angle)) K^2
+    rot_matrix = (
+        I_matrix[..., None]
+        + np.sin(angle) * K_matrix
+        + (1.0 - np.cos(angle)) * K2
+    )
+    return rot_matrix
+
+
+def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, alpha):
+    """
+    Compute the 2×2 rotation matrix that carries the spherical
+    basis vectors (θ̂, φ̂) at (theta,phi) in one frame into
+    the basis vectors at (beta,alpha) in the rotated frame.
+    Adopted from pyradiosky.
+
+    Parameters
+    ----------
+    theta, phi : array_like
+        Colatitude and longitude in the original frame.
+    rotation_matrix : ndarray, shape (3,3,...)
+        Bulk 3D rotation carrying original frame → new frame.
+    beta, alpha : array_like
+        Colatitude and longitude in the new (rotated) frame.
+
+    Returns
+    -------
+    bmat : ndarray, shape (2,2,...)
+        2×2 rotation matrices in the spherical basis:
+        [[ cos X,  sin X],
+         [-sin X,  cos X]],
+        where X is the angle between the two basis sets.
+    """
+    # unit vectors in original frame
+    th = theta_hat(theta, phi)
+    ph = phi_hat(theta, phi)
+
+    # rotate the new-frame θ̂ into original-frame coordinates
+    bh = np.einsum("ba...,b...->a...", rotation_matrix, theta_hat(beta, alpha))
+
+    # project rotated θ̂ onto original θ̂ and φ̂ to get the mixing angle
+    cosX = np.einsum("a...,a...->...", bh, th)
+    sinX = np.einsum("a...,a...->...", bh, ph)
+
+    return np.array([[cosX, sinX], [-sinX, cosX]])
+
+
+def _calc_average_rotation_matrix(time, telescope_location):
+    """
+    Compute the rigid-body rotation from ICRS (x,y,z) axes to the
+    local altaz axes at the given time and site, then orthogonalize it.
+
+    Parameters
+    ----------
+    time : astropy.time.Time
+        Observation time for Earth orientation.
+    telescope_location : astropy.coordinates.EarthLocation
+        Observatory geodetic location.
+
+    Returns
+    -------
+    R_really_orthogonal : ndarray, shape (3,3)
+        Orthogonal rotation matrix approximating ICRS→altaz.
+    """
+    # define unit ICRS axes
+    x_c = np.array([1.0, 0.0, 0.0])
+    y_c = np.array([0.0, 1.0, 0.0])
+    z_c = np.array([0.0, 0.0, 1.0])
+
+    # make a SkyCoord with cartesian representation
+    axes_icrs = SkyCoord(
+        x=x_c, y=y_c, z=z_c,
+        obstime=time,
+        location=telescope_location,
+        frame="icrs",
+        representation_type="cartesian"
+    )
+    # transform to altaz frame
+    axes_altaz = axes_icrs.transform_to("altaz")
+    axes_altaz.representation_type = "cartesian"
+
+    # extract the 3×3 matrix (may not be perfectly orthogonal)
+    R_screwy = axes_altaz.cartesian.xyz
+
+    # force strict orthogonality via Procrustes to the identity
+    R_really_orthogonal, _ = ortho_procr(R_screwy, np.eye(3))
+    # transpose to match conventional multiplication order
+    return R_really_orthogonal.T
+
+
+def theta_hat(theta, phi):
+    """
+    Return the unit vector theta_hat in Cartesian coords for spherical angles.
+
+    Parameters
+    ----------
+    theta : array_like
+        Colatitude angle(s), in radians.
+    phi : array_like
+        Longitude angle(s), in radians.
+
+    Returns
+    -------
+    vec : ndarray, shape (3, ...) 
+        Cartesian components of theta_hat.
+    """
+    return np.stack([
+        np.cos(phi) * np.cos(theta),
+        np.sin(phi) * np.cos(theta),
+        -np.sin(theta)
+    ])
+
+
+def phi_hat(theta, phi):
+    """
+    Return the unit vector phi_hat in Cartesian coords for spherical angles.
+
+    Parameters
+    ----------
+    theta : array_like
+        Colatitude angle(s), in radians.
+    phi : array_like
+        Longitude angle(s), in radians.
+
+    Returns
+    -------
+    vec : ndarray, shape (3, ...)
+        Cartesian components of phi_hat.
+    """
+    return np.stack([
+        -np.sin(phi),
+        np.cos(phi),
+        np.zeros_like(phi)
+    ])
