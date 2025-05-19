@@ -8,10 +8,10 @@ import pyuvdata.utils as uvutils
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
-from scipy.linalg import orthogonal_procrustes as ortho_procr
 from copy import deepcopy
 from numpy import typing as npt
 from pyuvdata.uvbeam import UVBeam
+from scipy.linalg import orthogonal_procrustes as ortho_procr
 from typing import Literal
 
 from . import HAVE_GPU
@@ -286,10 +286,11 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     pra = np.arctan2(py, px)
     return pra, pdec
 
+
 def calc_coherency_rotation(ra, dec, alt, az, location, time):
     """
-    Compute the rotation matrix needed to rotate a source's coherency 
-    from equatorial (RA/Dec) frame into the local alt/az frame. Adopted 
+    Compute the rotation matrix needed to rotate a source's coherency
+    from equatorial (RA/Dec) frame into the local alt/az frame. Adopted
     from the pyradiosky coherency calculation, but modified for better vectorization.
 
     Parameters
@@ -311,17 +312,12 @@ def calc_coherency_rotation(ra, dec, alt, az, location, time):
     -------
     coherency_rot_matrix : array_like
         2x2 rotation matrix that carries the coherency from the
-        equatorial frame to the alt/az frame. Shape=(2, 2, N), where 
+        equatorial frame to the alt/az frame. Shape=(2, 2, N), where
         N is the number of sources.
     """
     # compute the bulk rotation from equatorial→altaz
     basis_rotation_matrix = _calc_rotation_matrix(
-        ra=ra,
-        dec=dec,
-        alt=alt,
-        az=az,
-        location=location,
-        time=time
+        ra=ra, dec=dec, alt=alt, az=az, location=location, time=time
     )
 
     # spherical angles in the RA/Dec frame
@@ -333,11 +329,7 @@ def calc_coherency_rotation(ra, dec, alt, az, location, time):
     phi_altaz = az  # longitude = azimuth
 
     coherency_rot_matrix = spherical_basis_vector_rotation_matrix(
-        theta_frame,
-        phi_frame,
-        basis_rotation_matrix,
-        theta_altaz,
-        phi_altaz
+        theta_frame, phi_frame, basis_rotation_matrix, theta_altaz, phi_altaz
     )
     return coherency_rot_matrix
 
@@ -442,11 +434,13 @@ def axis_angle_rotation_matrix(axis, angle):
     # skew-symmetric K-matrix for each axis
     # K_{ab} = ε_{abc} axis_c
     nsrc = axis.shape[1]
-    K_matrix = np.array([
-        [np.zeros(nsrc),       -axis[2],        axis[1]],
-        [axis[2],        np.zeros(nsrc),       -axis[0]],
-        [-axis[1],            axis[0],    np.zeros(nsrc)]
-    ])
+    K_matrix = np.array(
+        [
+            [np.zeros(nsrc), -axis[2], axis[1]],
+            [axis[2], np.zeros(nsrc), -axis[0]],
+            [-axis[1], axis[0], np.zeros(nsrc)],
+        ]
+    )
 
     I_matrix = np.eye(3)
     # K^2 term
@@ -454,9 +448,7 @@ def axis_angle_rotation_matrix(axis, angle):
 
     # Rodrigues: R = I + sin(angle) K + (1−cos(angle)) K^2
     rot_matrix = (
-        I_matrix[..., None]
-        + np.sin(angle) * K_matrix
-        + (1.0 - np.cos(angle)) * K2
+        I_matrix[..., None] + np.sin(angle) * K_matrix + (1.0 - np.cos(angle)) * K2
     )
     return rot_matrix
 
@@ -523,11 +515,13 @@ def _calc_average_rotation_matrix(time, telescope_location):
 
     # make a SkyCoord with cartesian representation
     axes_icrs = SkyCoord(
-        x=x_c, y=y_c, z=z_c,
+        x=x_c,
+        y=y_c,
+        z=z_c,
         obstime=time,
         location=telescope_location,
         frame="icrs",
-        representation_type="cartesian"
+        representation_type="cartesian",
     )
     # transform to altaz frame
     axes_altaz = axes_icrs.transform_to("altaz")
@@ -555,14 +549,12 @@ def theta_hat(theta, phi):
 
     Returns
     -------
-    vec : ndarray, shape (3, ...) 
+    vec : ndarray, shape (3, ...)
         Cartesian components of theta_hat.
     """
-    return np.stack([
-        np.cos(phi) * np.cos(theta),
-        np.sin(phi) * np.cos(theta),
-        -np.sin(theta)
-    ])
+    return np.stack(
+        [np.cos(phi) * np.cos(theta), np.sin(phi) * np.cos(theta), -np.sin(theta)]
+    )
 
 
 def phi_hat(theta, phi):
@@ -581,8 +573,4 @@ def phi_hat(theta, phi):
     vec : ndarray, shape (3, ...)
         Cartesian components of phi_hat.
     """
-    return np.stack([
-        -np.sin(phi),
-        np.cos(phi),
-        np.zeros_like(phi)
-    ])
+    return np.stack([-np.sin(phi), np.cos(phi), np.zeros_like(phi)])
