@@ -9,6 +9,7 @@ from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
 
 from matvis import coordinates
+from matvis._test_utils import get_standard_sim_params
 
 np.random.seed(0)
 NTIMES = 24
@@ -189,3 +190,35 @@ def test_equatorial_to_eci_coords():
         _ra, _dec = coordinates.equatorial_to_eci_coords(
             ra, dec, obstime, (-30.7, 21.4, 1073.0), unit="rad", frame="icrs"
         )
+
+def test_coherency_calc():
+    """Test calculation of coherency matrix."""
+
+    params, sky_model, *_ = get_standard_sim_params(
+        use_analytic_beam=False, 
+        polarized=True,
+        nsource=NPTSRC,
+        ntime=NTIMES,
+    )
+
+    # Generate random point sources
+    for time in params['times']:
+        sky_model.update_positions(
+            time=time,
+            telescope_location=params['telescope_loc']
+        )
+        rotation_matrix = sky_model._calc_coherency_rotation()
+
+        # Calculate coherency matrix
+        rotation_matrix_matvis = coordinates.calc_coherency_rotation(
+            ra=params['ra'],
+            dec=params['dec'],
+            alt=sky_model.alt_az[0],
+            az=sky_model.alt_az[1],
+            location=params['telescope_loc'],
+            time=time
+        )
+        assert rotation_matrix_matvis.shape == (2, 2, NPTSRC)  # Check shape
+
+        # Check that the rotation matrix matches the one calculated by pyradiosky
+        np.testing.assert_allclose(rotation_matrix_matvis, rotation_matrix)

@@ -315,17 +315,19 @@ def calc_coherency_rotation(ra, dec, alt, az, location, time):
         equatorial frame to the alt/az frame. Shape=(2, 2, N), where
         N is the number of sources.
     """
+    xp = get_array_module(ra, dec, alt, az)
+
     # compute the bulk rotation from equatorial→altaz
     basis_rotation_matrix = _calc_rotation_matrix(
         ra=ra, dec=dec, alt=alt, az=az, location=location, time=time
     )
 
     # spherical angles in the RA/Dec frame
-    theta_frame = np.pi / 2.0 - dec
+    theta_frame = xp.pi / 2.0 - dec
     phi_frame = ra  # longitude = RA
 
     # spherical angles in the alt/az frame
-    theta_altaz = np.pi / 2.0 - alt
+    theta_altaz = xp.pi / 2.0 - alt
     phi_altaz = az  # longitude = azimuth
 
     coherency_rot_matrix = spherical_basis_vector_rotation_matrix(
@@ -364,6 +366,8 @@ def _calc_rotation_matrix(ra, dec, alt, az, time, location):
     4. Compute a small perturbation rotation R_perturb so that R_perturb · frame_vec = altaz_vec.
     5. Compose R_exact = R_perturb ⋅ R_avg.
     """
+    xp = get_array_module(ra, dec, alt, az)
+
     # 1) vector in ICRS from (ra, dec)
     frame_vec = point_source_crd_eq(ra, dec)
 
@@ -372,15 +376,16 @@ def _calc_rotation_matrix(ra, dec, alt, az, time, location):
 
     # 3) base rotation from ICRS → altaz at this time/location
     R_avg = _calc_average_rotation_matrix(time, location)
+    R_avg = xp.asarray(R_avg)  # ensure the array matches either numpy or cupy
 
     # apply R_avg to the equatorial vector
-    intermediate_vec = np.matmul(R_avg, frame_vec)
+    intermediate_vec = xp.matmul(R_avg, frame_vec)
 
     # 4) find the rotation that carries intermediate_vec → altaz_vec
     R_perturb = vecs2rot(r1=intermediate_vec, r2=altaz_vec)
 
     # 5) full exact rotation
-    R_exact = np.einsum("ab...,bc->ac...", R_perturb, R_avg)
+    R_exact = xp.einsum("ab...,bc->ac...", R_perturb, R_avg)
     return R_exact
 
 
@@ -405,12 +410,14 @@ def vecs2rot(r1, r2):
     - rotation angle = arctan2(‖r1×r2‖, r1·r2)
     - use Rodrigues’ formula via `axis_angle_rotation_matrix`.
     """
+    xp = get_array_module(r1, r2)
+
     # axis of rotation ∝ cross product
-    norm = np.cross(r1, r2, axis=0)
-    sinPsi = np.linalg.norm(norm, axis=0)
+    norm = xp.cross(r1, r2, axis=0)
+    sinPsi = xp.linalg.norm(norm, axis=0)
     n_hat = norm / sinPsi  # unit rotation axis
-    cosPsi = np.sum(r1 * r2, axis=0)
-    Psi = np.arctan2(sinPsi, cosPsi)
+    cosPsi = xp.sum(r1 * r2, axis=0)
+    Psi = xp.arctan2(sinPsi, cosPsi)
     return axis_angle_rotation_matrix(n_hat, Psi)
 
 
@@ -431,24 +438,26 @@ def axis_angle_rotation_matrix(axis, angle):
         The rotation matrices R such that R[..., i] rotates by angle[i]
         about axis[:, i].
     """
+    xp = get_array_module(axis, angle)
+
     # skew-symmetric K-matrix for each axis
     # K_{ab} = ε_{abc} axis_c
     nsrc = axis.shape[1]
-    K_matrix = np.array(
+    K_matrix = xp.array(
         [
-            [np.zeros(nsrc), -axis[2], axis[1]],
-            [axis[2], np.zeros(nsrc), -axis[0]],
-            [-axis[1], axis[0], np.zeros(nsrc)],
+            [xp.zeros(nsrc), -axis[2], axis[1]],
+            [axis[2], xp.zeros(nsrc), -axis[0]],
+            [-axis[1], axis[0], xp.zeros(nsrc)],
         ]
     )
 
-    I_matrix = np.eye(3)
+    I_matrix = xp.eye(3)
     # K^2 term
-    K2 = np.einsum("ab...,bc...->ac...", K_matrix, K_matrix)
+    K2 = xp.einsum("ab...,bc...->ac...", K_matrix, K_matrix)
 
     # Rodrigues: R = I + sin(angle) K + (1−cos(angle)) K^2
     rot_matrix = (
-        I_matrix[..., None] + np.sin(angle) * K_matrix + (1.0 - np.cos(angle)) * K2
+        I_matrix[..., None] + xp.sin(angle) * K_matrix + (1.0 - xp.cos(angle)) * K2
     )
     return rot_matrix
 
@@ -477,18 +486,20 @@ def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, al
          [-sin X,  cos X]],
         where X is the angle between the two basis sets.
     """
+    xp = get_array_module(theta, phi)
+
     # unit vectors in original frame
     th = theta_hat(theta, phi)
     ph = phi_hat(theta, phi)
 
     # rotate the new-frame theta hat into original-frame coordinates
-    bh = np.einsum("ba...,b...->a...", rotation_matrix, theta_hat(beta, alpha))
+    bh = xp.einsum("ba...,b...->a...", rotation_matrix, theta_hat(beta, alpha))
 
     # project rotated theta hat onto original theta hat and phi hat to get the mixing angle
-    cosX = np.einsum("a...,a...->...", bh, th)
-    sinX = np.einsum("a...,a...->...", bh, ph)
+    cosX = xp.einsum("a...,a...->...", bh, th)
+    sinX = xp.einsum("a...,a...->...", bh, ph)
 
-    return np.array([[cosX, sinX], [-sinX, cosX]])
+    return xp.array([[cosX, sinX], [-sinX, cosX]])
 
 
 def _calc_average_rotation_matrix(time, telescope_location):
@@ -552,8 +563,9 @@ def theta_hat(theta, phi):
     vec : ndarray, shape (3, ...)
         Cartesian components of theta_hat.
     """
-    return np.stack(
-        [np.cos(phi) * np.cos(theta), np.sin(phi) * np.cos(theta), -np.sin(theta)]
+    xp = get_array_module(theta, phi)
+    return xp.stack(
+        [xp.cos(phi) * xp.cos(theta), xp.sin(phi) * xp.cos(theta), -xp.sin(theta)]
     )
 
 
@@ -573,4 +585,5 @@ def phi_hat(theta, phi):
     vec : ndarray, shape (3, ...)
         Cartesian components of phi_hat.
     """
-    return np.stack([-np.sin(phi), np.cos(phi), np.zeros_like(phi)])
+    xp = get_array_module(theta, phi)
+    return xp.stack([-xp.sin(phi), xp.cos(phi), xp.zeros_like(phi)])
