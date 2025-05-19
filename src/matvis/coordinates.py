@@ -289,8 +289,8 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
 
 def calc_coherency_rotation(ra, dec, alt, az, location, time):
     """
-    Compute the rotation matrix needed for time-dependent coherency calculation. 
-    
+    Compute the rotation matrix needed for time-dependent coherency calculation.
+
     This function computes the rotation matrix needed to rotate a source's coherency
     from equatorial (RA/Dec) frame into the local alt/az frame. Adopted
     from the pyradiosky coherency calculation, but modified for better vectorization.
@@ -340,8 +340,8 @@ def calc_coherency_rotation(ra, dec, alt, az, location, time):
 
 def _calc_rotation_matrix(ra, dec, alt, az, time, location):
     """
-    Build the full 3×3 rotation matrix between (RA, Dec) and (alt, az). 
-    
+    Build the full 3×3 rotation matrix between (RA, Dec) and (alt, az).
+
     This function build the rotation matrix that carries unit vectors
     at (RA, Dec) in ICRS into unit vectors at (alt,az) in the local altaz frame.
     Adopted from pyradiosky.
@@ -396,7 +396,7 @@ def _calc_rotation_matrix(ra, dec, alt, az, time, location):
 def vecs2rot(r1, r2):
     """
     Construct an axis-angle rotation matrix R that carries vector r1 to r2.
-    
+
     This function has been adopted from adopted from pyradiosky.
 
     Parameters
@@ -470,7 +470,7 @@ def axis_angle_rotation_matrix(axis, angle):
 def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, alpha):
     """
     Get the rotation matrix for vectors in theta/phi basis to a new reference frame.
-    
+
     Parameters
     ----------
     theta, phi : array_like
@@ -506,7 +506,7 @@ def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, al
 
 def _calc_average_rotation_matrix(time, telescope_location):
     """
-    Compute the rigid-body rotation from ICRS (x,y,z) axes. 
+    Compute the rigid-body rotation from ICRS (x,y,z) axes.
 
     Parameters
     ----------
