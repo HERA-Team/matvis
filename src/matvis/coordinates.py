@@ -289,7 +289,9 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
 
 def calc_coherency_rotation(ra, dec, alt, az, location, time):
     """
-    Compute the rotation matrix needed to rotate a source's coherency
+    Compute the rotation matrix needed for time-dependent coherency calculation. 
+    
+    This function computes the rotation matrix needed to rotate a source's coherency
     from equatorial (RA/Dec) frame into the local alt/az frame. Adopted
     from the pyradiosky coherency calculation, but modified for better vectorization.
 
@@ -338,7 +340,9 @@ def calc_coherency_rotation(ra, dec, alt, az, location, time):
 
 def _calc_rotation_matrix(ra, dec, alt, az, time, location):
     """
-    Build the full 3×3 rotation matrix that carries unit vectors
+    Build the full 3×3 rotation matrix between (RA, Dec) and (alt, az). 
+    
+    This function build the rotation matrix that carries unit vectors
     at (RA, Dec) in ICRS into unit vectors at (alt,az) in the local altaz frame.
     Adopted from pyradiosky.
 
@@ -392,7 +396,8 @@ def _calc_rotation_matrix(ra, dec, alt, az, time, location):
 def vecs2rot(r1, r2):
     """
     Construct an axis-angle rotation matrix R that carries vector r1 to r2.
-    Adopted from pyradiosky.
+    
+    This function has been adopted from adopted from pyradiosky.
 
     Parameters
     ----------
@@ -406,8 +411,8 @@ def vecs2rot(r1, r2):
 
     Method
     ------
-    - rotation axis = (r1 × r2) / |r1 × r2|
-    - rotation angle = arctan2(‖r1×r2‖, r1·r2)
+    - rotation axis = (r1 x r2) / |r1 x r2|
+    - rotation angle = arctan2(‖r1xr2‖, r1·r2)
     - use Rodrigues’ formula via `axis_angle_rotation_matrix`.
     """
     xp = get_array_module(r1, r2)
@@ -464,11 +469,8 @@ def axis_angle_rotation_matrix(axis, angle):
 
 def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, alpha):
     """
-    Compute the 2×2 rotation matrix that carries the spherical
-    basis vectors (θ̂, φ̂) at (theta, phi) in one frame into
-    the basis vectors at (beta, alpha) in the rotated frame.
-    Adopted from pyradiosky.
-
+    Get the rotation matrix for vectors in theta/phi basis to a new reference frame.
+    
     Parameters
     ----------
     theta, phi : array_like
@@ -504,8 +506,7 @@ def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, al
 
 def _calc_average_rotation_matrix(time, telescope_location):
     """
-    Compute the rigid-body rotation from ICRS (x,y,z) axes to the
-    local altaz axes at the given time and site, then orthogonalize it.
+    Compute the rigid-body rotation from ICRS (x,y,z) axes. 
 
     Parameters
     ----------
