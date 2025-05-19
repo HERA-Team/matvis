@@ -191,32 +191,32 @@ def test_equatorial_to_eci_coords():
             ra, dec, obstime, (-30.7, 21.4, 1073.0), unit="rad", frame="icrs"
         )
 
+
 def test_coherency_calc():
     """Test calculation of coherency matrix."""
 
     params, sky_model, *_ = get_standard_sim_params(
-        use_analytic_beam=False, 
+        use_analytic_beam=False,
         polarized=True,
         nsource=NPTSRC,
         ntime=NTIMES,
     )
 
     # Generate random point sources
-    for time in params['times']:
+    for time in params["times"]:
         sky_model.update_positions(
-            time=time,
-            telescope_location=params['telescope_loc']
+            time=time, telescope_location=params["telescope_loc"]
         )
         rotation_matrix = sky_model._calc_coherency_rotation()
 
         # Calculate coherency matrix
         rotation_matrix_matvis = coordinates.calc_coherency_rotation(
-            ra=params['ra'],
-            dec=params['dec'],
+            ra=params["ra"],
+            dec=params["dec"],
             alt=sky_model.alt_az[0],
             az=sky_model.alt_az[1],
-            location=params['telescope_loc'],
-            time=time
+            location=params["telescope_loc"],
+            time=time,
         )
         assert rotation_matrix_matvis.shape == (2, 2, NPTSRC)  # Check shape
 
