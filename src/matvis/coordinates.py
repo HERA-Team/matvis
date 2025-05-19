@@ -464,8 +464,8 @@ def axis_angle_rotation_matrix(axis, angle):
 def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, alpha):
     """
     Compute the 2×2 rotation matrix that carries the spherical
-    basis vectors (θ̂, φ̂) at (theta,phi) in one frame into
-    the basis vectors at (beta,alpha) in the rotated frame.
+    basis vectors (θ̂, φ̂) at (theta, phi) in one frame into
+    the basis vectors at (beta, alpha) in the rotated frame.
     Adopted from pyradiosky.
 
     Parameters
@@ -489,10 +489,10 @@ def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, al
     th = theta_hat(theta, phi)
     ph = phi_hat(theta, phi)
 
-    # rotate the new-frame θ̂ into original-frame coordinates
+    # rotate the new-frame theta hat into original-frame coordinates
     bh = np.einsum("ba...,b...->a...", rotation_matrix, theta_hat(beta, alpha))
 
-    # project rotated θ̂ onto original θ̂ and φ̂ to get the mixing angle
+    # project rotated theta hat onto original theta hat and phi hat to get the mixing angle
     cosX = np.einsum("a...,a...->...", bh, th)
     sinX = np.einsum("a...,a...->...", bh, ph)
 
