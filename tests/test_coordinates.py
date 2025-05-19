@@ -194,7 +194,6 @@ def test_equatorial_to_eci_coords():
 
 def test_coherency_calc():
     """Test calculation of coherency matrix."""
-
     params, sky_model, *_ = get_standard_sim_params(
         use_analytic_beam=False,
         polarized=True,

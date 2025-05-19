@@ -193,8 +193,7 @@ def point_source_crd_eq(ra, dec):
     Returns
     -------
     array_like
-        Equatorial coordinates of sources, in Cartesian
-        system. Shape=(3, NSRCS).
+        Equatorial coordinates of sources, in Cartesian system. Shape=(3, NSRCS).
     """
     xp = get_array_module(ra, dec)
     return xp.asarray([xp.cos(ra) * xp.cos(dec), xp.cos(dec) * xp.sin(ra), xp.sin(dec)])
@@ -408,12 +407,6 @@ def vecs2rot(r1, r2):
     -------
     R : ndarray, shape (3, 3, N)
         Rotation matrices such that R[..., i] @ r1[:, i] = r2[:, i].
-
-    Method
-    ------
-    - rotation axis = (r1 x r2) / |r1 x r2|
-    - rotation angle = arctan2(‖r1xr2‖, r1·r2)
-    - use Rodrigues’ formula via `axis_angle_rotation_matrix`.
     """
     xp = get_array_module(r1, r2)
 
@@ -484,8 +477,9 @@ def spherical_basis_vector_rotation_matrix(theta, phi, rotation_matrix, beta, al
     -------
     bmat : ndarray, shape (2,2,...)
         2×2 rotation matrices in the spherical basis:
-        [[ cos X,  sin X],
-         [-sin X,  cos X]],
+            [[ cos X,  sin X],
+            [-sin X,  cos X]],
+
         where X is the angle between the two basis sets.
     """
     xp = get_array_module(theta, phi)
