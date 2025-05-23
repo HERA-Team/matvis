@@ -286,26 +286,21 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     return pra, pdec
 
 
-def calc_coherency_rotation(ra, dec, alt, az, location, time):
+def calc_coherency_rotation(ra, dec, alt, az, time, location):
     """
     Compute the rotation matrix needed for time-dependent coherency calculation.
 
     This function computes the rotation matrix needed to rotate a source's coherency
     from equatorial (RA/Dec) frame into the local alt/az frame. Adopted
     from the pyradiosky coherency calculation, but modified for better vectorization.
+    Coordinate rotations should be performed before running this function.
 
     Parameters
     ----------
-    ra : array_like
-        Right ascension(s) of source(s), in radians.
-    dec : array_like
-        Declination(s) of source(s), in radians. Same shape as `ra`.
     alt : array_like
         Altitude angle(s) of source(s), in radians.
     az : array_like
         Azimuth angle(s) of source(s), in radians. Same shape as `alt`.
-    location : astropy.coordinates.EarthLocation
-        Observatory location for the alt/az frame.
     time : astropy.time.Time
         Observation time, used to compute the ICRS→altaz rotation.
 
@@ -323,16 +318,14 @@ def calc_coherency_rotation(ra, dec, alt, az, location, time):
         ra=ra, dec=dec, alt=alt, az=az, location=location, time=time
     )
 
-    # spherical angles in the RA/Dec frame
-    theta_frame = xp.pi / 2.0 - dec
-    phi_frame = ra  # longitude = RA
-
-    # spherical angles in the alt/az frame
-    theta_altaz = xp.pi / 2.0 - alt
-    phi_altaz = az  # longitude = azimuth
-
+    # compute the rotation matrix that carries the coherency from
+    # equatorial→altaz
     coherency_rot_matrix = spherical_basis_vector_rotation_matrix(
-        theta_frame, phi_frame, basis_rotation_matrix, theta_altaz, phi_altaz
+        theta=xp.pi / 2.0 - dec,
+        phi=ra,
+        rotation_matrix=basis_rotation_matrix,
+        beta=xp.pi / 2.0 - alt,
+        alpha=az,
     )
     return coherency_rot_matrix
 
@@ -341,7 +334,7 @@ def _calc_rotation_matrix(ra, dec, alt, az, time, location):
     """
     Build the full 3×3 rotation matrix between (RA, Dec) and (alt, az).
 
-    This function build the rotation matrix that carries unit vectors
+    This function builds the rotation matrix that carries unit vectors
     at (RA, Dec) in ICRS into unit vectors at (alt,az) in the local altaz frame.
     Adopted from pyradiosky.
 
@@ -396,7 +389,7 @@ def vecs2rot(r1, r2):
     """
     Construct an axis-angle rotation matrix R that carries vector r1 to r2.
 
-    This function has been adopted from adopted from pyradiosky.
+    This function has been adopted from pyradiosky.
 
     Parameters
     ----------

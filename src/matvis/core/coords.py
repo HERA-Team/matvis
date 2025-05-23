@@ -6,6 +6,7 @@ from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
 
 from .._utils import get_dtypes
+from ..coordinates import calc_coherency_rotation, enu_to_az_za
 
 try:
     import cupy as cp
@@ -62,7 +63,7 @@ class CoordinateRotation(ABC):
             self.sky_model_dtype = self.rtype
 
         self.flux = self.xp.asarray(flux.astype(self.sky_model_dtype))
-
+        self._polarized = flux.ndim == 4
         self.nsrc = len(flux)
         self.times = times
         self.telescope_loc = telescope_loc
@@ -94,7 +95,7 @@ class CoordinateRotation(ABC):
             dtype=self.sky_model_dtype,
         )
 
-    def select_chunk(self, chunk: int):
+    def select_chunk(self, chunk: int, t: int):
         """Set the chunk of coordinates to rotate."""
         # The last index can be larger than the actual size of the array without error.
         slc = slice(chunk * self.chunk_size, (chunk + 1) * self.chunk_size)
@@ -110,14 +111,59 @@ class CoordinateRotation(ABC):
                 f"sources above horizon ({n}). Try increasing source_buffer."
             )
 
+        if self._polarized:
+            # Compute the alt/az coordinates for the sources above the horizon.
+            az, za = enu_to_az_za(
+                enu_e=topo[0, above_horizon],
+                enu_n=topo[1, above_horizon],
+                orientation="astropy",
+            )
+
+            # For polarized flux, rotate the frame coherency
+            self.flux_above_horizon[:n] = self._rotate_frame_coherency(
+                coherency_matrix=flux[above_horizon],
+                ra=self.skycoords.ra.rad[above_horizon],
+                dec=self.skycoords.dec.rad[above_horizon],
+                alt=np.pi / 2 - za,
+                az=az,
+                time=self.times[t],
+            )
+        else:
+            # For unpolarized flux, just copy the flux.
+            self.flux_above_horizon[:n] = flux[above_horizon]
+
         self.coords_above_horizon[:, :n] = topo[:, above_horizon]
-        self.flux_above_horizon[:n] = flux[above_horizon]
         self.flux_above_horizon[n:] = 0
 
         if self.gpu:
             self.xp.cuda.Device().synchronize()
 
         return self.coords_above_horizon, self.flux_above_horizon, n
+
+    def _rotate_frame_coherency(self, coherency_matrix, ra, dec, alt, az, time) -> None:
+        """
+        Rotate the frame of the coherency matrix.
+
+        This function rotates the coherency matrix from the equatorial frame to the
+        alt/az frame. It is used in the `rotate` method of subclasses.
+        """
+        # Calculate the rotation matrix for the current time.
+        coherency_rotator = calc_coherency_rotation(
+            ra=ra,
+            dec=dec,
+            alt=alt,
+            az=az,
+            time=time,
+            location=self.telescope_loc,
+        )
+
+        # Rotate the coherency matrix. Note that here the coherency rotator is a matrix of
+        # size (2, 2, nsources), and coherency matrix is a matrix of size
+        # (nsources, nfreq, 2, 2).
+        coherency_matrix = self.xp.einsum(
+            "abn,nfbc,dcn->nfad", coherency_rotator, coherency_matrix, coherency_rotator
+        )
+        return coherency_matrix
 
     @abstractmethod
     def rotate(self, t: int) -> tuple[np.ndarray, np.ndarray]:

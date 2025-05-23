@@ -226,7 +226,7 @@ def simulate(
         coords.rotate(t)
 
         for c in range(nchunks):
-            crd_top, flux_sqrt, nn = coords.select_chunk(c)
+            crd_top, flux_sqrt, nn = coords.select_chunk(c, t)
             logdebug("crdtop", crd_top[:, :nn])
             logdebug("Isqrt", flux_sqrt[:nn])
 

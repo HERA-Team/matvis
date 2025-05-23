@@ -192,16 +192,17 @@ def test_equatorial_to_eci_coords():
         )
 
 
-def test_coherency_calc():
+@pytest.mark.parametrize("first_source_antizenith", [True, False])
+def test_coherency_calc(first_source_antizenith):
     """Test calculation of coherency matrix."""
     params, sky_model, *_ = get_standard_sim_params(
         use_analytic_beam=False,
         polarized=True,
         nsource=NPTSRC,
         ntime=NTIMES,
+        first_source_antizenith=first_source_antizenith,
     )
 
-    # Generate random point sources
     for time in params["times"]:
         sky_model.update_positions(
             time=time, telescope_location=params["telescope_loc"]
