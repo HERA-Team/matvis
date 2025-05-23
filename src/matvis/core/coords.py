@@ -96,7 +96,15 @@ class CoordinateRotation(ABC):
         )
 
     def select_chunk(self, chunk: int, t: int):
-        """Set the chunk of coordinates to rotate."""
+        """
+        Set the chunk of coordinates to rotate.
+
+        This function sets the chunk of coordinates to rotate. It is used following the
+        `rotate` method and returns a chunk of sources coordinates and fluxes for the sources
+        above the horizon. If the sky model is polarized, it also rotates the frame of the
+        coherency matrix to the alt/az frame. The chunk size is determined by the `chunk_size`
+        parameter.
+        """
         # The last index can be larger than the actual size of the array without error.
         slc = slice(chunk * self.chunk_size, (chunk + 1) * self.chunk_size)
 
