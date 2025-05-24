@@ -4,11 +4,14 @@ import pytest
 
 import astropy.units as u
 import numpy as np
-from astropy.coordinates import EarthLocation, SkyCoord
+from astropy.coordinates import EarthLocation, Latitude, Longitude, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
+from astropy.units import Quantity
+from pyradiosky import SkyModel
 
 from matvis import coordinates
+from matvis._test_utils import get_standard_sim_params
 
 np.random.seed(0)
 NTIMES = 24
@@ -189,3 +192,54 @@ def test_equatorial_to_eci_coords():
         _ra, _dec = coordinates.equatorial_to_eci_coords(
             ra, dec, obstime, (-30.7, 21.4, 1073.0), unit="rad", frame="icrs"
         )
+
+
+@pytest.mark.parametrize("first_source_antizenith", [True, False])
+@pytest.mark.parametrize("use_horizon_sources", [True, False])
+def test_coherency_calc(first_source_antizenith, use_horizon_sources):
+    """Test calculation of coherency matrix."""
+    params, sky_model, *_ = get_standard_sim_params(
+        use_analytic_beam=False,
+        polarized=True,
+        nsource=NPTSRC,
+        ntime=NTIMES,
+        first_source_antizenith=first_source_antizenith,
+    )
+
+    # Set up sky model for EW/NS horizon sources
+    if use_horizon_sources:
+        ra = np.array([1.064, 2.637])
+        dec = np.array([1.034, 0.0015])
+        sky_model = SkyModel(
+            name=["0", "1"],
+            ra=Longitude(ra, "rad"),
+            dec=Latitude(dec, "rad"),
+            frame="icrs",
+            spectral_type="spectral_index",
+            spectral_index=np.array([0.0, 0.0]),
+            stokes=sky_model.stokes[..., :2],  # grab stokes from above
+            reference_frequency=Quantity(np.array([1e8, 1e8]), "Hz"),
+        )
+
+    for time in params["times"]:
+        sky_model.update_positions(
+            time=time, telescope_location=params["telescope_loc"]
+        )
+        rotation_matrix = sky_model._calc_coherency_rotation()
+
+        # Calculate coherency matrix
+        rotation_matrix_matvis = coordinates.calc_coherency_rotation(
+            ra=sky_model.ra.rad,
+            dec=sky_model.dec.rad,
+            alt=sky_model.alt_az[0],
+            az=sky_model.alt_az[1],
+            location=params["telescope_loc"],
+            time=time,
+        )
+        if use_horizon_sources:
+            assert rotation_matrix_matvis.shape == (2, 2, 2)  # Check shape
+        else:
+            assert rotation_matrix_matvis.shape == (2, 2, NPTSRC)  # Check shape
+
+        # Check that the rotation matrix matches the one calculated by pyradiosky
+        np.testing.assert_allclose(rotation_matrix_matvis, rotation_matrix)

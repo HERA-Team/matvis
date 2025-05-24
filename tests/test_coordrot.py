@@ -9,6 +9,7 @@ from astropy.time import Time
 from pyuvdata.telescopes import Telescope
 
 from matvis import HAVE_GPU
+from matvis._test_utils import get_standard_sim_params
 from matvis.core.coords import CoordinateRotation
 from matvis.cpu.coords import CoordinateRotationAstropy, CoordinateRotationERFA
 
@@ -155,9 +156,9 @@ def test_larger_chunksize():
     default = get_random_coordrot(
         10000, CoordinateRotationERFA, gpu=False, seed=1, precision=1
     )
-    small.select_chunk(0)
-    large.select_chunk(0)
-    default.select_chunk(0)
+    small.select_chunk(0, 0)
+    large.select_chunk(0, 0)
+    default.select_chunk(0, 0)
 
     np.testing.assert_allclose(
         small.coords_above_horizon, large.coords_above_horizon[:, :100]
@@ -165,3 +166,46 @@ def test_larger_chunksize():
     np.testing.assert_allclose(
         small.coords_above_horizon, default.coords_above_horizon[:, :100]
     )
+
+
+@pytest.mark.parametrize("first_source_antizenith", [True, False])
+def test_polarized_flux(first_source_antizenith):
+    """Test that using a polarized flux works appropriately."""
+    params, sky_model, *_ = get_standard_sim_params(
+        use_analytic_beam=False,
+        polarized=True,
+        nsource=10,
+        ntime=2,
+        first_source_antizenith=first_source_antizenith,
+    )
+
+    stokes = sky_model.stokes.value
+    coherency_matrix = 0.5 * np.array(
+        [
+            [stokes[0] + stokes[1], stokes[2] + 1j * stokes[3]],
+            [stokes[2] - stokes[3], stokes[0] - stokes[1]],
+        ]
+    )
+
+    coord_mgr = CoordinateRotationAstropy(
+        flux=coherency_matrix.T,
+        times=params["times"],
+        telescope_loc=params["telescope_loc"],
+        skycoords=sky_model.skycoord,
+        precision=2,
+    )
+    coord_mgr.setup()
+
+    # Generate random point sources
+    for ti, time in enumerate(params["times"]):
+        sky_model.update_positions(
+            time=time, telescope_location=params["telescope_loc"]
+        )
+        uvsim_coherency_matrix = sky_model.coherency_calc()
+        n_above_horizon = uvsim_coherency_matrix.shape[-1]
+        coord_mgr.rotate(ti)
+        _, flux, _ = coord_mgr.select_chunk(0, ti)
+
+        np.testing.assert_allclose(
+            uvsim_coherency_matrix.value, flux[:n_above_horizon].T, rtol=1e-8, atol=1e-8
+        )

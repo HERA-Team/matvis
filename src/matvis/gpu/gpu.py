@@ -190,7 +190,7 @@ def simulate(
             stream.use()
             event["start"].record(stream)
 
-            crdtop, Isqrt, nsrcs_up = coords.select_chunk(c)
+            crdtop, Isqrt, nsrcs_up = coords.select_chunk(c, t)
             logdebug("crdtop", crdtop)
             logdebug("Isqrt", Isqrt)
 
