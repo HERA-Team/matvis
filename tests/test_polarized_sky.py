@@ -5,8 +5,9 @@ Both code paths coexist in the same simulate_vis function:
 - New path: simulate_vis(fluxes=..., stokes=...) with full Stokes params
 """
 
-import numpy as np
 import pytest
+
+import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
@@ -35,9 +36,7 @@ def _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1, precision=2):
     freqs = np.linspace(100e6, 120e6, nfreq)
 
     # Times
-    times = Time(
-        np.linspace(2459863.0, 2459863.01, ntime), format="jd", scale="utc"
-    )
+    times = Time(np.linspace(2459863.0, 2459863.01, ntime), format="jd", scale="utc")
 
     # Beam
     beams = [GaussianBeam(diameter=14.0)]
@@ -67,16 +66,12 @@ class TestBackwardCompatibility:
         fluxes = rng.uniform(0.5, 5.0, (nsrc, nfreq))
 
         # OLD PATH — no stokes, runs existing sqrt(0.5*I) code
-        vis_old = simulate_vis(
-            fluxes=fluxes, polarized=True, **params
-        )
+        vis_old = simulate_vis(fluxes=fluxes, polarized=True, **params)
 
         # NEW PATH — stokes=[I,0,0,0], runs eigendecomp M matrix code
         stokes = np.zeros((4, nsrc, nfreq))
         stokes[0] = fluxes  # I = fluxes, Q=U=V=0
-        vis_new = simulate_vis(
-            fluxes=fluxes, polarized=True, stokes=stokes, **params
-        )
+        vis_new = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
         np.testing.assert_allclose(vis_new, vis_old, atol=1e-12)
 
@@ -93,9 +88,7 @@ class TestBackwardCompatibility:
 
         stokes = np.zeros((4, nsrc, nfreq))
         stokes[0] = fluxes
-        vis_new = simulate_vis(
-            fluxes=fluxes, polarized=True, stokes=stokes, **params
-        )
+        vis_new = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
         np.testing.assert_allclose(vis_new, vis_old, atol=1e-4)
 
@@ -113,14 +106,12 @@ class TestEigendecompAccuracy:
         fluxes = rng.uniform(1.0, 5.0, (nsrc, nfreq))
 
         stokes = np.zeros((4, nsrc, nfreq))
-        stokes[0] = fluxes           # I
-        stokes[1] = 0.2 * fluxes     # Q = 0.2 * I
-        stokes[2] = 0.1 * fluxes     # U = 0.1 * I
-        stokes[3] = 0.05 * fluxes    # V = 0.05 * I
+        stokes[0] = fluxes  # I
+        stokes[1] = 0.2 * fluxes  # Q = 0.2 * I
+        stokes[2] = 0.1 * fluxes  # U = 0.1 * I
+        stokes[3] = 0.05 * fluxes  # V = 0.05 * I
 
-        vis = simulate_vis(
-            fluxes=fluxes, polarized=True, stokes=stokes, **params
-        )
+        vis = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
         assert not np.any(np.isnan(vis))
         assert not np.any(np.isinf(vis))
@@ -147,14 +138,15 @@ class TestSignSplit:
         stokes[3] = 0.02 * fluxes
 
         # Eigendecomp (default)
-        vis_eigen = simulate_vis(
-            fluxes=fluxes, polarized=True, stokes=stokes, **params
-        )
+        vis_eigen = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
         # Sign-split
         vis_split = simulate_vis(
-            fluxes=fluxes, polarized=True, stokes=stokes,
-            negative_flux="split", **params
+            fluxes=fluxes,
+            polarized=True,
+            stokes=stokes,
+            negative_flux="split",
+            **params,
         )
 
         np.testing.assert_allclose(vis_split, vis_eigen, atol=1e-10)
@@ -170,7 +162,7 @@ class TestSignSplit:
 
         # Make half the sources negative (EOR-like)
         signs = np.ones(nsrc)
-        signs[:nsrc // 2] = -1
+        signs[: nsrc // 2] = -1
         fluxes = fluxes_abs * signs[:, np.newaxis]
 
         stokes = np.zeros((4, nsrc, nfreq))
@@ -199,9 +191,7 @@ class TestSignSplit:
         stokes[0, 0, 0] = -5.0  # Negative I for first source
 
         with pytest.raises(ValueError, match="Negative eigenvalue"):
-            simulate_vis(
-                fluxes=fluxes, polarized=True, stokes=stokes, **params
-            )
+            simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
 
 class TestEdgeCases:
@@ -214,8 +204,6 @@ class TestEdgeCases:
         fluxes = np.zeros((nsrc, nfreq))
         stokes = np.zeros((4, nsrc, nfreq))
 
-        vis = simulate_vis(
-            fluxes=fluxes, polarized=True, stokes=stokes, **params
-        )
+        vis = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
         np.testing.assert_allclose(vis, 0.0, atol=1e-15)

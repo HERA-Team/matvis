@@ -1,7 +1,8 @@
 """Unit tests for coherency matrix and M matrix computation."""
 
-import numpy as np
 import pytest
+
+import numpy as np
 
 from matvis.core.coherency import (
     coherency_to_stokes,

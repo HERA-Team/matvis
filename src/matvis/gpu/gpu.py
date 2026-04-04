@@ -113,7 +113,9 @@ def simulate(
     if polarized_sky:
         I_s, Q_s, U_s, V_s = stokes
         coherency = stokes_to_coherency(I_s, Q_s, U_s, V_s)  # (2, 2, Nsrc)
-        flux_for_coords = coherency.transpose(2, 0, 1)[:, np.newaxis, :, :]  # (Nsrc, 1, 2, 2)
+        flux_for_coords = coherency.transpose(2, 0, 1)[
+            :, np.newaxis, :, :
+        ]  # (Nsrc, 1, 2, 2)
     else:
         flux_for_coords = np.sqrt(0.5 * I_sky)
 
