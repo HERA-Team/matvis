@@ -352,3 +352,22 @@ class TestEigendecompEdgeCases:
         C = stokes_to_coherency(I, Q, U, V)
         C_recon = _m_times_m_dagger(M)
         np.testing.assert_allclose(C_recon, C, atol=1e-8)
+
+    def test_m_matrix_preserves_float32(self):
+        """M matrix dtype should match float32 inputs, not upcast to float64."""
+        I = np.array([5.0, 10.0], dtype=np.float32)
+        Q = np.array([1.0, 2.0], dtype=np.float32)
+        U = np.array([0.5, 1.0], dtype=np.float32)
+        V = np.array([0.3, 0.6], dtype=np.float32)
+
+        M = compute_m_matrix_eigen(I, Q, U, V)
+        assert M.dtype == np.complex64, f"Expected complex64, got {M.dtype}"
+
+        M_pos, M_neg, _ = compute_m_matrix_sign_split(I, Q, U, V)
+        assert M_pos.dtype == np.complex64, f"Expected complex64, got {M_pos.dtype}"
+        assert M_neg.dtype == np.complex64, f"Expected complex64, got {M_neg.dtype}"
+
+        # Verify correctness at float32 precision
+        C = stokes_to_coherency(I, Q, U, V)
+        C_recon = _m_times_m_dagger(M)
+        np.testing.assert_allclose(C_recon, C, atol=1e-5)

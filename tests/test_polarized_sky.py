@@ -194,6 +194,44 @@ class TestSignSplit:
             simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
 
+    def test_negative_flux_ignore(self):
+        """negative_flux='ignore' should silently clamp negatives, not raise."""
+        params = _make_sim_params(nsrc=10, nant=3, ntime=1, nfreq=1)
+        rng = np.random.default_rng(77)
+
+        nsrc = len(params["ra"])
+        nfreq = len(params["freqs"])
+        fluxes = rng.uniform(0.5, 5.0, (nsrc, nfreq))
+
+        stokes = np.zeros((4, nsrc, nfreq))
+        stokes[0] = fluxes
+        stokes[0, :nsrc // 2] *= -1  # Half negative
+
+        vis = simulate_vis(
+            fluxes=np.abs(fluxes), polarized=True, stokes=stokes,
+            negative_flux="ignore", **params
+        )
+
+        assert not np.any(np.isnan(vis))
+        assert not np.any(np.isinf(vis))
+
+    def test_negative_flux_invalid(self):
+        """Unknown negative_flux value should raise ValueError."""
+        params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
+
+        nsrc = len(params["ra"])
+        nfreq = len(params["freqs"])
+        fluxes = np.ones((nsrc, nfreq))
+        stokes = np.zeros((4, nsrc, nfreq))
+        stokes[0] = fluxes
+
+        with pytest.raises(ValueError, match="negative_flux must be"):
+            simulate_vis(
+                fluxes=fluxes, polarized=True, stokes=stokes,
+                negative_flux="invalid", **params
+            )
+
+
 class TestEdgeCases:
     def test_zero_intensity(self):
         """All-zero Stokes should give zero visibilities."""
