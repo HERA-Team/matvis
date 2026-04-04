@@ -50,7 +50,8 @@ def stokes_to_coherency(I, Q, U, V, xp=np):
     V = xp.asarray(V)
 
     nsrc = len(I)
-    C = xp.empty((2, 2, nsrc), dtype=complex)
+    ctype = xp.result_type(I, 1j)  # float32 → complex64, float64 → complex128
+    C = xp.empty((2, 2, nsrc), dtype=ctype)
     C[0, 0] = 0.5 * (I + Q)
     C[0, 1] = 0.5 * (U + 1j * V)
     C[1, 0] = 0.5 * (U - 1j * V)
@@ -113,10 +114,13 @@ def compute_m_matrix_eigen(I, Q, U, V, xp=np):
     ValueError
         If any eigenvalue is negative (use compute_m_matrix_sign_split instead).
     """
-    I = xp.asarray(I, dtype=float)
-    Q = xp.asarray(Q, dtype=float)
-    U = xp.asarray(U, dtype=float)
-    V = xp.asarray(V, dtype=float)
+    input_dtype = xp.result_type(I, Q, U, V)
+    if not xp.issubdtype(input_dtype, xp.floating):
+        input_dtype = xp.float64
+    I = xp.asarray(I, dtype=input_dtype)
+    Q = xp.asarray(Q, dtype=input_dtype)
+    U = xp.asarray(U, dtype=input_dtype)
+    V = xp.asarray(V, dtype=input_dtype)
 
     nsrc = len(I)
     T = xp.sqrt(Q**2 + U**2 + V**2)
@@ -124,14 +128,15 @@ def compute_m_matrix_eigen(I, Q, U, V, xp=np):
     lambda_plus = 0.5 * (I + T)
     lambda_minus = 0.5 * (I - T)
 
-    # Check for negative eigenvalues
-    min_eigenvalue = xp.min(lambda_minus)
+    # Check for negative eigenvalues — convert to Python float once to avoid
+    # multiple GPU→CPU syncs when xp is cupy.
+    min_eigenvalue = float(xp.min(lambda_minus))
     if min_eigenvalue < 0:
-        # Use a small tolerance for floating point
-        eps = xp.finfo(I.dtype).eps * max(float(xp.max(xp.abs(I))), 1.0)
-        if float(min_eigenvalue) < -eps:
+        max_abs_I = float(xp.max(xp.abs(I)))
+        eps = float(xp.finfo(input_dtype).eps) * max(max_abs_I, 1.0)
+        if min_eigenvalue < -eps:
             raise ValueError(
-                f"Negative eigenvalue detected (min={float(min_eigenvalue):.6e}). "
+                f"Negative eigenvalue detected (min={min_eigenvalue:.6e}). "
                 "Use compute_m_matrix_sign_split for sky models with negative flux."
             )
         # Clamp small negative values from floating point errors
@@ -147,7 +152,8 @@ def compute_m_matrix_eigen(I, Q, U, V, xp=np):
     mask_diagonal = (~mask_unpolarized) & ((xp.abs(U) + xp.abs(V)) < eps)
     mask_general = ~mask_unpolarized & ~mask_diagonal
 
-    M = xp.zeros((2, 2, nsrc), dtype=complex)
+    ctype = xp.result_type(input_dtype, 1j)  # float32 → complex64, float64 → complex128
+    M = xp.zeros((2, 2, nsrc), dtype=ctype)
 
     # Case 1: Unpolarized (T ≈ 0) → M = diag(√(I/2), √(I/2))
     if xp.any(mask_unpolarized):
@@ -227,10 +233,13 @@ def compute_m_matrix_sign_split(I, Q, U, V, xp=np):
     has_neg : bool
         True if any eigenvalue is negative.
     """
-    I = xp.asarray(I, dtype=float)
-    Q = xp.asarray(Q, dtype=float)
-    U = xp.asarray(U, dtype=float)
-    V = xp.asarray(V, dtype=float)
+    input_dtype = xp.result_type(I, Q, U, V)
+    if not xp.issubdtype(input_dtype, xp.floating):
+        input_dtype = xp.float64
+    I = xp.asarray(I, dtype=input_dtype)
+    Q = xp.asarray(Q, dtype=input_dtype)
+    U = xp.asarray(U, dtype=input_dtype)
+    V = xp.asarray(V, dtype=input_dtype)
 
     nsrc = len(I)
     T = xp.sqrt(Q**2 + U**2 + V**2)
@@ -238,10 +247,11 @@ def compute_m_matrix_sign_split(I, Q, U, V, xp=np):
     lambda_plus = 0.5 * (I + T)
     lambda_minus = 0.5 * (I - T)
 
-    # Determine sign of each eigenvalue
+    # Determine sign of each eigenvalue — use element-wise OR and single
+    # bool() conversion to avoid fragile Python `or` on CuPy 0-d arrays.
     neg_plus = lambda_plus < 0
     neg_minus = lambda_minus < 0
-    has_neg = bool(xp.any(neg_plus) or xp.any(neg_minus))
+    has_neg = bool(xp.any(neg_plus | neg_minus))
 
     # Construct sqrt of absolute eigenvalues
     sqrt_lp_pos = xp.sqrt(xp.maximum(lambda_plus, 0.0))
@@ -255,8 +265,9 @@ def compute_m_matrix_sign_split(I, Q, U, V, xp=np):
     mask_diagonal = (~mask_unpolarized) & ((xp.abs(U) + xp.abs(V)) < eps)
     mask_general = ~mask_unpolarized & ~mask_diagonal
 
-    M_pos = xp.zeros((2, 2, nsrc), dtype=complex)
-    M_neg = xp.zeros((2, 2, nsrc), dtype=complex)
+    ctype = xp.result_type(input_dtype, 1j)
+    M_pos = xp.zeros((2, 2, nsrc), dtype=ctype)
+    M_neg = xp.zeros((2, 2, nsrc), dtype=ctype)
 
     # Case 1: Unpolarized (T ≈ 0) → both eigenvalues equal I/2
     if xp.any(mask_unpolarized):
