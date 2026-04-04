@@ -261,9 +261,7 @@ def simulate(
                         z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_neg)
                         matprod_neg(z, c)
                 elif negative_flux == "ignore":
-                    M_pos, _, _ = compute_m_matrix_sign_split(
-                        I_r, Q_r, U_r, V_r, xp=cp
-                    )
+                    M_pos, _, _ = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=cp)
                     z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_pos)
                     matprod(z, c)
                 elif negative_flux == "raise":

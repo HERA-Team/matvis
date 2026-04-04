@@ -193,7 +193,6 @@ class TestSignSplit:
         with pytest.raises(ValueError, match="Negative eigenvalue"):
             simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
-
     def test_negative_flux_ignore(self):
         """negative_flux='ignore' should silently clamp negatives, not raise."""
         params = _make_sim_params(nsrc=10, nant=3, ntime=1, nfreq=1)
@@ -205,11 +204,14 @@ class TestSignSplit:
 
         stokes = np.zeros((4, nsrc, nfreq))
         stokes[0] = fluxes
-        stokes[0, :nsrc // 2] *= -1  # Half negative
+        stokes[0, : nsrc // 2] *= -1  # Half negative
 
         vis = simulate_vis(
-            fluxes=np.abs(fluxes), polarized=True, stokes=stokes,
-            negative_flux="ignore", **params
+            fluxes=np.abs(fluxes),
+            polarized=True,
+            stokes=stokes,
+            negative_flux="ignore",
+            **params,
         )
 
         assert not np.any(np.isnan(vis))
@@ -227,8 +229,11 @@ class TestSignSplit:
 
         with pytest.raises(ValueError, match="negative_flux must be"):
             simulate_vis(
-                fluxes=fluxes, polarized=True, stokes=stokes,
-                negative_flux="invalid", **params
+                fluxes=fluxes,
+                polarized=True,
+                stokes=stokes,
+                negative_flux="invalid",
+                **params,
             )
 
 
