@@ -3,10 +3,10 @@
 Not run in CI — use: pytest tests/test_polarized_benchmark.py -v -s
 """
 
-import time
+import pytest
 
 import numpy as np
-import pytest
+import time
 from astropy import units as un
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
@@ -117,8 +117,12 @@ class TestBenchmarks:
             simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_pos, **params
         )
         time_split_pos, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True,
-            stokes=stokes_pos, negative_flux="split", **params
+            simulate_vis,
+            fluxes=fluxes,
+            polarized=True,
+            stokes=stokes_pos,
+            negative_flux="split",
+            **params,
         )
 
         # 50% negative
@@ -127,13 +131,21 @@ class TestBenchmarks:
         signs[: nsrc // 2] = -1
         stokes_neg[0] = fluxes * signs[:, np.newaxis]
         time_split_neg, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True,
-            stokes=stokes_neg, negative_flux="split", **params
+            simulate_vis,
+            fluxes=fluxes,
+            polarized=True,
+            stokes=stokes_neg,
+            negative_flux="split",
+            **params,
         )
 
         print(f"\n  Eigendecomp (all pos):       {time_eigen:.4f}s")
-        print(f"  Sign-split (all pos):        {time_split_pos:.4f}s  ({time_split_pos/time_eigen:.2f}x)")
-        print(f"  Sign-split (50% neg):        {time_split_neg:.4f}s  ({time_split_neg/time_eigen:.2f}x)")
+        print(
+            f"  Sign-split (all pos):        {time_split_pos:.4f}s  ({time_split_pos/time_eigen:.2f}x)"
+        )
+        print(
+            f"  Sign-split (50% neg):        {time_split_neg:.4f}s  ({time_split_neg/time_eigen:.2f}x)"
+        )
 
     def test_bench_scaling_with_sources(self):
         """Measure scaling with number of sources."""
@@ -156,8 +168,12 @@ class TestBenchmarks:
             stokes = np.zeros((4, nsrc, nfreq))
             stokes[0] = fluxes
             time_eigen, _ = _time_call(
-                simulate_vis, fluxes=fluxes, polarized=True,
-                stokes=stokes, repeats=2, **params
+                simulate_vis,
+                fluxes=fluxes,
+                polarized=True,
+                stokes=stokes,
+                repeats=2,
+                **params,
             )
 
             # Sign-split 50% neg
@@ -166,11 +182,18 @@ class TestBenchmarks:
             stokes_neg = np.zeros((4, nsrc, nfreq))
             stokes_neg[0] = fluxes * signs[:, np.newaxis]
             time_split, _ = _time_call(
-                simulate_vis, fluxes=fluxes, polarized=True,
-                stokes=stokes_neg, negative_flux="split", repeats=2, **params
+                simulate_vis,
+                fluxes=fluxes,
+                polarized=True,
+                stokes=stokes_neg,
+                negative_flux="split",
+                repeats=2,
+                **params,
             )
 
-            print(f"  {nsrc:>7} | {time_old:.4f}s   | {time_eigen:.4f}s     | {time_split:.4f}s")
+            print(
+                f"  {nsrc:>7} | {time_old:.4f}s   | {time_eigen:.4f}s     | {time_split:.4f}s"
+            )
 
     def test_bench_polarized_vs_unpolarized(self):
         """Compare unpolarized sky vs fully polarized sky (Q,U,V ≠ 0).
@@ -217,9 +240,15 @@ class TestBenchmarks:
 
         print(f"\n  === Polarized vs Unpolarized (5000 src, 150 ant) ===")
         print(f"  Unpolarized (old sqrt I):     {time_unpol:.4f}s  (baseline)")
-        print(f"  Unpolarized (eigendecomp):    {time_eigen_unpol:.4f}s  ({time_eigen_unpol/time_unpol:.2f}x)")
-        print(f"  Weakly polarized (Q,U,V≠0):  {time_weak_pol:.4f}s  ({time_weak_pol/time_unpol:.2f}x)")
-        print(f"  Strongly polarized:           {time_strong_pol:.4f}s  ({time_strong_pol/time_unpol:.2f}x)")
+        print(
+            f"  Unpolarized (eigendecomp):    {time_eigen_unpol:.4f}s  ({time_eigen_unpol/time_unpol:.2f}x)"
+        )
+        print(
+            f"  Weakly polarized (Q,U,V≠0):  {time_weak_pol:.4f}s  ({time_weak_pol/time_unpol:.2f}x)"
+        )
+        print(
+            f"  Strongly polarized:           {time_strong_pol:.4f}s  ({time_strong_pol/time_unpol:.2f}x)"
+        )
 
     def test_bench_negative_flux_scenarios(self):
         """Compare runtime for different negative flux fractions.
@@ -252,7 +281,13 @@ class TestBenchmarks:
             stokes_mix[0] = fluxes * signs[:, np.newaxis]
 
             time_split, _ = _time_call(
-                simulate_vis, fluxes=fluxes, polarized=True,
-                stokes=stokes_mix, negative_flux="split", **params
+                simulate_vis,
+                fluxes=fluxes,
+                polarized=True,
+                stokes=stokes_mix,
+                negative_flux="split",
+                **params,
             )
-            print(f"  Sign-split ({neg_frac*100:>5.1f}% neg):     {time_split:.4f}s  ({time_split/time_baseline:.2f}x)")
+            print(
+                f"  Sign-split ({neg_frac*100:>5.1f}% neg):     {time_split:.4f}s  ({time_split/time_baseline:.2f}x)"
+            )
