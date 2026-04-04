@@ -38,6 +38,8 @@ def simulate_vis(
     beam_idx: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     source_buffer: float = 1.0,
+    stokes: np.ndarray | None = None,
+    negative_flux: str = "raise",
     **backend_kwargs,
 ):
     """
@@ -90,6 +92,16 @@ def simulate_vis(
         The fraction of the total number of sources to use when allocating memory
         for the sources above horizon. For large numbers of sources, a fraction of
         ~0.55 should be sufficient.
+    stokes : array_like, optional
+        Full Stokes parameters of shape (4, NSRCS, NFREQS) with [I, Q, U, V].
+        When provided, enables polarized sky model support via eigendecomposition
+        of the coherency matrix. Requires ``polarized=True``. If None (default),
+        uses ``fluxes`` as Stokes I only (existing behavior).
+    negative_flux : str, optional
+        How to handle negative eigenvalues in the coherency matrix.
+        - "raise" (default): raise ValueError if any eigenvalue is negative.
+        - "split": use sign-split approach (two matprod passes, subtract).
+        - "ignore": ignore negative eigenvalues (clamp to zero).
 
     Returns
     -------
@@ -121,6 +133,13 @@ def simulate_vis(
         freqs.size,
     ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
 
+    if stokes is not None:
+        assert stokes.shape == (
+            4,
+            ra.size,
+            freqs.size,
+        ), "The `stokes` array must have shape (4, NSRCS, NFREQS)."
+
     # Determine precision
     complex_dtype = np.complex64 if precision == 1 else np.complex128
 
@@ -144,6 +163,7 @@ def simulate_vis(
 
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
+        stokes_i = stokes[:, :, i] if stokes is not None else None
         vis[i] = fnc(
             antpos=antpos,
             freq=freq,
@@ -158,6 +178,8 @@ def simulate_vis(
             beam_idx=beam_idx,
             antpairs=antpairs,
             source_buffer=source_buffer,
+            stokes=stokes_i,
+            negative_flux=negative_flux,
             **backend_kwargs,
         )
     return vis

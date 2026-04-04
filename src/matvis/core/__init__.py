@@ -14,6 +14,7 @@ def _validate_inputs(
     antpos: np.ndarray,
     times: np.ndarray,
     I_sky: np.ndarray,
+    stokes: np.ndarray | None = None,
 ):
     """Validate input shapes and types."""
     assert precision in {1, 2}
@@ -28,5 +29,9 @@ def _validate_inputs(
     assert ncrd == 3, "antpos must have shape (NANTS, 3)."
     ntimes = len(times)
     assert I_sky.ndim == 1, "I_sky must have shape (NSRCS,)."
+
+    if stokes is not None:
+        assert stokes.shape == (4, len(I_sky)), "stokes must have shape (4, NSRCS)."
+        assert polarized, "stokes parameters require polarized=True."
 
     return nax, nfeed, nant, ntimes
