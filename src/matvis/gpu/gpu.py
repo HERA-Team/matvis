@@ -248,7 +248,7 @@ def simulate(
                 # Isqrt is rotated coherency: shape (nsrc_alloc, 1, 2, 2)
                 C_rot = Isqrt[:, 0]  # (nsrc_alloc, 2, 2)
                 I_r, Q_r, U_r, V_r = coherency_to_stokes(
-                    C_rot.transpose(1, 2, 0), xp=cp
+                    C_rot.transpose(1, 2, 0)
                 )
 
                 if negative_flux == "split":
