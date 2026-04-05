@@ -59,17 +59,16 @@ def stokes_to_coherency(I, Q, U, V, xp=np):
     return C
 
 
-def coherency_to_stokes(C, xp=np):
+def coherency_to_stokes(C):
     """Extract Stokes parameters from 2x2 coherency matrices.
 
     Assumes C includes the 0.5 factor (i.e. C = 0.5 * [[I+Q, ...], ...]).
+    Works with both numpy and cupy arrays via duck typing.
 
     Parameters
     ----------
     C : ndarray
         Coherency matrices, shape (2, 2, Nsrc), complex.
-    xp : module
-        Array module (numpy or cupy).
 
     Returns
     -------
@@ -187,7 +186,7 @@ def compute_m_matrix_eigen(I, Q, U, V, xp=np):
 
         # Guard against norm_sq ≈ 0 (happens when T ≈ Q, i.e. U,V ≈ 0)
         # This should be caught by mask_diagonal, but add safety
-        safe_norm = xp.sqrt(xp.maximum(norm_sq, xp.finfo(float).tiny))
+        safe_norm = xp.sqrt(xp.maximum(norm_sq, xp.finfo(norm_sq.dtype).tiny))
 
         # Normalized eigenvectors
         # v+_hat = [U+iV, T-Q] / norm
@@ -300,7 +299,7 @@ def compute_m_matrix_sign_split(I, Q, U, V, xp=np):
         V_g = V[mg]
 
         norm_sq = 2.0 * T_g * (T_g - Q_g)
-        safe_norm = xp.sqrt(xp.maximum(norm_sq, xp.finfo(float).tiny))
+        safe_norm = xp.sqrt(xp.maximum(norm_sq, xp.finfo(norm_sq.dtype).tiny))
 
         v_plus_0 = (U_g + 1j * V_g) / safe_norm
         v_plus_1 = (T_g - Q_g) / safe_norm
