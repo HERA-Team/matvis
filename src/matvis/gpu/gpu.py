@@ -247,9 +247,7 @@ def simulate(
             if polarized_sky:
                 # Isqrt is rotated coherency: shape (nsrc_alloc, 1, 2, 2)
                 C_rot = Isqrt[:, 0]  # (nsrc_alloc, 2, 2)
-                I_r, Q_r, U_r, V_r = coherency_to_stokes(
-                    C_rot.transpose(1, 2, 0)
-                )
+                I_r, Q_r, U_r, V_r = coherency_to_stokes(C_rot.transpose(1, 2, 0))
 
                 if negative_flux == "split":
                     M_pos, M_neg, has_neg = compute_m_matrix_sign_split(
