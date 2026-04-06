@@ -1,7 +1,6 @@
 """A fast visibility simulator based on per-antenna calculations."""
 
-from importlib.metadata import version, PackageNotFoundError
-
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 try:
