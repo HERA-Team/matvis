@@ -54,6 +54,8 @@ def _time_call(func, repeats=3, **kwargs):
 
 @pytest.mark.benchmark
 class TestBenchmarks:
+    """Runtime benchmarks for polarized sky."""
+
     def test_bench_unpolarized_old_vs_new(self):
         """Compare old sqrt(I) path vs eigendecomp with stokes=[I,0,0,0]."""
         params = _make_bench_params(nsrc=5000, nant=150)
@@ -141,10 +143,10 @@ class TestBenchmarks:
 
         print(f"\n  Eigendecomp (all pos):       {time_eigen:.4f}s")
         print(
-            f"  Sign-split (all pos):        {time_split_pos:.4f}s  ({time_split_pos/time_eigen:.2f}x)"
+            f"  Sign-split (all pos):        {time_split_pos:.4f}s  ({time_split_pos / time_eigen:.2f}x)"
         )
         print(
-            f"  Sign-split (50% neg):        {time_split_neg:.4f}s  ({time_split_neg/time_eigen:.2f}x)"
+            f"  Sign-split (50% neg):        {time_split_neg:.4f}s  ({time_split_neg / time_eigen:.2f}x)"
         )
 
     def test_bench_scaling_with_sources(self):
@@ -238,16 +240,16 @@ class TestBenchmarks:
             simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_strong, **params
         )
 
-        print(f"\n  === Polarized vs Unpolarized (5000 src, 150 ant) ===")
+        print("\n  === Polarized vs Unpolarized (5000 src, 150 ant) ===")
         print(f"  Unpolarized (old sqrt I):     {time_unpol:.4f}s  (baseline)")
         print(
-            f"  Unpolarized (eigendecomp):    {time_eigen_unpol:.4f}s  ({time_eigen_unpol/time_unpol:.2f}x)"
+            f"  Unpolarized (eigendecomp):    {time_eigen_unpol:.4f}s  ({time_eigen_unpol / time_unpol:.2f}x)"
         )
         print(
-            f"  Weakly polarized (Q,U,V≠0):  {time_weak_pol:.4f}s  ({time_weak_pol/time_unpol:.2f}x)"
+            f"  Weakly polarized (Q,U,V≠0):  {time_weak_pol:.4f}s  ({time_weak_pol / time_unpol:.2f}x)"
         )
         print(
-            f"  Strongly polarized:           {time_strong_pol:.4f}s  ({time_strong_pol/time_unpol:.2f}x)"
+            f"  Strongly polarized:           {time_strong_pol:.4f}s  ({time_strong_pol / time_unpol:.2f}x)"
         )
 
     def test_bench_negative_flux_scenarios(self):
@@ -268,7 +270,7 @@ class TestBenchmarks:
             simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_pos, **params
         )
 
-        print(f"\n  === Negative Flux Scenarios (5000 src, 150 ant) ===")
+        print("\n  === Negative Flux Scenarios (5000 src, 150 ant) ===")
         print(f"  Eigendecomp (all positive):   {time_baseline:.4f}s  (baseline)")
 
         for neg_frac in [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]:
@@ -289,5 +291,5 @@ class TestBenchmarks:
                 **params,
             )
             print(
-                f"  Sign-split ({neg_frac*100:>5.1f}% neg):     {time_split:.4f}s  ({time_split/time_baseline:.2f}x)"
+                f"  Sign-split ({neg_frac * 100:>5.1f}% neg):     {time_split:.4f}s  ({time_split / time_baseline:.2f}x)"
             )
