@@ -19,6 +19,8 @@ def _m_times_m_dagger(M):
 
 
 class TestStokesCoherencyConversion:
+    """Tests for Stokes to coherency conversion."""
+
     def test_stokes_coherency_roundtrip(self):
         """I,Q,U,V → C → I,Q,U,V should return original values."""
         rng = np.random.default_rng(42)
@@ -61,6 +63,8 @@ class TestStokesCoherencyConversion:
 
 
 class TestMMatrixEigen:
+    """Tests for eigendecomposition M matrix."""
+
     def test_m_times_m_dagger_equals_c(self):
         """M @ M† should equal the coherency matrix C for physical sources."""
         rng = np.random.default_rng(42)
@@ -191,6 +195,8 @@ class TestMMatrixEigen:
 
 
 class TestMMatrixSignSplit:
+    """Tests for sign-split M matrix."""
+
     def test_sign_split_all_positive(self):
         """When all eigenvalues positive, has_neg should be False."""
         I = np.array([5.0, 10.0, 20.0])
@@ -325,6 +331,8 @@ class TestMMatrixSignSplit:
 
 
 class TestEigendecompEdgeCases:
+    """Edge case tests for eigendecomposition."""
+
     def test_eigenvalue_tiny_negative_clamped(self):
         """Eigenvalues that are barely negative from float noise should be clamped.
 

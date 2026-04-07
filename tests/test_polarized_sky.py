@@ -54,7 +54,7 @@ def _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1, precision=2):
 
 
 class TestBackwardCompatibility:
-    """Test that stokes=[I,0,0,0] matches the old sqrt(I) path exactly."""
+    """Tests that stokes=[I,0,0,0] matches the old sqrt(I) path exactly."""
 
     def test_unpolarized_stokes_matches_existing(self):
         """Critical test: stokes=[I,0,0,0] must match old path to machine precision."""
@@ -238,6 +238,8 @@ class TestSignSplit:
 
 
 class TestEdgeCases:
+    """Edge case tests."""
+
     def test_zero_intensity(self):
         """All-zero Stokes should give zero visibilities."""
         params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
