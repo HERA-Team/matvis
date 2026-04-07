@@ -105,8 +105,6 @@ def simulate(
         precision,
     )
 
-    nsrc_alloc = int(npixc * source_buffer)
-
     # Determine if we have a polarized sky model
     polarized_sky = stokes is not None and polarized
 
@@ -119,16 +117,6 @@ def simulate(
     else:
         flux_for_coords = np.sqrt(0.5 * I_sky)
 
-    bmfunc = beams.GPUBeamInterpolator(
-        beam_list=beam_list,
-        beam_idx=beam_idx,
-        polarized=polarized,
-        nant=nant,
-        freq=freq,
-        nsrc=nsrc_alloc,
-        precision=precision,
-        spline_opts=beam_spline_opts,
-    )
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
     coords = coord_method(
@@ -141,6 +129,18 @@ def simulate(
         source_buffer=source_buffer,
         gpu=True,
         **coord_method_params,
+    )
+    nsrc_alloc = coords.nsrc_alloc
+
+    bmfunc = beams.GPUBeamInterpolator(
+        beam_list=beam_list,
+        beam_idx=beam_idx,
+        polarized=polarized,
+        nant=nant,
+        freq=freq,
+        nsrc=nsrc_alloc,
+        precision=precision,
+        spline_opts=beam_spline_opts,
     )
     zcalc = ZMatrixCalc(
         nsrc=nsrc_alloc, nfeed=nfeed, nant=nant, nax=nax, ctype=ctype, gpu=True
