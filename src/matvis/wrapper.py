@@ -22,8 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 def simulate_vis(
+    *,
     ants: dict[int, np.ndarray],
-    fluxes: np.ndarray,
+    fluxes: np.ndarray | None = None,
     ra: np.ndarray,
     dec: np.ndarray,
     freqs: np.ndarray,
@@ -39,7 +40,7 @@ def simulate_vis(
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     source_buffer: float = 1.0,
     stokes: np.ndarray | None = None,
-    negative_flux: str = "raise",
+    raise_on_negative_flux: bool = True,
     **backend_kwargs,
 ):
     """
@@ -53,9 +54,11 @@ def simulate_vis(
         Dictionary of antenna positions. The keys are the antenna names
         (integers) and the values are the Cartesian x,y,z positions of the
         antennas (in meters) relative to the array center.
-    fluxes : array_like
+    fluxes : array_like, optional
         2D array with the flux of each source as a function of frequency, of
-        shape (NSRCS, NFREQS).
+        shape (NSRCS, NFREQS). If None and ``stokes`` is provided, derived
+        as ``stokes[0]`` (Stokes I). At least one of ``fluxes`` or ``stokes``
+        must be provided.
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi/2, +pi/2].
@@ -97,11 +100,10 @@ def simulate_vis(
         When provided, enables polarized sky model support via eigendecomposition
         of the coherency matrix. Requires ``polarized=True``. If None (default),
         uses ``fluxes`` as Stokes I only (existing behavior).
-    negative_flux : str, optional
+    raise_on_negative_flux : bool, optional
         How to handle negative eigenvalues in the coherency matrix.
-        - "raise" (default): raise ValueError if any eigenvalue is negative.
-        - "split": use sign-split approach (two matprod passes, subtract).
-        - "ignore": ignore negative eigenvalues (clamp to zero).
+        If True (default), raise ValueError if any eigenvalue is negative.
+        If False, use sign-split decomposition (two matprod passes, subtract).
 
     Returns
     -------
@@ -128,17 +130,22 @@ def simulate_vis(
 
     fnc = gpu.simulate if use_gpu else cpu.simulate
 
-    assert fluxes.shape == (
-        ra.size,
-        freqs.size,
-    ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
-
     if stokes is not None:
         assert stokes.shape == (
             4,
             ra.size,
             freqs.size,
         ), "The `stokes` array must have shape (4, NSRCS, NFREQS)."
+
+    if fluxes is None:
+        if stokes is None:
+            raise ValueError("Either `fluxes` or `stokes` must be provided.")
+        fluxes = stokes[0]  # Derive Stokes I as fluxes
+
+    assert fluxes.shape == (
+        ra.size,
+        freqs.size,
+    ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
 
     # Determine precision
     complex_dtype = np.complex64 if precision == 1 else np.complex128
@@ -179,7 +186,7 @@ def simulate_vis(
             antpairs=antpairs,
             source_buffer=source_buffer,
             stokes=stokes_i,
-            negative_flux=negative_flux,
+            raise_on_negative_flux=raise_on_negative_flux,
             **backend_kwargs,
         )
     return vis

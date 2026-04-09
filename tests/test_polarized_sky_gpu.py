@@ -56,7 +56,7 @@ def _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1, precision=2):
 
 
 def test_gpu_stokes_matches_cpu():
-    """GPU eigendecomp path should match CPU for polarized sky (negative_flux='raise')."""
+    """GPU eigendecomp path should match CPU for polarized sky."""
     params = _make_sim_params(nsrc=15, nant=3, ntime=2, nfreq=1, precision=2)
     rng = np.random.default_rng(99)
 
@@ -74,7 +74,6 @@ def test_gpu_stokes_matches_cpu():
         fluxes=fluxes,
         polarized=True,
         stokes=stokes,
-        negative_flux="raise",
         use_gpu=False,
         beam_spline_opts={"order": 1},
         **params,
@@ -83,7 +82,6 @@ def test_gpu_stokes_matches_cpu():
         fluxes=fluxes,
         polarized=True,
         stokes=stokes,
-        negative_flux="raise",
         use_gpu=True,
         **params,
     )
@@ -111,7 +109,7 @@ def test_gpu_sign_split_matches_cpu():
         fluxes=fluxes,
         polarized=True,
         stokes=stokes,
-        negative_flux="split",
+        raise_on_negative_flux=False,
         use_gpu=False,
         beam_spline_opts={"order": 1},
         **params,
@@ -120,7 +118,7 @@ def test_gpu_sign_split_matches_cpu():
         fluxes=fluxes,
         polarized=True,
         stokes=stokes,
-        negative_flux="split",
+        raise_on_negative_flux=False,
         use_gpu=True,
         **params,
     )
@@ -149,78 +147,20 @@ def test_gpu_sign_split_negative_flux():
     stokes[3] = 0.02 * fluxes_abs
 
     vis_cpu = simulate_vis(
-        fluxes=fluxes_abs,
         polarized=True,
         stokes=stokes,
-        negative_flux="split",
+        raise_on_negative_flux=False,
         use_gpu=False,
         beam_spline_opts={"order": 1},
         **params,
     )
     vis_gpu = simulate_vis(
-        fluxes=fluxes_abs,
         polarized=True,
         stokes=stokes,
-        negative_flux="split",
+        raise_on_negative_flux=False,
         use_gpu=True,
         **params,
     )
 
     np.testing.assert_allclose(vis_gpu.real, vis_cpu.real, rtol=2e-4, atol=5e-4)
     np.testing.assert_allclose(vis_gpu.imag, vis_cpu.imag, rtol=2e-4, atol=5e-4)
-
-
-def test_gpu_negative_flux_ignore():
-    """GPU with negative_flux='ignore' should match CPU."""
-    params = _make_sim_params(nsrc=10, nant=3, ntime=1, nfreq=1, precision=2)
-    rng = np.random.default_rng(77)
-
-    nsrc = len(params["ra"])
-    nfreq = len(params["freqs"])
-    fluxes = rng.uniform(0.5, 5.0, (nsrc, nfreq))
-
-    stokes = np.zeros((4, nsrc, nfreq))
-    stokes[0] = fluxes.copy()
-    stokes[0, : nsrc // 2] *= -1  # Half negative
-
-    vis_cpu = simulate_vis(
-        fluxes=np.abs(fluxes),
-        polarized=True,
-        stokes=stokes,
-        negative_flux="ignore",
-        use_gpu=False,
-        beam_spline_opts={"order": 1},
-        **params,
-    )
-    vis_gpu = simulate_vis(
-        fluxes=np.abs(fluxes),
-        polarized=True,
-        stokes=stokes,
-        negative_flux="ignore",
-        use_gpu=True,
-        **params,
-    )
-
-    np.testing.assert_allclose(vis_gpu.real, vis_cpu.real, rtol=2e-4, atol=5e-4)
-    np.testing.assert_allclose(vis_gpu.imag, vis_cpu.imag, rtol=2e-4, atol=5e-4)
-
-
-def test_gpu_negative_flux_invalid():
-    """Invalid negative_flux value should raise ValueError on GPU."""
-    params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
-
-    nsrc = len(params["ra"])
-    nfreq = len(params["freqs"])
-    fluxes = np.ones((nsrc, nfreq))
-    stokes = np.zeros((4, nsrc, nfreq))
-    stokes[0] = fluxes
-
-    with pytest.raises(ValueError, match="negative_flux must be"):
-        simulate_vis(
-            fluxes=fluxes,
-            polarized=True,
-            stokes=stokes,
-            negative_flux="invalid",
-            use_gpu=True,
-            **params,
-        )

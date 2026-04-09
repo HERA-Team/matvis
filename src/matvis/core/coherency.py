@@ -12,7 +12,7 @@ non-negative, and M can be constructed via eigendecomposition. For
 EOR-like scenarios where I < 0, a sign-split approach separates
 positive and negative eigenvalue contributions.
 
-Reference: Murray et al. (2024), arXiv:2312.09763, Section 3.2 & Appendix B.
+Reference: Kittiwisit et al. (2025), arXiv:2312.09763, Section 3.2 & Appendix B.
 """
 
 import numpy as np
@@ -323,3 +323,70 @@ def compute_m_matrix_sign_split(I, Q, U, V, xp=np):
         M_neg[1, 1, mg] = v_minus_1 * slm_n
 
     return M_pos, M_neg, has_neg
+
+
+def process_polarized_chunk(
+    flux_above_horizon,
+    zcalc,
+    beam,
+    exptau,
+    beam_idx,
+    matprod,
+    chunk_idx,
+    matprod_neg=None,
+    raise_on_negative_flux=True,
+    xp=np,
+):
+    """Process a single chunk for polarized sky simulation.
+
+    Extracts Stokes parameters from rotated coherency, computes M matrices
+    via sign-split decomposition, and accumulates Z @ Z† into matprod buffers.
+
+    Parameters
+    ----------
+    flux_above_horizon : ndarray
+        Rotated coherency, shape (nsrc_alloc, 1, 2, 2).
+    zcalc : ZMatrixCalc
+        Z matrix calculator.
+    beam : ndarray
+        Interpolated beam, shape (nbeam, nfeed, nax, nsrc).
+    exptau : ndarray
+        Phase delays, shape (nant, nsrc).
+    beam_idx : ndarray or None
+        Beam index per antenna.
+    matprod : callable
+        Matrix product accumulator for positive contributions.
+    chunk_idx : int
+        Chunk index.
+    matprod_neg : callable or None
+        Matrix product accumulator for negative contributions.
+    raise_on_negative_flux : bool
+        If True, raise ValueError on negative eigenvalues.
+    xp : module
+        Array module (numpy or cupy).
+
+    Raises
+    ------
+    ValueError
+        If raise_on_negative_flux is True and negative eigenvalues exist.
+    """
+    C_rot = flux_above_horizon[:, 0]  # (nsrc_alloc, 2, 2)
+    I_r, Q_r, U_r, V_r = coherency_to_stokes(
+        C_rot.transpose(1, 2, 0)  # -> (2, 2, nsrc_alloc)
+    )
+
+    M_pos, M_neg, has_neg = compute_m_matrix_sign_split(
+        I_r, Q_r, U_r, V_r, xp=xp
+    )
+    if has_neg and raise_on_negative_flux:
+        raise ValueError(
+            "Negative eigenvalue detected in coherency matrix. "
+            "Set raise_on_negative_flux=False to use sign-split decomposition."
+        )
+
+    z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_pos)
+    matprod(z, chunk_idx)
+
+    if has_neg and matprod_neg is not None:
+        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_neg)
+        matprod_neg(z, chunk_idx)
