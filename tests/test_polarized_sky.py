@@ -59,7 +59,9 @@ class TestBackwardCompatibility:
     @pytest.mark.parametrize("precision,atol", [(2, 1e-12), (1, 1e-4)])
     def test_unpolarized_stokes_matches_existing(self, precision, atol):
         """Critical test: stokes=[I,0,0,0] must match old path to machine precision."""
-        params = _make_sim_params(nsrc=15, nant=3, ntime=3, nfreq=2, precision=precision)
+        params = _make_sim_params(
+            nsrc=15, nant=3, ntime=3, nfreq=2, precision=precision
+        )
         rng = np.random.default_rng(99)
 
         nsrc = len(params["ra"])
