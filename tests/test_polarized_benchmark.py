@@ -3,7 +3,14 @@
 Not run in CI — use: pytest tests/test_polarized_benchmark.py -v -s
 """
 
+import os
+
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("RUN_BENCHMARKS"),
+    reason="Set RUN_BENCHMARKS=1 to run benchmarks",
+)
 
 import numpy as np
 import time
@@ -73,7 +80,7 @@ class TestBenchmarks:
         stokes = np.zeros((4, nsrc, nfreq))
         stokes[0] = fluxes
         time_new, vis_new = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes, **params
+            simulate_vis, polarized=True, stokes=stokes, **params
         )
 
         ratio = time_new / time_old
@@ -99,7 +106,7 @@ class TestBenchmarks:
         stokes[3] = 0.05 * fluxes
 
         time_pol, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes, **params
+            simulate_vis, polarized=True, stokes=stokes, **params
         )
         print(f"\n  Polarized eigendecomp: {time_pol:.4f}s")
 
@@ -116,14 +123,13 @@ class TestBenchmarks:
         stokes_pos[0] = fluxes
 
         time_eigen, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_pos, **params
+            simulate_vis, polarized=True, stokes=stokes_pos, **params
         )
         time_split_pos, _ = _time_call(
             simulate_vis,
-            fluxes=fluxes,
             polarized=True,
             stokes=stokes_pos,
-            negative_flux="split",
+            raise_on_negative_flux=False,
             **params,
         )
 
@@ -134,10 +140,9 @@ class TestBenchmarks:
         stokes_neg[0] = fluxes * signs[:, np.newaxis]
         time_split_neg, _ = _time_call(
             simulate_vis,
-            fluxes=fluxes,
             polarized=True,
             stokes=stokes_neg,
-            negative_flux="split",
+            raise_on_negative_flux=False,
             **params,
         )
 
@@ -171,7 +176,6 @@ class TestBenchmarks:
             stokes[0] = fluxes
             time_eigen, _ = _time_call(
                 simulate_vis,
-                fluxes=fluxes,
                 polarized=True,
                 stokes=stokes,
                 repeats=2,
@@ -185,10 +189,9 @@ class TestBenchmarks:
             stokes_neg[0] = fluxes * signs[:, np.newaxis]
             time_split, _ = _time_call(
                 simulate_vis,
-                fluxes=fluxes,
                 polarized=True,
                 stokes=stokes_neg,
-                negative_flux="split",
+                raise_on_negative_flux=False,
                 repeats=2,
                 **params,
             )
@@ -217,7 +220,7 @@ class TestBenchmarks:
         stokes_unpol = np.zeros((4, nsrc, nfreq))
         stokes_unpol[0] = fluxes
         time_eigen_unpol, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_unpol, **params
+            simulate_vis, polarized=True, stokes=stokes_unpol, **params
         )
 
         # Weakly polarized (Q=0.1I, U=0.05I, V=0.02I)
@@ -227,7 +230,7 @@ class TestBenchmarks:
         stokes_weak[2] = 0.05 * fluxes
         stokes_weak[3] = 0.02 * fluxes
         time_weak_pol, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_weak, **params
+            simulate_vis, polarized=True, stokes=stokes_weak, **params
         )
 
         # Strongly polarized (Q=0.5I, U=0.4I, V=0.3I)
@@ -237,7 +240,7 @@ class TestBenchmarks:
         stokes_strong[2] = 0.4 * fluxes
         stokes_strong[3] = 0.3 * fluxes
         time_strong_pol, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_strong, **params
+            simulate_vis, polarized=True, stokes=stokes_strong, **params
         )
 
         print("\n  === Polarized vs Unpolarized (5000 src, 150 ant) ===")
@@ -267,7 +270,7 @@ class TestBenchmarks:
         stokes_pos = np.zeros((4, nsrc, nfreq))
         stokes_pos[0] = fluxes
         time_baseline, _ = _time_call(
-            simulate_vis, fluxes=fluxes, polarized=True, stokes=stokes_pos, **params
+            simulate_vis, polarized=True, stokes=stokes_pos, **params
         )
 
         print("\n  === Negative Flux Scenarios (5000 src, 150 ant) ===")
@@ -284,10 +287,9 @@ class TestBenchmarks:
 
             time_split, _ = _time_call(
                 simulate_vis,
-                fluxes=fluxes,
                 polarized=True,
                 stokes=stokes_mix,
-                negative_flux="split",
+                raise_on_negative_flux=False,
                 **params,
             )
             print(

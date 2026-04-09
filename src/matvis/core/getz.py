@@ -87,8 +87,8 @@ class ZMatrixCalc:
         """
         if m_matrix is not None:
             # Full polarized path: Z[ant, fd, ax, src] = Σ_k bm[ant, fd, k, src] * exptau[ant, src] * M[k, ax, src]
-            # IMPORTANT: Do NOT mutate exptau here — sign-split calls zcalc twice
-            # with the same exptau buffer.
+            # IMPORTANT: Do NOT mutate exptau here — callers may reuse the same
+            # exptau buffer across multiple calls (e.g. sign-split).
             #
             # Manually unrolled k-contraction (k=0,1) with broadcasting.
             # This avoids Python loops and is ~1.6x faster than the loop version.
@@ -97,8 +97,8 @@ class ZMatrixCalc:
 
             # bm[:,:,k,:] → (Nant, Nfeed, Nsrc), add ax dim → (Nant, Nfeed, 1, Nsrc)
             # m_matrix[k,:,:] → (2, Nsrc), add ant/feed dims → (1, 1, 2, Nsrc)
-            b0 = bm[:, :, 0, :][:, :, xp.newaxis, :]
-            b1 = bm[:, :, 1, :][:, :, xp.newaxis, :]
+            b0 = bm[:, :, :1, :]
+            b1 = bm[:, :, 1:2, :]
             m0 = m_matrix[xp.newaxis, xp.newaxis, 0, :, :]
             m1 = m_matrix[xp.newaxis, xp.newaxis, 1, :, :]
 

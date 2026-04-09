@@ -20,9 +20,7 @@ from typing import Callable, Literal
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
 from ..core.coherency import (
-    coherency_to_stokes,
-    compute_m_matrix_eigen,
-    compute_m_matrix_sign_split,
+    process_polarized_chunk,
     stokes_to_coherency,
 )
 from ..core.coords import CoordinateRotation
@@ -78,7 +76,7 @@ def simulate(
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     stokes: np.ndarray | None = None,
-    negative_flux: Literal["raise", "split", "ignore"] = "raise",
+    raise_on_negative_flux: bool = True,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
@@ -153,7 +151,7 @@ def simulate(
     matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     matprod_neg = None
-    if polarized_sky and negative_flux == "split":
+    if polarized_sky and not raise_on_negative_flux:
         matprod_neg = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     logger.debug("Starting GPU allocations...")
@@ -245,37 +243,18 @@ def simulate(
             event["tau"].record(stream)
 
             if polarized_sky:
-                # Isqrt is rotated coherency: shape (nsrc_alloc, 1, 2, 2)
-                C_rot = Isqrt[:, 0]  # (nsrc_alloc, 2, 2)
-                I_r, Q_r, U_r, V_r = coherency_to_stokes(C_rot.transpose(1, 2, 0))
-
-                if negative_flux == "split":
-                    M_pos, M_neg, has_neg = compute_m_matrix_sign_split(
-                        I_r, Q_r, U_r, V_r, xp=cp
-                    )
-                    z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_pos)
-                    matprod(z, c)
-                    if has_neg:
-                        z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_neg)
-                        matprod_neg(z, c)
-                elif negative_flux == "ignore":
-                    M_pos, _, _ = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=cp)
-                    z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_pos)
-                    matprod(z, c)
-                elif negative_flux == "raise":
-                    M = compute_m_matrix_eigen(I_r, Q_r, U_r, V_r, xp=cp)
-                    z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M)
-                    matprod(z, c)
-                else:
-                    raise ValueError(
-                        "negative_flux must be 'raise', 'split', or 'ignore'"
-                    )
+                process_polarized_chunk(
+                    Isqrt, zcalc, A, exptau, bmfunc.beam_idx,
+                    matprod, c, matprod_neg=matprod_neg,
+                    raise_on_negative_flux=raise_on_negative_flux,
+                    xp=cp,
+                )
             else:
                 z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
                 matprod(z, c)
+                logdebug("Z", z)
 
             event["meas_eq"].record(stream)
-            logdebug("Z", z)
             logger.debug(
                 f"After Z, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
             )
@@ -288,7 +267,7 @@ def simulate(
 
         events[nchunks - 1]["end"].synchronize()
         matprod.sum_chunks(vis[t])
-        if polarized_sky and negative_flux == "split" and matprod_neg is not None:
+        if matprod_neg is not None:
             vis_neg = np.zeros_like(vis[t])
             matprod_neg.sum_chunks(vis_neg)
             vis[t] -= vis_neg

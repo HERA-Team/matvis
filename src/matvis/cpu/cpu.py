@@ -18,9 +18,7 @@ from typing import Callable, Literal
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
 from ..core.coherency import (
-    coherency_to_stokes,
-    compute_m_matrix_eigen,
-    compute_m_matrix_sign_split,
+    process_polarized_chunk,
     stokes_to_coherency,
 )
 from ..core.coords import CoordinateRotation
@@ -56,10 +54,10 @@ def simulate(
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     stokes: np.ndarray | None = None,
-    negative_flux: Literal["raise", "split", "ignore"] = "raise",
+    raise_on_negative_flux: bool = True,
 ):
     """
-    Calculate visibility from an input intensity map and beam model.
+    Calculate visibility from an input sky model and beam model.
 
     Parameters
     ----------
@@ -134,6 +132,18 @@ def simulate(
         for the CoordinateRotationERFA (and GPU version of the same) method, there
         is the parameter ``update_bcrs_every``, which should be a time in seconds, for
         which larger values speed up the computation.
+    stokes : array_like, optional
+        Full Stokes parameters of shape (4, NSRCS) with [I, Q, U, V].
+        When provided with ``polarized=True``, enables polarized sky model
+        via eigendecomposition of the coherency matrix. If None (default),
+        uses ``I_sky`` as Stokes I only (existing behavior). When ``stokes``
+        is provided, ``I_sky`` is only used for source counting and memory
+        allocation, not for computation.
+    raise_on_negative_flux : bool, optional
+        How to handle negative eigenvalues in the coherency matrix.
+        If True (default), raise ValueError if any eigenvalue is negative.
+        If False, use sign-split decomposition to handle negative eigenvalues
+        (needed for EoR-like sky models with negative Stokes I).
 
     Returns
     -------
@@ -224,7 +234,7 @@ def simulate(
 
     # For sign-split, allocate a second matprod for negative eigenvalue contributions
     matprod_neg = None
-    if polarized_sky and negative_flux == "split":
+    if polarized_sky and not raise_on_negative_flux:
         matprod_neg = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
@@ -268,47 +278,22 @@ def simulate(
             logdebug("exptau", exptau[:, :nn])
 
             if polarized_sky:
-                # flux_sqrt is rotated coherency: shape (nsrc_alloc, 1, 2, 2)
-                # Use full nsrc_alloc buffer (zero-padded beyond nn) so M matrix
-                # shape matches beam and exptau buffers.
-                C_rot = flux_sqrt[:, 0]  # (nsrc_alloc, 2, 2)
-                I_r, Q_r, U_r, V_r = coherency_to_stokes(
-                    C_rot.transpose(1, 2, 0)  # -> (2, 2, nsrc_alloc)
+                process_polarized_chunk(
+                    flux_sqrt, zcalc, A, exptau, bmfunc.beam_idx,
+                    matprod, c, matprod_neg=matprod_neg,
+                    raise_on_negative_flux=raise_on_negative_flux,
                 )
-
-                if negative_flux == "split":
-                    M_pos, M_neg, has_neg = compute_m_matrix_sign_split(
-                        I_r, Q_r, U_r, V_r
-                    )
-                    z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_pos)
-                    matprod(z, c)
-                    if has_neg:
-                        z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_neg)
-                        matprod_neg(z, c)
-                elif negative_flux == "ignore":
-                    M_pos, _, _ = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r)
-                    z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M_pos)
-                    matprod(z, c)
-                elif negative_flux == "raise":
-                    M = compute_m_matrix_eigen(I_r, Q_r, U_r, V_r)
-                    z = zcalc(None, A, exptau, bmfunc.beam_idx, m_matrix=M)
-                    matprod(z, c)
-                else:
-                    raise ValueError(
-                        "negative_flux must be 'raise', 'split', or 'ignore'"
-                    )
             else:
                 z = zcalc(flux_sqrt, A, exptau, bmfunc.beam_idx)
                 matprod(z, c)
-
-            logdebug("Z", z[..., :nn])
+                logdebug("Z", z[..., :nn])
 
             if not t % report_chunk and t != ntimes - 1 and c == nchunks - 1:
                 plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
                 highest_peak = memtrace(highest_peak)
 
         matprod.sum_chunks(vis[t])
-        if polarized_sky and negative_flux == "split" and matprod_neg is not None:
+        if matprod_neg is not None:
             vis_neg = np.zeros_like(vis[t])
             matprod_neg.sum_chunks(vis_neg)
             vis[t] -= vis_neg

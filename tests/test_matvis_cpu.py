@@ -42,12 +42,12 @@ def test_simulate_vis(polarized):
 
     # Run matvis on CPUs with pixel beams
     vis = simulate_vis(
-        ants,
-        I_sky,
-        ra,
-        dec,
-        freq,
-        times,
+        ants=ants,
+        fluxes=I_sky,
+        ra=ra,
+        dec=dec,
+        freqs=freq,
+        times=times,
         beams=[beam, beam],
         polarized=polarized,
         precision=1,

@@ -2,7 +2,7 @@
 
 Both code paths coexist in the same simulate_vis function:
 - Old path: simulate_vis(fluxes=...) with no stokes param
-- New path: simulate_vis(fluxes=..., stokes=...) with full Stokes params
+- New path: simulate_vis(stokes=...) with full Stokes params
 """
 
 import pytest
@@ -56,9 +56,10 @@ def _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1, precision=2):
 class TestBackwardCompatibility:
     """Tests that stokes=[I,0,0,0] matches the old sqrt(I) path exactly."""
 
-    def test_unpolarized_stokes_matches_existing(self):
+    @pytest.mark.parametrize("precision,atol", [(2, 1e-12), (1, 1e-4)])
+    def test_unpolarized_stokes_matches_existing(self, precision, atol):
         """Critical test: stokes=[I,0,0,0] must match old path to machine precision."""
-        params = _make_sim_params(nsrc=15, nant=3, ntime=3, nfreq=2, precision=2)
+        params = _make_sim_params(nsrc=15, nant=3, ntime=3, nfreq=2, precision=precision)
         rng = np.random.default_rng(99)
 
         nsrc = len(params["ra"])
@@ -73,28 +74,11 @@ class TestBackwardCompatibility:
         stokes[0] = fluxes  # I = fluxes, Q=U=V=0
         vis_new = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
-        np.testing.assert_allclose(vis_new, vis_old, atol=1e-12)
-
-    def test_unpolarized_stokes_matches_existing_float32(self):
-        """Same test with single precision."""
-        params = _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1, precision=1)
-        rng = np.random.default_rng(77)
-
-        nsrc = len(params["ra"])
-        nfreq = len(params["freqs"])
-        fluxes = rng.uniform(0.5, 5.0, (nsrc, nfreq))
-
-        vis_old = simulate_vis(fluxes=fluxes, polarized=True, **params)
-
-        stokes = np.zeros((4, nsrc, nfreq))
-        stokes[0] = fluxes
-        vis_new = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
-
-        np.testing.assert_allclose(vis_new, vis_old, atol=1e-4)
+        np.testing.assert_allclose(vis_new, vis_old, atol=atol)
 
 
-class TestEigendecompAccuracy:
-    """Test eigendecomp path against brute-force RIME for polarized sky."""
+class TestPolarizedSkySanity:
+    """Sanity checks for polarized sky simulation."""
 
     def test_polarized_sky_no_nans(self):
         """Polarized sky with eigendecomp should produce no NaNs."""
@@ -118,6 +102,25 @@ class TestEigendecompAccuracy:
         # Visibilities should be nonzero
         assert np.any(np.abs(vis) > 0)
 
+    def test_stokes_only_no_fluxes(self):
+        """Passing only stokes (no fluxes) should work via auto-derivation."""
+        params = _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1)
+        rng = np.random.default_rng(55)
+
+        nsrc = len(params["ra"])
+        nfreq = len(params["freqs"])
+        fluxes = rng.uniform(1.0, 5.0, (nsrc, nfreq))
+
+        stokes = np.zeros((4, nsrc, nfreq))
+        stokes[0] = fluxes
+        stokes[1] = 0.2 * fluxes
+
+        # Pass stokes without fluxes
+        vis = simulate_vis(polarized=True, stokes=stokes, **params)
+
+        assert not np.any(np.isnan(vis))
+        assert np.any(np.abs(vis) > 0)
+
 
 class TestSignSplit:
     """Test sign-split approach for negative flux handling."""
@@ -137,7 +140,7 @@ class TestSignSplit:
         stokes[2] = 0.05 * fluxes
         stokes[3] = 0.02 * fluxes
 
-        # Eigendecomp (default)
+        # Eigendecomp (default: raise_on_negative_flux=True)
         vis_eigen = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
         # Sign-split
@@ -145,7 +148,7 @@ class TestSignSplit:
             fluxes=fluxes,
             polarized=True,
             stokes=stokes,
-            negative_flux="split",
+            raise_on_negative_flux=False,
             **params,
         )
 
@@ -169,18 +172,17 @@ class TestSignSplit:
         stokes[0] = fluxes  # Some negative I
 
         vis = simulate_vis(
-            fluxes=fluxes_abs,  # I_sky is abs for validation
             polarized=True,
             stokes=stokes,
-            negative_flux="split",
+            raise_on_negative_flux=False,
             **params,
         )
 
         assert not np.any(np.isnan(vis))
         assert not np.any(np.isinf(vis))
 
-    def test_eigendecomp_raises_on_negative_flux(self):
-        """Eigendecomp (default) should raise ValueError on negative eigenvalues."""
+    def test_raises_on_negative_flux(self):
+        """Default (raise_on_negative_flux=True) should raise on negative eigenvalues."""
         params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
 
         nsrc = len(params["ra"])
@@ -193,49 +195,6 @@ class TestSignSplit:
         with pytest.raises(ValueError, match="Negative eigenvalue"):
             simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
 
-    def test_negative_flux_ignore(self):
-        """negative_flux='ignore' should silently clamp negatives, not raise."""
-        params = _make_sim_params(nsrc=10, nant=3, ntime=1, nfreq=1)
-        rng = np.random.default_rng(77)
-
-        nsrc = len(params["ra"])
-        nfreq = len(params["freqs"])
-        fluxes = rng.uniform(0.5, 5.0, (nsrc, nfreq))
-
-        stokes = np.zeros((4, nsrc, nfreq))
-        stokes[0] = fluxes
-        stokes[0, : nsrc // 2] *= -1  # Half negative
-
-        vis = simulate_vis(
-            fluxes=np.abs(fluxes),
-            polarized=True,
-            stokes=stokes,
-            negative_flux="ignore",
-            **params,
-        )
-
-        assert not np.any(np.isnan(vis))
-        assert not np.any(np.isinf(vis))
-
-    def test_negative_flux_invalid(self):
-        """Unknown negative_flux value should raise ValueError."""
-        params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
-
-        nsrc = len(params["ra"])
-        nfreq = len(params["freqs"])
-        fluxes = np.ones((nsrc, nfreq))
-        stokes = np.zeros((4, nsrc, nfreq))
-        stokes[0] = fluxes
-
-        with pytest.raises(ValueError, match="negative_flux must be"):
-            simulate_vis(
-                fluxes=fluxes,
-                polarized=True,
-                stokes=stokes,
-                negative_flux="invalid",
-                **params,
-            )
-
 
 class TestEdgeCases:
     """Edge case tests."""
@@ -246,9 +205,8 @@ class TestEdgeCases:
 
         nsrc = len(params["ra"])
         nfreq = len(params["freqs"])
-        fluxes = np.zeros((nsrc, nfreq))
         stokes = np.zeros((4, nsrc, nfreq))
 
-        vis = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
+        vis = simulate_vis(polarized=True, stokes=stokes, **params)
 
         np.testing.assert_allclose(vis, 0.0, atol=1e-15)
