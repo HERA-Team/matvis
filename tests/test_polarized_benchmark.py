@@ -3,9 +3,9 @@
 Not run in CI — use: pytest tests/test_polarized_benchmark.py -v -s
 """
 
-import os
-
 import pytest
+
+import os
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("RUN_BENCHMARKS"),
@@ -105,9 +105,7 @@ class TestBenchmarks:
         stokes[2] = 0.1 * fluxes
         stokes[3] = 0.05 * fluxes
 
-        time_pol, _ = _time_call(
-            simulate_vis, polarized=True, stokes=stokes, **params
-        )
+        time_pol, _ = _time_call(simulate_vis, polarized=True, stokes=stokes, **params)
         print(f"\n  Polarized eigendecomp: {time_pol:.4f}s")
 
     def test_bench_sign_split_overhead(self):

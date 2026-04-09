@@ -375,9 +375,7 @@ def process_polarized_chunk(
         C_rot.transpose(1, 2, 0)  # -> (2, 2, nsrc_alloc)
     )
 
-    M_pos, M_neg, has_neg = compute_m_matrix_sign_split(
-        I_r, Q_r, U_r, V_r, xp=xp
-    )
+    M_pos, M_neg, has_neg = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=xp)
     if has_neg and raise_on_negative_flux:
         raise ValueError(
             "Negative eigenvalue detected in coherency matrix. "

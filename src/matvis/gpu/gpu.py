@@ -244,8 +244,14 @@ def simulate(
 
             if polarized_sky:
                 process_polarized_chunk(
-                    Isqrt, zcalc, A, exptau, bmfunc.beam_idx,
-                    matprod, c, matprod_neg=matprod_neg,
+                    Isqrt,
+                    zcalc,
+                    A,
+                    exptau,
+                    bmfunc.beam_idx,
+                    matprod,
+                    c,
+                    matprod_neg=matprod_neg,
                     raise_on_negative_flux=raise_on_negative_flux,
                     xp=cp,
                 )
