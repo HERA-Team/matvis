@@ -325,6 +325,68 @@ def compute_m_matrix_sign_split(I, Q, U, V, xp=np):
     return M_pos, M_neg, has_neg
 
 
+def check_sky_physicality(I, Q, U, V, raise_on_negative=True, xp=np):
+    """Determine whether the input sky requires sign-split decomposition.
+
+    The coherency rotation applied per time step is a real orthogonal
+    similarity transform, so eigenvalue signs are preserved across time
+    and chunks. This lets us decide once, up front, whether the
+    simulation can run through the eigen-only fast path or needs the
+    sign-split two-pass path.
+
+    Uses the same ``eps * max(|I|, 1)`` noise clamp as
+    :func:`compute_m_matrix_eigen` so floating-point round-off never
+    falsely flags a physical sky.
+
+    Parameters
+    ----------
+    I, Q, U, V : array_like
+        Stokes parameters, each shape (Nsrc,).
+    raise_on_negative : bool
+        If True, raise ``ValueError`` when any source has a genuinely
+        negative eigenvalue (matches the historical per-chunk behavior).
+    xp : module
+        Array module (numpy or cupy).
+
+    Returns
+    -------
+    use_sign_split : bool
+        True if any source has a negative eigenvalue beyond the
+        noise clamp. False if the sky is physical.
+
+    Raises
+    ------
+    ValueError
+        If ``raise_on_negative=True`` and any eigenvalue is negative.
+    """
+    input_dtype = xp.result_type(I, Q, U, V)
+    if not xp.issubdtype(input_dtype, xp.floating):
+        input_dtype = xp.float64
+    I = xp.asarray(I, dtype=input_dtype)
+    Q = xp.asarray(Q, dtype=input_dtype)
+    U = xp.asarray(U, dtype=input_dtype)
+    V = xp.asarray(V, dtype=input_dtype)
+
+    T = xp.sqrt(Q**2 + U**2 + V**2)
+    lambda_minus = 0.5 * (I - T)
+
+    min_eigenvalue = float(xp.min(lambda_minus))
+    if min_eigenvalue >= 0:
+        return False
+
+    max_abs_I = float(xp.max(xp.abs(I)))
+    eps = float(xp.finfo(input_dtype).eps) * max(max_abs_I, 1.0)
+    if min_eigenvalue < -eps:
+        if raise_on_negative:
+            raise ValueError(
+                f"Negative eigenvalue detected (min={min_eigenvalue:.6e}). "
+                "Pass raise_on_negative_flux=False to enable sign-split "
+                "decomposition for sky models with negative flux."
+            )
+        return True
+    return False
+
+
 def process_polarized_chunk(
     flux_above_horizon,
     zcalc,
@@ -333,14 +395,17 @@ def process_polarized_chunk(
     beam_idx,
     matprod,
     chunk_idx,
+    use_sign_split,
     matprod_neg=None,
-    raise_on_negative_flux=True,
     xp=np,
 ):
     """Process a single chunk for polarized sky simulation.
 
-    Extracts Stokes parameters from rotated coherency, computes M matrices
-    via sign-split decomposition, and accumulates Z @ Z† into matprod buffers.
+    Extracts Stokes parameters from the rotated coherency and accumulates
+    ``Z @ Z†`` into matprod buffers. The choice between the eigen-only
+    fast path and the sign-split two-pass path is fixed by the caller
+    (via :func:`check_sky_physicality`) and must not change across chunks
+    or time steps.
 
     Parameters
     ----------
@@ -358,33 +423,28 @@ def process_polarized_chunk(
         Matrix product accumulator for positive contributions.
     chunk_idx : int
         Chunk index.
+    use_sign_split : bool
+        If False, run eigendecomposition only (single matprod call).
+        If True, run sign-split (M_pos into ``matprod``, M_neg into
+        ``matprod_neg``); ``matprod_neg`` must be provided.
     matprod_neg : callable or None
-        Matrix product accumulator for negative contributions.
-    raise_on_negative_flux : bool
-        If True, raise ValueError on negative eigenvalues.
+        Matrix product accumulator for negative contributions. Required
+        when ``use_sign_split=True``.
     xp : module
         Array module (numpy or cupy).
-
-    Raises
-    ------
-    ValueError
-        If raise_on_negative_flux is True and negative eigenvalues exist.
     """
     C_rot = flux_above_horizon[:, 0]  # (nsrc_alloc, 2, 2)
     I_r, Q_r, U_r, V_r = coherency_to_stokes(
         C_rot.transpose(1, 2, 0)  # -> (2, 2, nsrc_alloc)
     )
 
-    M_pos, M_neg, has_neg = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=xp)
-    if has_neg and raise_on_negative_flux:
-        raise ValueError(
-            "Negative eigenvalue detected in coherency matrix. "
-            "Set raise_on_negative_flux=False to use sign-split decomposition."
-        )
-
-    z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_pos)
-    matprod(z, chunk_idx)
-
-    if has_neg and matprod_neg is not None:
+    if use_sign_split:
+        M_pos, M_neg, _ = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=xp)
+        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_pos)
+        matprod(z, chunk_idx)
         z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_neg)
         matprod_neg(z, chunk_idx)
+    else:
+        M = compute_m_matrix_eigen(I_r, Q_r, U_r, V_r, xp=xp)
+        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M)
+        matprod(z, chunk_idx)

@@ -18,6 +18,7 @@ from typing import Callable, Literal
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
 from ..core.coherency import (
+    check_sky_physicality,
     process_polarized_chunk,
     stokes_to_coherency,
 )
@@ -195,11 +196,14 @@ def simulate(
     # Determine if we have a polarized sky model
     polarized_sky = stokes is not None and polarized
 
+    use_sign_split = False
     if polarized_sky:
-        # Build coherency matrices from Stokes params and pass to coord rotation.
-        # CoordinateRotation detects polarized flux via flux.ndim == 4 and will
-        # rotate the coherency from equatorial to alt/az frame automatically.
         I_s, Q_s, U_s, V_s = stokes
+        use_sign_split = check_sky_physicality(
+            I_s, Q_s, U_s, V_s, raise_on_negative=raise_on_negative_flux
+        )
+
+    if polarized_sky:
         coherency = stokes_to_coherency(I_s, Q_s, U_s, V_s)  # (2, 2, Nsrc)
         flux_for_coords = coherency.transpose(2, 0, 1)[
             :, np.newaxis, :, :
@@ -247,7 +251,7 @@ def simulate(
 
     # For sign-split, allocate a second matprod for negative eigenvalue contributions
     matprod_neg = None
-    if polarized_sky and not raise_on_negative_flux:
+    if use_sign_split:
         matprod_neg = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
@@ -299,8 +303,8 @@ def simulate(
                     bmfunc.beam_idx,
                     matprod,
                     c,
+                    use_sign_split=use_sign_split,
                     matprod_neg=matprod_neg,
-                    raise_on_negative_flux=raise_on_negative_flux,
                 )
             else:
                 z = zcalc(flux_sqrt, A, exptau, bmfunc.beam_idx)
