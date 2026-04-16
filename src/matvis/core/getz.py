@@ -87,8 +87,10 @@ class ZMatrixCalc:
         """
         if m_matrix is not None:
             # Full polarized path: Z[ant, fd, ax, src] = Σ_k bm[ant, fd, k, src] * exptau[ant, src] * M[k, ax, src]
-            # IMPORTANT: Do NOT mutate exptau here — callers may reuse the same
-            # exptau buffer across multiple calls (e.g. sign-split).
+            # IMPORTANT: do NOT mutate exptau here. Sign-split negative-flux
+            # simulations call this method twice per chunk sharing the same
+            # exptau buffer — once with M_pos and once with M_neg. Mutating
+            # the buffer in place would corrupt the second call.
             #
             # Manually unrolled k-contraction (k=0,1) with broadcasting.
             # This avoids Python loops and is ~1.6x faster than the loop version.
