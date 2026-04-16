@@ -66,11 +66,13 @@ def simulate(
     freq : float
         Frequency to evaluate the visibilities at [GHz].
     I_sky : array_like
-        Intensity distribution of sources/pixels on the sky, assuming intensity
-        (Stokes I) only. The Stokes I intensity will be split equally between
-        the two linear polarization channels, resulting in a factor of 0.5 from
-        the value inputted here. This is done even if only one polarization
-        channel is simulated.
+        Per-source Stokes I values used when a scalar sky model is passed
+        (no ``stokes`` argument). The intensity is split equally between
+        the two linear polarization channels, introducing a factor of 0.5
+        relative to the value given here; this applies even when only one
+        polarization channel is simulated. When ``stokes`` is provided,
+        ``I_sky`` is used only for source counting and memory allocation
+        and does not enter the visibility calculation.
         Shape=(NSRCS,).
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
@@ -151,6 +153,17 @@ def simulate(
         Simulated visibilities. If `polarized = True`, the output will have
         shape (NTIMES, NBLS, NFEED, NFEED), otherwise it will have
         shape (NTIMES, NBLS).
+
+    Notes
+    -----
+    Three sky-model modes are supported:
+
+    1. ``polarized=False`` — single-feed calculation using ``I_sky``.
+    2. ``polarized=True, stokes=None`` — uses ``I_sky`` as Stokes I only,
+       split 50/50 across the two feeds (legacy behavior).
+    3. ``polarized=True, stokes.shape == (4, NSRCS)`` — full-Stokes
+       visibility via eigendecomposition of the per-source coherency
+       matrix ``C = 0.5 * [[I+Q, U+iV], [U-iV, I-Q]]``.
 
     """
     init_time = time.time()
