@@ -71,7 +71,6 @@ def test_gpu_stokes_matches_cpu():
     stokes[3] = 0.05 * fluxes  # V
 
     vis_cpu = simulate_vis(
-        fluxes=fluxes,
         polarized=True,
         stokes=stokes,
         use_gpu=False,
@@ -79,7 +78,6 @@ def test_gpu_stokes_matches_cpu():
         **params,
     )
     vis_gpu = simulate_vis(
-        fluxes=fluxes,
         polarized=True,
         stokes=stokes,
         use_gpu=True,
@@ -106,7 +104,6 @@ def test_gpu_sign_split_matches_cpu():
     stokes[3] = 0.02 * fluxes
 
     vis_cpu = simulate_vis(
-        fluxes=fluxes,
         polarized=True,
         stokes=stokes,
         raise_on_negative_flux=False,
@@ -115,7 +112,6 @@ def test_gpu_sign_split_matches_cpu():
         **params,
     )
     vis_gpu = simulate_vis(
-        fluxes=fluxes,
         polarized=True,
         stokes=stokes,
         raise_on_negative_flux=False,

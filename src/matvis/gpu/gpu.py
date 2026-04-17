@@ -61,8 +61,8 @@ def simulate(
     times: Time,
     skycoords: SkyCoord,
     telescope_loc: EarthLocation,
-    I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
+    I_sky: np.ndarray | None = None,
     polarized: bool = False,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     beam_idx: np.ndarray | None = None,
@@ -79,7 +79,7 @@ def simulate(
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     stokes: np.ndarray | None = None,
-    raise_on_negative_flux: bool = True,
+    raise_on_negative_flux: bool | None = None,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
@@ -89,9 +89,11 @@ def simulate(
         raise ValueError("source_buffer must be less than 1.0")
 
     pr = psutil.Process()
-    nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, times, I_sky, stokes=stokes
+    nax, nfeed, nant, ntimes, nsrc = _validate_inputs(
+        precision, polarized, antpos, times, I_sky=I_sky, stokes=stokes
     )
+    if raise_on_negative_flux is None:
+        raise_on_negative_flux = stokes is None
 
     rtype, ctype = get_dtypes(precision)
 
@@ -102,7 +104,7 @@ def simulate(
         nax,
         nfeed,
         nant,
-        len(I_sky),
+        nsrc,
         precision,
     )
 

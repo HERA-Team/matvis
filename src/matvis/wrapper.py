@@ -40,7 +40,7 @@ def simulate_vis(
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     source_buffer: float = 1.0,
     stokes: np.ndarray | None = None,
-    raise_on_negative_flux: bool = True,
+    raise_on_negative_flux: bool | None = None,
     **backend_kwargs,
 ):
     """
@@ -55,10 +55,9 @@ def simulate_vis(
         (integers) and the values are the Cartesian x,y,z positions of the
         antennas (in meters) relative to the array center.
     fluxes : array_like, optional
-        2D array with the flux of each source as a function of frequency, of
-        shape (NSRCS, NFREQS). If None and ``stokes`` is provided, derived
-        as ``stokes[0]`` (Stokes I). At least one of ``fluxes`` or ``stokes``
-        must be provided.
+        2D array with the Stokes I flux of each source as a function of
+        frequency, shape (NSRCS, NFREQS). Exactly one of ``fluxes`` or
+        ``stokes`` must be provided.
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi/2, +pi/2].
@@ -97,13 +96,16 @@ def simulate_vis(
         ~0.55 should be sufficient.
     stokes : array_like, optional
         Full Stokes parameters of shape (4, NSRCS, NFREQS) with [I, Q, U, V].
-        When provided, enables polarized sky model support via eigendecomposition
-        of the coherency matrix. Requires ``polarized=True``. If None (default),
-        uses ``fluxes`` as Stokes I only (existing behavior).
+        Enables polarized sky model support via eigendecomposition of the
+        coherency matrix. Requires ``polarized=True``. Exactly one of
+        ``fluxes`` or ``stokes`` must be provided.
     raise_on_negative_flux : bool, optional
-        How to handle negative eigenvalues in the coherency matrix.
-        If True (default), raise ValueError if any eigenvalue is negative.
-        If False, use sign-split decomposition (two matprod passes, subtract).
+        How to handle sources with a negative coherency eigenvalue. If
+        ``None`` (default), the choice depends on the sky-model mode:
+        ``True`` when ``fluxes`` is given (an unpolarized sky with
+        negative flux is almost always a bug) and ``False`` when
+        ``stokes`` is given (EoR-like models can legitimately have
+        negative Stokes I). Set explicitly to override.
 
     Returns
     -------
@@ -130,22 +132,25 @@ def simulate_vis(
 
     fnc = gpu.simulate if use_gpu else cpu.simulate
 
+    if (fluxes is None) == (stokes is None):
+        raise ValueError(
+            "Provide exactly one of `fluxes` or `stokes` to simulate_vis."
+        )
+
     if stokes is not None:
         assert stokes.shape == (
             4,
             ra.size,
             freqs.size,
         ), "The `stokes` array must have shape (4, NSRCS, NFREQS)."
+    else:
+        assert fluxes.shape == (
+            ra.size,
+            freqs.size,
+        ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
 
-    if fluxes is None:
-        if stokes is None:
-            raise ValueError("Either `fluxes` or `stokes` must be provided.")
-        fluxes = stokes[0]  # Derive Stokes I as fluxes
-
-    assert fluxes.shape == (
-        ra.size,
-        freqs.size,
-    ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
+    if raise_on_negative_flux is None:
+        raise_on_negative_flux = stokes is None
 
     # Determine precision
     complex_dtype = np.complex64 if precision == 1 else np.complex128
@@ -170,14 +175,16 @@ def simulate_vis(
 
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
-        stokes_i = stokes[:, :, i] if stokes is not None else None
+        if stokes is not None:
+            per_freq_kwargs = {"stokes": stokes[:, :, i]}
+        else:
+            per_freq_kwargs = {"I_sky": fluxes[:, i]}
         vis[i] = fnc(
             antpos=antpos,
             freq=freq,
             times=times,
             skycoords=skycoords,
             telescope_loc=telescope_loc,
-            I_sky=fluxes[:, i],
             beam_list=beams,
             precision=precision,
             polarized=polarized,
@@ -185,8 +192,8 @@ def simulate_vis(
             beam_idx=beam_idx,
             antpairs=antpairs,
             source_buffer=source_buffer,
-            stokes=stokes_i,
             raise_on_negative_flux=raise_on_negative_flux,
+            **per_freq_kwargs,
             **backend_kwargs,
         )
     return vis

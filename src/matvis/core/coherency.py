@@ -446,7 +446,7 @@ def categorize_sources(I, Q, U, V, xp=np):
     return idx_P, idx_N, idx_M
 
 
-def partition_and_negate(stokes, skycoords, I_sky):
+def partition_and_negate(stokes, skycoords, I_sky=None):
     """Permute sources into ``[P, N]`` order and negate Stokes for ``N``.
 
     Only valid when no source belongs to the mixed-sign category ``M``;
@@ -466,13 +466,15 @@ def partition_and_negate(stokes, skycoords, I_sky):
         Shape (4, Nsrc).
     skycoords : SkyCoord
         Astropy SkyCoord of length Nsrc.
-    I_sky : ndarray
-        Shape (Nsrc,).
+    I_sky : ndarray or None
+        Shape (Nsrc,). Pass ``None`` if no separate Stokes I array is
+        being tracked (the new-API polarized path).
 
     Returns
     -------
     stokes_perm, skycoords_perm, I_sky_perm
-        Permuted versions of the inputs.
+        Permuted versions of the inputs. ``I_sky_perm`` is ``None`` if
+        ``I_sky`` was ``None``.
     n_P, n_N : int
         Counts of positive and negative-both sources.
     """
@@ -491,7 +493,7 @@ def partition_and_negate(stokes, skycoords, I_sky):
     if n_N > 0:
         stokes_perm[:, n_P:] *= -1
     skycoords_perm = skycoords[perm]
-    I_sky_perm = I_sky[perm]
+    I_sky_perm = None if I_sky is None else I_sky[perm]
     return stokes_perm, skycoords_perm, I_sky_perm, n_P, n_N
 
 

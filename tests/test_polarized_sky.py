@@ -74,7 +74,7 @@ class TestBackwardCompatibility:
         # NEW PATH — stokes=[I,0,0,0], runs eigendecomp M matrix code
         stokes = np.zeros((4, nsrc, nfreq))
         stokes[0] = fluxes  # I = fluxes, Q=U=V=0
-        vis_new = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
+        vis_new = simulate_vis(polarized=True, stokes=stokes, **params)
 
         np.testing.assert_allclose(vis_new, vis_old, atol=atol)
 
@@ -97,7 +97,7 @@ class TestPolarizedSkySanity:
         stokes[2] = 0.1 * fluxes  # U = 0.1 * I
         stokes[3] = 0.05 * fluxes  # V = 0.05 * I
 
-        vis = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
+        vis = simulate_vis(polarized=True, stokes=stokes, **params)
 
         assert not np.any(np.isnan(vis))
         assert not np.any(np.isinf(vis))
@@ -142,12 +142,13 @@ class TestSignSplit:
         stokes[2] = 0.05 * fluxes
         stokes[3] = 0.02 * fluxes
 
-        # Eigendecomp (default: raise_on_negative_flux=True)
-        vis_eigen = simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
+        # Eigendecomp (default under stokes=: raise_on_negative_flux=False,
+        # but sky is all-positive so there's nothing to raise/split on).
+        vis_eigen = simulate_vis(polarized=True, stokes=stokes, **params)
 
-        # Sign-split
+        # Sign-split explicitly requested (still all-positive, so result
+        # must match the default eigen output).
         vis_split = simulate_vis(
-            fluxes=fluxes,
             polarized=True,
             stokes=stokes,
             raise_on_negative_flux=False,
@@ -184,18 +185,22 @@ class TestSignSplit:
         assert not np.any(np.isinf(vis))
 
     def test_raises_on_negative_flux(self):
-        """Default (raise_on_negative_flux=True) should raise on negative eigenvalues."""
+        """Explicit raise_on_negative_flux=True raises on negative eigenvalues."""
         params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
 
         nsrc = len(params["ra"])
         nfreq = len(params["freqs"])
-        fluxes = np.ones((nsrc, nfreq))
 
         stokes = np.zeros((4, nsrc, nfreq))
         stokes[0, 0, 0] = -5.0  # Negative I for first source
 
         with pytest.raises(ValueError, match="Negative eigenvalue"):
-            simulate_vis(fluxes=fluxes, polarized=True, stokes=stokes, **params)
+            simulate_vis(
+                polarized=True,
+                stokes=stokes,
+                raise_on_negative_flux=True,
+                **params,
+            )
 
 
 class TestEdgeCases:
