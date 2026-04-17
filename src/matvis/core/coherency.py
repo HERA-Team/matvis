@@ -387,6 +387,114 @@ def check_sky_physicality(I, Q, U, V, raise_on_negative=True, xp=np):
     return False
 
 
+def categorize_sources(I, Q, U, V, xp=np):
+    """Categorize sources by the sign of the coherency eigenvalues.
+
+    Returns three index arrays (P, N, M) covering all sources:
+
+    - ``P`` (positive): both eigenvalues ≥ 0. Eligible for the eigen
+      fast path with the original Stokes.
+    - ``N`` (both negative): both eigenvalues < 0. Eligible for the
+      eigen fast path with **negated** Stokes — since
+      ``C(-I,-Q,-U,-V) = -C(I,Q,U,V)`` flips the sign of both
+      eigenvalues, making them positive.
+    - ``M`` (mixed sign): one eigenvalue ≥ 0 and the other < 0.
+      Cannot be handled by simple negation; requires the full
+      sign-split decomposition.
+
+    Uses the same ``eps · max(|I|, 1)`` clamp as
+    :func:`compute_m_matrix_eigen` so float-noise negatives at the
+    boundary fall into ``P``.
+
+    Parameters
+    ----------
+    I, Q, U, V : array_like
+        Stokes parameters, each shape (Nsrc,).
+    xp : module
+        Array module (numpy or cupy).
+
+    Returns
+    -------
+    idx_P, idx_N, idx_M : ndarray
+        Source indices (each shape ``(n_*,)``) within the input arrays.
+    """
+    input_dtype = xp.result_type(I, Q, U, V)
+    if not xp.issubdtype(input_dtype, xp.floating):
+        input_dtype = xp.float64
+    I = xp.asarray(I, dtype=input_dtype)
+    Q = xp.asarray(Q, dtype=input_dtype)
+    U = xp.asarray(U, dtype=input_dtype)
+    V = xp.asarray(V, dtype=input_dtype)
+
+    T = xp.sqrt(Q**2 + U**2 + V**2)
+    lambda_plus = 0.5 * (I + T)
+    lambda_minus = 0.5 * (I - T)
+
+    max_abs_I = float(xp.max(xp.abs(I))) if I.size else 0.0
+    eps = float(xp.finfo(input_dtype).eps) * max(max_abs_I, 1.0)
+
+    pos_plus = lambda_plus >= -eps
+    pos_minus = lambda_minus >= -eps
+
+    is_P = pos_plus & pos_minus
+    is_N = (~pos_plus) & (~pos_minus)
+    is_M = ~(is_P | is_N)
+
+    idx_P = xp.where(is_P)[0]
+    idx_N = xp.where(is_N)[0]
+    idx_M = xp.where(is_M)[0]
+    return idx_P, idx_N, idx_M
+
+
+def partition_and_negate(stokes, skycoords, I_sky):
+    """Permute sources into ``[P, N]`` order and negate Stokes for ``N``.
+
+    Only valid when no source belongs to the mixed-sign category ``M``;
+    callers must check via :func:`categorize_sources` first. The returned
+    arrays are ordered so that:
+
+    - indices ``[0, n_P)`` are positive sources (original Stokes),
+    - indices ``[n_P, n_P + n_N)`` are negative-both sources with
+      Stokes negated so the eigen path applies.
+
+    The returned ``stokes`` array is a fresh copy (in-place negation
+    would mutate the caller's array).
+
+    Parameters
+    ----------
+    stokes : ndarray
+        Shape (4, Nsrc).
+    skycoords : SkyCoord
+        Astropy SkyCoord of length Nsrc.
+    I_sky : ndarray
+        Shape (Nsrc,).
+
+    Returns
+    -------
+    stokes_perm, skycoords_perm, I_sky_perm
+        Permuted versions of the inputs.
+    n_P, n_N : int
+        Counts of positive and negative-both sources.
+    """
+    I, Q, U, V = stokes
+    idx_P, idx_N, idx_M = categorize_sources(I, Q, U, V)
+    if len(idx_M) > 0:
+        raise ValueError(
+            "partition_and_negate is only valid when no sources have "
+            "mixed-sign eigenvalues; got {} mixed sources.".format(len(idx_M))
+        )
+    perm = np.concatenate([idx_P, idx_N])
+    n_P = int(len(idx_P))
+    n_N = int(len(idx_N))
+
+    stokes_perm = stokes[:, perm].copy()
+    if n_N > 0:
+        stokes_perm[:, n_P:] *= -1
+    skycoords_perm = skycoords[perm]
+    I_sky_perm = I_sky[perm]
+    return stokes_perm, skycoords_perm, I_sky_perm, n_P, n_N
+
+
 def process_polarized_chunk(
     flux_above_horizon,
     zcalc,
@@ -397,15 +505,27 @@ def process_polarized_chunk(
     chunk_idx,
     use_sign_split,
     matprod_neg=None,
+    use_partition=False,
+    n_P_chunk=0,
+    n_N_chunk=0,
     xp=np,
 ):
     """Process a single chunk for polarized sky simulation.
 
-    Extracts Stokes parameters from the rotated coherency and accumulates
-    ``Z @ Z†`` into matprod buffers. The choice between the eigen-only
-    fast path and the sign-split two-pass path is fixed by the caller
-    (via :func:`check_sky_physicality`) and must not change across chunks
-    or time steps.
+    Three execution paths, selected once per simulation by the caller:
+
+    - ``use_sign_split=False`` (all-positive sky): single eigen call,
+      one matprod write.
+    - ``use_sign_split=True, use_partition=True`` (only ``P`` and
+      ``N`` sources, no mixed): single eigen call (Stokes for ``N``
+      sources have been pre-negated so the eigen path applies),
+      followed by *sliced* writes — the first ``n_P_chunk`` sources go
+      to ``matprod``, the next ``n_N_chunk`` to ``matprod_neg``. Total
+      matmul cost is ``O(Nsrc)`` instead of the sign-split fallback's
+      ``2·O(Nsrc)``.
+    - ``use_sign_split=True, use_partition=False`` (sky has mixed-sign
+      sources): full sign-split — two eigendecompositions and two
+      full-width matprod writes.
 
     Parameters
     ----------
@@ -424,12 +544,18 @@ def process_polarized_chunk(
     chunk_idx : int
         Chunk index.
     use_sign_split : bool
-        If False, run eigendecomposition only (single matprod call).
-        If True, run sign-split (M_pos into ``matprod``, M_neg into
-        ``matprod_neg``); ``matprod_neg`` must be provided.
+        Set globally for the simulation; True if any source has a
+        negative eigenvalue.
     matprod_neg : callable or None
         Matrix product accumulator for negative contributions. Required
         when ``use_sign_split=True``.
+    use_partition : bool
+        If True, use the eigen+slice fast path. Requires that the
+        chunk's sources are arranged so the first ``n_P_chunk`` above-
+        horizon sources are ``P`` and the next ``n_N_chunk`` are ``N``.
+    n_P_chunk, n_N_chunk : int
+        Number of positive and negative-both sources above horizon in
+        this chunk. Only consulted when ``use_partition=True``.
     xp : module
         Array module (numpy or cupy).
     """
@@ -438,7 +564,27 @@ def process_polarized_chunk(
         C_rot.transpose(1, 2, 0)  # -> (2, 2, nsrc_alloc)
     )
 
-    if use_sign_split:
+    if use_partition:
+        # Eigen on the (already-negated-for-N) chunk Stokes; slice z
+        # into the P and N source ranges and dispatch to the two
+        # matprod accumulators.
+        M = compute_m_matrix_eigen(I_r, Q_r, U_r, V_r, xp=xp)
+        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M)
+        nax = zcalc.nax
+        nsrc = zcalc.nsrc
+        if n_P_chunk > 0:
+            z3 = z.reshape(z.shape[0], nax, nsrc)
+            z_P = xp.ascontiguousarray(z3[:, :, :n_P_chunk]).reshape(
+                z.shape[0], nax * n_P_chunk
+            )
+            matprod(z_P, chunk_idx)
+        if n_N_chunk > 0:
+            z3 = z.reshape(z.shape[0], nax, nsrc)
+            z_N = xp.ascontiguousarray(
+                z3[:, :, n_P_chunk : n_P_chunk + n_N_chunk]
+            ).reshape(z.shape[0], nax * n_N_chunk)
+            matprod_neg(z_N, chunk_idx)
+    elif use_sign_split:
         M_pos, M_neg, _ = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=xp)
         z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_pos)
         matprod(z, chunk_idx)

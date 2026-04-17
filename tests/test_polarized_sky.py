@@ -212,3 +212,34 @@ class TestEdgeCases:
         vis = simulate_vis(polarized=True, stokes=stokes, **params)
 
         np.testing.assert_allclose(vis, 0.0, atol=1e-15)
+
+    def test_negate_source_symmetry(self):
+        """V(-I,-Q,-U,-V) == -V(I,Q,U,V).
+
+        Negating every Stokes parameter flips the sign of the coherency
+        matrix for every source, which must flip the sign of every
+        visibility. This exercises the eigen+partition path end-to-end
+        since the negated sky is pure-N.
+        """
+        params = _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1)
+        rng = np.random.default_rng(2026)
+
+        nsrc = len(params["ra"])
+        nfreq = len(params["freqs"])
+        I = rng.uniform(1.0, 5.0, (nsrc, nfreq))
+        Q = 0.2 * I
+        U = 0.1 * I
+        V = 0.05 * I
+
+        stokes_pos = np.stack([I, Q, U, V], axis=0)
+        vis_pos = simulate_vis(polarized=True, stokes=stokes_pos, **params)
+
+        stokes_neg = -stokes_pos
+        vis_neg = simulate_vis(
+            polarized=True,
+            stokes=stokes_neg,
+            raise_on_negative_flux=False,
+            **params,
+        )
+
+        np.testing.assert_allclose(vis_neg, -vis_pos, atol=1e-10)

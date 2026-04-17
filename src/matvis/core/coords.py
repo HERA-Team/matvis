@@ -112,6 +112,10 @@ class CoordinateRotation(ABC):
         flux = self.flux[slc]
 
         above_horizon = self.xp.where(topo[2] > 0)[0]
+        # Expose chunk-local above-horizon indices so polarized-sky callers
+        # can compute per-chunk source-category counts without recomputing
+        # the horizon mask.
+        self.above_horizon = above_horizon
         n = len(above_horizon)
         if n > self.nsrc_alloc:
             raise ValueError(

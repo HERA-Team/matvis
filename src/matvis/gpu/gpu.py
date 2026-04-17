@@ -20,7 +20,9 @@ from typing import Callable, Literal
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
 from ..core.coherency import (
+    categorize_sources,
     check_sky_physicality,
+    partition_and_negate,
     process_polarized_chunk,
     stokes_to_coherency,
 )
@@ -108,11 +110,21 @@ def simulate(
     polarized_sky = stokes is not None and polarized
 
     use_sign_split = False
+    use_partition = False
+    n_P = n_N = 0
     if polarized_sky:
         I_s, Q_s, U_s, V_s = stokes
         use_sign_split = check_sky_physicality(
             I_s, Q_s, U_s, V_s, raise_on_negative=raise_on_negative_flux
         )
+        if use_sign_split:
+            idx_P, idx_N, idx_M = categorize_sources(I_s, Q_s, U_s, V_s)
+            if len(idx_M) == 0:
+                use_partition = True
+                stokes, skycoords, I_sky, n_P, n_N = partition_and_negate(
+                    stokes, skycoords, I_sky
+                )
+                I_s, Q_s, U_s, V_s = stokes
 
     if polarized_sky:
         coherency = stokes_to_coherency(I_s, Q_s, U_s, V_s)  # (2, 2, Nsrc)
@@ -250,6 +262,18 @@ def simulate(
             event["tau"].record(stream)
 
             if polarized_sky:
+                n_P_chunk = n_N_chunk = 0
+                if use_partition:
+                    chunk_start = c * npixc
+                    p_local_end = min(max(n_P - chunk_start, 0), npixc)
+                    n_local_end = min(max(n_P + n_N - chunk_start, 0), npixc)
+                    above = coords.above_horizon
+                    # searchsorted on device to avoid host sync.
+                    counts = cp.searchsorted(
+                        above, cp.asarray([p_local_end, n_local_end])
+                    )
+                    n_P_chunk = int(counts[0])
+                    n_N_chunk = int(counts[1]) - n_P_chunk
                 process_polarized_chunk(
                     Isqrt,
                     zcalc,
@@ -260,6 +284,9 @@ def simulate(
                     c,
                     use_sign_split=use_sign_split,
                     matprod_neg=matprod_neg,
+                    use_partition=use_partition,
+                    n_P_chunk=n_P_chunk,
+                    n_N_chunk=n_N_chunk,
                     xp=cp,
                 )
             else:
