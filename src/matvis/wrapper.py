@@ -107,12 +107,10 @@ def simulate_vis(
         attrs = device.attributes
         attrs = {str(k): v for k, v in attrs.items()}
         string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
-        logger.debug(
-            f"""
+        logger.debug(f"""
             Your GPU has the following attributes:
             \t{string}
-            """
-        )
+            """)
 
     fnc = gpu.simulate if use_gpu else cpu.simulate
 

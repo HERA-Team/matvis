@@ -107,15 +107,13 @@ def log_progress(
     mem = human_readable_size(rss)
     memdiff = human_readable_size(rss - last_mem, indicate_sign=True)
 
-    logger.info(
-        f"""
+    logger.info(f"""
         Progress Info   [{iters}/{niters} times ({100 * iters / niters:.1f}%)]
             -> Update Time:   {lapsed}
             -> Total Time:    {total} [{per_iter} per integration]
             -> Expected Time: {expected} [{expected - total} remaining]
             -> Memory Usage:  {mem}  [{memdiff}]
-        """
-    )
+        """)
 
     return t, rss
 
