@@ -17,9 +17,7 @@ def test_antizenith():
         True, False, nsource=1, first_source_antizenith=True
     )
 
-    vis = simulate_vis(
-        precision=2, use_gpu=True, beam_spline_opts={"kx": 1, "ky": 1}, **kw
-    )
+    vis = simulate_vis(precision=2, use_gpu=True, beam_spline_opts={"order": 1}, **kw)
 
     assert np.all(vis == 0)
 

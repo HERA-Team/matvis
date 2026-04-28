@@ -127,11 +127,17 @@ class CoordinateRotation(ABC):
                 orientation="astropy",
             )
 
-            # For polarized flux, rotate the frame coherency
+            # For polarized flux, rotate the frame coherency.
+            # skycoords are always numpy (from astropy), so use a numpy
+            # index when gpu=True (above_horizon is a cupy array).
+            ah_cpu = above_horizon.get() if self.gpu else above_horizon
+            ra_above = self.xp.asarray(self.skycoords.ra.rad[slc][ah_cpu])
+            dec_above = self.xp.asarray(self.skycoords.dec.rad[slc][ah_cpu])
+
             self.flux_above_horizon[:n] = self._rotate_frame_coherency(
                 coherency_matrix=flux[above_horizon],
-                ra=self.skycoords.ra.rad[slc][above_horizon],
-                dec=self.skycoords.dec.rad[slc][above_horizon],
+                ra=ra_above,
+                dec=dec_above,
                 alt=np.pi / 2 - za,
                 az=az,
                 time=self.times[t],
