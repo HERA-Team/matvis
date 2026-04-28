@@ -38,6 +38,13 @@ def simulate_vis(
     beam_idx: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     source_buffer: float = 1.0,
+    coord_method: Literal[
+        "CoordinateRotationAstropy",
+        "CoordinateRotationERFA",
+        "GPUCoordinateRotationERFA",
+    ] = "CoordinateRotationAstropy",
+    coord_method_params: dict | None = None,
+    matprod_method: Literal["MatMul", "VectorLoop"] = "MatMul",
     **backend_kwargs,
 ):
     """
@@ -90,6 +97,24 @@ def simulate_vis(
         The fraction of the total number of sources to use when allocating memory
         for the sources above horizon. For large numbers of sources, a fraction of
         ~0.55 should be sufficient.
+    coord_method
+        The method to use to transform coordinates from the equatorial to horizontal
+        frame. The default is to use Astropy coordinate transforms. A faster option,
+        which is accurate to within 6 mas, is to use "CoordinateTransformERFA" (or
+        its GPU version, if using GPU).
+    coord_method_params
+        Parameters particular to the coordinate rotation method of choice. For example,
+        for the CoordinateRotationERFA (and GPU version of the same) method, there
+        is the parameter ``update_bcrs_every``, which should be a time in seconds, for
+        which larger values speed up the computation.
+    matprod_method
+        The method to use for the final matrix multiplication. Default is 'MatMul',
+        which simply uses matrix multiplication over the two full matrices. Currently,
+        the other option is `VectorLoop`, which uses a loop over the antenna pairs,
+        computing the sum over sources as a vector dot product, which can be faster for
+        large arrays where `antpairs` is small (possibly from high redundancy). You
+        should run a performance test before changing this. If not CPU/GPU prefix is
+        specified, it will be added automatically based on the value of `use_gpu`.
 
     Returns
     -------
@@ -142,6 +167,9 @@ def simulate_vis(
     else:
         vis = np.zeros((freqs.size, times.size, npairs), dtype=complex_dtype)
 
+    if matprod_method in ["MatMul", "VectorLoop"]:
+        matprod_method = f"GPU{matprod_method}" if use_gpu else f"CPU{matprod_method}"
+
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
         vis[i] = fnc(
@@ -158,6 +186,9 @@ def simulate_vis(
             beam_idx=beam_idx,
             antpairs=antpairs,
             source_buffer=source_buffer,
+            matprod_method=matprod_method,
+            coord_method=coord_method,
+            coord_method_params=coord_method_params,
             **backend_kwargs,
         )
     return vis
