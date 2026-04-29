@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import numpy as np
 import psutil
@@ -13,7 +14,7 @@ from collections.abc import Sequence
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Callable, Literal
+from typing import Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
@@ -22,6 +23,10 @@ from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
 from . import matprod as mp
 from .beams import UVBeamInterpolator
+
+importlib.import_module(
+    ".coords", package=__package__
+)  # need to import this to register the coordinate rotation methods
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +164,7 @@ def simulate(
         precision,
         source_buffer=source_buffer,
     )
+
     coord_method = CoordinateRotation._methods[coord_method]
 
     coord_method_params = coord_method_params or {}

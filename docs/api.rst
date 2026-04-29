@@ -18,8 +18,8 @@ Simulator implementations
    :template: custom-module.rst
    :toctree: _autosummary
 
-   matvis.cpu
-   matvis.gpu
+   matvis.cpu.cpu
+   matvis.gpu.gpu
 
 Other Utilities
 ---------------
@@ -27,5 +27,4 @@ Other Utilities
    :template: custom-module.rst
    :toctree: _autosummary
 
-   matvis.plot
-   matvis.conversions
+   matvis.coordinates

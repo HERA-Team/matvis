@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import numpy as np
 import psutil
@@ -15,7 +16,7 @@ from docstring_parser import combine_docstrings
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Callable, Literal
+from typing import Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
@@ -23,11 +24,16 @@ from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
 from ..cpu.cpu import simulate as simcpu
-from . import beams
-from . import matprod as mp
 
 try:
     import cupy as cp
+
+    from . import beams
+    from . import matprod as mp
+
+    importlib.import_module(
+        ".coords", package=__package__
+    )  # need to import this to register the coordinate rotation methods
 
     HAVE_CUDA = True
 
