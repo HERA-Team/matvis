@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import numpy as np
 import psutil
@@ -29,6 +30,10 @@ try:
 
     from . import beams
     from . import matprod as mp
+
+    importlib.import_module(
+        ".coords", package=__package__
+    )  # need to import this to register the coordinate rotation methods
 
     HAVE_CUDA = True
 
