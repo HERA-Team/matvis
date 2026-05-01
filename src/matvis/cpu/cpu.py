@@ -117,12 +117,12 @@ def simulate(
         The maximum memory (in bytes) to use for the visibility calculation. This is
         not a hard-set limit, but rather a guideline for how much memory to use. If the
         expected memory usage is more than this, the calculation will be broken up into
-        chunks. Default is 512 MB.
+        chunks.
     min_chunks : int, optional
-        The minimum number of chunks to break the source axis into. Default is 1.
+        The minimum number of chunks to break the source axis into.
     source_buffer : float, optional
         The fraction of the total sources (per chunk) to pre-allocate memory for.
-        Default is 0.55, which allows for 10% variance around half the sources
+        Default is 1.0, which allows for 10% variance around half the sources
         (since half should be below the horizon). If you have a particular sky model in
         which you expect more or less sources to appear above the horizon at any time,
         set this to a different value.
