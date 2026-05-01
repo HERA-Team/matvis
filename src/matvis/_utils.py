@@ -127,7 +127,8 @@ def get_required_chunks(
     nbeam: int,
     nbeampix: int,
     precision: int,
-    source_buffer: float = 0.55,
+    source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
 ) -> int:
     """
     Compute number of chunks (over sources) required to fit data into available memory.
@@ -150,6 +151,11 @@ def get_required_chunks(
         The number of beam pixels.
     precision : int
         The precision of the data.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.75,
+        which leaves some buffer for other processes and overhead.
 
     Returns
     -------
@@ -166,7 +172,7 @@ def get_required_chunks(
 
     gpusize = {"a": freemem}
     ch = 0
-    while sum(gpusize.values()) >= freemem and ch < 100:
+    while sum(gpusize.values()) >= freemem * memory_buffer and ch < 100:
         ch += 1
         nchunk = int(nsrc // ch * source_buffer)
 
@@ -204,7 +210,8 @@ def get_desired_chunks(
     nant: int,
     nsrc: int,
     precision: int,
-    source_buffer: float = 0.55,
+    source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
 ) -> tuple[int, int]:
     """Get the desired number of chunks.
 
@@ -258,6 +265,7 @@ def get_desired_chunks(
                 nbeampix,
                 precision,
                 source_buffer,
+                memory_buffer,
             ),
         ),
         nsrc,

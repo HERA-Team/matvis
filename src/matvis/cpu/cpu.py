@@ -53,6 +53,7 @@ def simulate(
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
     coord_method_params: dict | None = None,
 ):
     """
@@ -126,6 +127,9 @@ def simulate(
         (since half should be below the horizon). If you have a particular sky model in
         which you expect more or less sources to appear above the horizon at any time,
         set this to a different value.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.75,
+        which leaves some buffer for other processes and overhead.
     coord_method_params
         Parameters particular to the coordinate rotation method of choice. For example,
         for the CoordinateRotationERFA (and GPU version of the same) method, there
@@ -163,6 +167,7 @@ def simulate(
         len(I_sky),
         precision,
         source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
     )
 
     coord_method = CoordinateRotation._methods[coord_method]
