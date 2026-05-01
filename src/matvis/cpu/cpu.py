@@ -128,7 +128,7 @@ def simulate(
         which you expect more or less sources to appear above the horizon at any time,
         set this to a different value.
     memory_buffer : float, optional
-        The fraction of free memory to use for the calculation. Default is 0.75,
+        The fraction of free memory to use for the calculation. Default is 0.9,
         which leaves some buffer for other processes and overhead.
     coord_method_params
         Parameters particular to the coordinate rotation method of choice. For example,
