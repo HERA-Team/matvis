@@ -5,6 +5,8 @@ import numpy as np
 import psutil
 import time
 import tracemalloc as tm
+from pyuvdata import BeamInterface, UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam
 from typing import Union
 
 try:
@@ -204,7 +206,7 @@ def get_required_chunks(
 def get_desired_chunks(
     freemem: int,
     min_chunks: int,
-    beam_list: int,
+    beam_list: list[UVBeam | AnalyticBeam | BeamInterface],
     nax: int,
     nfeed: int,
     nant: int,

@@ -146,7 +146,7 @@ def simulate(
     """
     init_time = time.time()
 
-    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
+    if not tm.is_tracing():
         tm.start()
 
     highest_peak = memtrace(0)
@@ -157,8 +157,10 @@ def simulate(
 
     rtype, ctype = get_dtypes(precision)
 
+    current_memory = tm.get_traced_memory()[0]
+
     nchunks, npixc = get_desired_chunks(
-        min(max_memory, psutil.virtual_memory().available),
+        min(int(max_memory) - current_memory, psutil.virtual_memory().available),
         min_chunks,
         beam_list,
         nax,
