@@ -44,7 +44,7 @@ def simulate(
     I_sky: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     precision: int = 1,
-    polarized: bool = False,
+    polarized: bool | None = None,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
@@ -95,7 +95,9 @@ def simulate(
     polarized : bool, optional
         Whether to simulate a full polarized response in terms of nn, ne, en,
         ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
-        Default: False.
+        If left as ``None`` (default), inferred from ``stokes``: True when
+        ``stokes`` is given, False otherwise. Passing ``polarized=False`` with
+        ``stokes`` raises ``ValueError``.
     beam_idx
         Optional length-NANT array specifying a beam index for each antenna.
         By default, either a single beam is assumed to apply to all antennas or
@@ -139,11 +141,12 @@ def simulate(
         which larger values speed up the computation.
     stokes : array_like, optional
         Full Stokes parameters of shape (4, NSRCS) with [I, Q, U, V].
-        When provided with ``polarized=True``, enables polarized sky model
-        via eigendecomposition of the coherency matrix. If None (default),
-        uses ``I_sky`` as Stokes I only (existing behavior). When ``stokes``
-        is provided, ``I_sky`` is only used for source counting and memory
-        allocation, not for computation.
+        Setting ``stokes`` automatically enables ``polarized=True`` and
+        routes through the eigendecomposition of the coherency matrix;
+        passing ``polarized=False`` alongside is an error. If ``None``
+        (default), uses ``I_sky`` as Stokes I only (existing behavior).
+        When ``stokes`` is provided, ``I_sky`` is only used for source
+        counting and memory allocation, not for computation.
     raise_on_negative_flux : bool, optional
         How to handle negative eigenvalues in the coherency matrix.
         If True (default), raise ValueError if any eigenvalue is negative.
@@ -175,6 +178,15 @@ def simulate(
         tm.start()
 
     highest_peak = memtrace(0)
+
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
+        )
 
     nax, nfeed, nant, ntimes, nsrc = _validate_inputs(
         precision, polarized, antpos, times, I_sky=I_sky, stokes=stokes

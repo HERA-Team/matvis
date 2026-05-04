@@ -63,7 +63,7 @@ def simulate(
     telescope_loc: EarthLocation,
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
     I_sky: np.ndarray | None = None,
-    polarized: bool = False,
+    polarized: bool | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     beam_idx: np.ndarray | None = None,
     max_memory: int = np.inf,
@@ -89,6 +89,16 @@ def simulate(
         raise ValueError("source_buffer must be less than 1.0")
 
     pr = psutil.Process()
+
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
+        )
+
     nax, nfeed, nant, ntimes, nsrc = _validate_inputs(
         precision, polarized, antpos, times, I_sky=I_sky, stokes=stokes
     )

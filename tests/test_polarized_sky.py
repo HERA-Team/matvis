@@ -243,3 +243,32 @@ class TestEdgeCases:
         )
 
         np.testing.assert_allclose(vis_neg, -vis_pos, atol=1e-10)
+
+
+class TestPolarizedInference:
+    """Passing ``stokes`` must auto-enable ``polarized``; explicit
+    ``polarized=False`` alongside ``stokes`` must raise."""
+
+    def test_stokes_alone_enables_polarized(self):
+        params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
+        nsrc = len(params["ra"])
+        nfreq = len(params["freqs"])
+        stokes = np.zeros((4, nsrc, nfreq))
+        stokes[0] = 1.0
+
+        # polarized NOT passed — must auto-enable
+        vis = simulate_vis(stokes=stokes, **params)
+
+        assert vis.ndim == 5  # (Nfreq, Ntime, Npairs, Nfeed, Nfeed)
+        assert vis.shape[-2:] == (2, 2)
+        assert not np.any(np.isnan(vis))
+
+    def test_polarized_false_with_stokes_raises(self):
+        params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
+        nsrc = len(params["ra"])
+        nfreq = len(params["freqs"])
+        stokes = np.zeros((4, nsrc, nfreq))
+        stokes[0] = 1.0
+
+        with pytest.raises(ValueError, match="incompatible with stokes"):
+            simulate_vis(polarized=False, stokes=stokes, **params)

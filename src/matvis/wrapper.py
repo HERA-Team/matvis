@@ -31,7 +31,7 @@ def simulate_vis(
     times: Time,
     beams: list[AnalyticBeam | UVBeam | BeamInterface],
     telescope_loc: EarthLocation,
-    polarized: bool = False,
+    polarized: bool | None = None,
     precision: Literal[1, 2] = 1,
     use_feed: Literal["x", "y"] = "x",
     use_gpu: bool = False,
@@ -71,8 +71,11 @@ def simulate_vis(
         An EarthLocation object representing the center of the array.
     polarized : bool, optional
         If True, use polarized beams and calculate all available linearly-
-        polarized visibilities, e.g. V_nn, V_ne, V_en, V_ee.
-        Default: False (only uses the 'ee' polarization).
+        polarized visibilities, e.g. V_nn, V_ne, V_en, V_ee. If left as
+        ``None`` (default), inferred from ``stokes``: True when ``stokes``
+        is given, False when ``fluxes`` is given. Passing ``polarized=False``
+        together with ``stokes`` raises ``ValueError``, since a Stokes-Q/U/V
+        sky cannot be represented by a single feed.
     precision : int, optional
         Which precision setting to use for :func:`~matvis`. If set to ``1``,
         uses the (``np.float32``, ``np.complex64``) dtypes. If set to ``2``,
@@ -97,8 +100,9 @@ def simulate_vis(
     stokes : array_like, optional
         Full Stokes parameters of shape (4, NSRCS, NFREQS) with [I, Q, U, V].
         Enables polarized sky model support via eigendecomposition of the
-        coherency matrix. Requires ``polarized=True``. Exactly one of
-        ``fluxes`` or ``stokes`` must be provided.
+        coherency matrix. Setting ``stokes`` automatically enables
+        ``polarized=True``; passing ``polarized=False`` alongside is an
+        error. Exactly one of ``fluxes`` or ``stokes`` must be provided.
     raise_on_negative_flux : bool, optional
         How to handle sources with a negative coherency eigenvalue. If
         ``None`` (default), the choice depends on the sky-model mode:
@@ -135,6 +139,15 @@ def simulate_vis(
     if (fluxes is None) == (stokes is None):
         raise ValueError(
             "Provide exactly one of `fluxes` or `stokes` to simulate_vis."
+        )
+
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
         )
 
     if stokes is not None:

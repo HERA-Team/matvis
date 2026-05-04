@@ -40,7 +40,6 @@ def _validate_inputs(
         assert stokes.ndim == 2 and stokes.shape[0] == 4, (
             "stokes must have shape (4, NSRCS)."
         )
-        assert polarized, "stokes parameters require polarized=True."
         nsrc = stokes.shape[1]
     else:
         assert I_sky.ndim == 1, "I_sky must have shape (NSRCS,)."
