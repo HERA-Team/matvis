@@ -52,6 +52,63 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
     compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol)
 
 
+@pytest.mark.parametrize(
+    "use_analytic_beam,xfail",
+    [
+        (True, False),
+        pytest.param(
+            False,
+            True,
+            marks=pytest.mark.xfail(
+                reason=(
+                    "Naxes_vec axis-ordering convention mismatch between "
+                    "matvis and pyuvsim. matvis stores J[feed, ax=0]=theta-hat "
+                    "(matching pyuvdata's documented order, see "
+                    "pyuvdata/uvbeam/uvbeam.py:1627 `# theta hat`, and "
+                    "pyradiosky's coherency basis, see "
+                    "pyradiosky/spherical_coords_transforms.py:173). "
+                    "pyuvsim explicitly swaps so its J[feed, ax=0]=phi-hat "
+                    "(see pyuvsim/antenna.py:145-149 with the comment "
+                    "'opposite order of beam!'). For analytic Gaussian beams "
+                    "the theta and phi e-field components are identical so "
+                    "the swap is a no-op and the cross-check passes; for an "
+                    "interpolated UVBeam the swap matters and matvis "
+                    "disagrees with pyuvsim by O(10%) on the diagonals "
+                    "and worse on XY/YX. Resolution requires alignment "
+                    "across matvis/pyuvsim/pyradiosky maintainers."
+                ),
+                strict=True,
+            ),
+        ),
+    ],
+    ids=["analytic_beam", "uvbeam"],
+)
+def test_compare_pyuvsim_polarized_sky(use_analytic_beam, xfail):
+    """matvis stokes path vs pyuvsim for a fully polarized sky (Q,U,V≠0).
+
+    The existing ``test_compare_pyuvsim`` only exercises Stokes I; this one
+    drives non-trivial coherency rotation and XY/YX off-diagonals through
+    the eigendecomposition path.
+    """
+    kw, sky_model, uvbeams, bmdict, uvdata = get_standard_sim_params(
+        use_analytic_beam,
+        polarized=True,
+        use_polarized_sky=True,
+        nsource=250,
+    )
+
+    vis_matvis = simulate_vis(precision=2, **kw)
+    uvd_uvsim = uvsim.run_uvdata_uvsim(
+        uvdata,
+        uvbeams,
+        beam_dict=bmdict,
+        catalog=simsetup.SkyModelData(sky_model),
+    )
+
+    rtol = 2e-4 if use_analytic_beam else 0.01
+    compare_sims(uvd_uvsim, vis_matvis, nants, polarized=True, rtol=rtol)
+
+
 @pytest.mark.parametrize("min_chunks", (1, 2, 3))
 @pytest.mark.parametrize("source_buffer", (1.0, 0.75))
 def test_compare_pyuvsim_chunking(min_chunks, source_buffer, default_uvsim):
@@ -94,7 +151,7 @@ def compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol):
                     if np.max(np.abs(delta.real)) > diff_re:
                         diff_re = np.max(np.abs(delta.real))
                     if np.max(np.abs(delta.imag)) > diff_im:
-                        diff_im = np.abs(np.max(delta.imag))
+                        diff_im = np.max(np.abs(delta.imag))
 
                     err = f"\nMax diff: {diff_re:10.10e} + 1j*{diff_im:10.10e}\n"
                     err += f"Baseline: ({i},{j},{feed1}{feed2})\n"
