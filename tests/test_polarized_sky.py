@@ -54,7 +54,8 @@ def _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1, precision=2):
 
 
 class TestBackwardCompatibility:
-    """Tests that stokes=[I,0,0,0] matches the old sqrt(I) path exactly."""
+    """``stokes=[I,0,0,0]`` routed through the eigen path must reproduce
+    the legacy ``fluxes``-only path that uses ``sqrt(0.5*I)`` directly."""
 
     @pytest.mark.parametrize("precision,atol", [(2, 1e-12), (1, 1e-4)])
     def test_unpolarized_stokes_matches_existing(self, precision, atol):
@@ -124,65 +125,59 @@ class TestPolarizedSkySanity:
         assert np.any(np.abs(vis) > 0)
 
 
-class TestSignSplit:
-    """Test sign-split approach for negative flux handling."""
+class TestNegativeFluxHandling:
+    """Tests for the negative-flux paths.
 
-    def test_sign_split_vs_eigendecomp_positive_sky(self):
-        """For all-positive eigenvalues, sign-split and eigendecomp must match."""
+    After the one-time physicality check + source-partition refactor,
+    sign-split vs. eigen is an internal routing decision; users only
+    pick whether negatives should raise or be computed.
+    """
+
+    @pytest.mark.parametrize(
+        "case",
+        ["positive_sky", "mixed_negative_sky"],
+    )
+    def test_negative_flux_path(self, case):
+        """Sign-split route must match eigen when sky is positive, and
+        produce finite nonzero visibilities when some Stokes I are negative."""
         params = _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1)
-        rng = np.random.default_rng(33)
 
-        nsrc = len(params["ra"])
-        nfreq = len(params["freqs"])
-        fluxes = rng.uniform(1.0, 5.0, (nsrc, nfreq))
+        if case == "positive_sky":
+            rng = np.random.default_rng(33)
+            fluxes = rng.uniform(1.0, 5.0, (len(params["ra"]), len(params["freqs"])))
+            stokes = np.zeros((4, *fluxes.shape))
+            stokes[0] = fluxes
+            stokes[1] = 0.1 * fluxes
+            stokes[2] = 0.05 * fluxes
+            stokes[3] = 0.02 * fluxes
 
-        stokes = np.zeros((4, nsrc, nfreq))
-        stokes[0] = fluxes
-        stokes[1] = 0.1 * fluxes
-        stokes[2] = 0.05 * fluxes
-        stokes[3] = 0.02 * fluxes
+            vis_eigen = simulate_vis(polarized=True, stokes=stokes, **params)
+            vis_split = simulate_vis(
+                polarized=True,
+                stokes=stokes,
+                raise_on_negative_flux=False,
+                **params,
+            )
+            np.testing.assert_allclose(vis_split, vis_eigen, atol=1e-10)
+        else:
+            rng = np.random.default_rng(44)
+            nsrc = len(params["ra"])
+            nfreq = len(params["freqs"])
+            fluxes_abs = rng.uniform(0.5, 5.0, (nsrc, nfreq))
+            signs = np.ones(nsrc)
+            signs[: nsrc // 2] = -1
+            stokes = np.zeros((4, nsrc, nfreq))
+            stokes[0] = fluxes_abs * signs[:, np.newaxis]
 
-        # Eigendecomp (default under stokes=: raise_on_negative_flux=False,
-        # but sky is all-positive so there's nothing to raise/split on).
-        vis_eigen = simulate_vis(polarized=True, stokes=stokes, **params)
-
-        # Sign-split explicitly requested (still all-positive, so result
-        # must match the default eigen output).
-        vis_split = simulate_vis(
-            polarized=True,
-            stokes=stokes,
-            raise_on_negative_flux=False,
-            **params,
-        )
-
-        np.testing.assert_allclose(vis_split, vis_eigen, atol=1e-10)
-
-    def test_sign_split_negative_flux_no_nans(self):
-        """Sign-split with negative I sources should produce no NaNs."""
-        params = _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1)
-        rng = np.random.default_rng(44)
-
-        nsrc = len(params["ra"])
-        nfreq = len(params["freqs"])
-        fluxes_abs = rng.uniform(0.5, 5.0, (nsrc, nfreq))
-
-        # Make half the sources negative (EOR-like)
-        signs = np.ones(nsrc)
-        signs[: nsrc // 2] = -1
-        fluxes = fluxes_abs * signs[:, np.newaxis]
-
-        stokes = np.zeros((4, nsrc, nfreq))
-        stokes[0] = fluxes  # Some negative I
-
-        vis = simulate_vis(
-            polarized=True,
-            stokes=stokes,
-            raise_on_negative_flux=False,
-            **params,
-        )
-
-        assert not np.any(np.isnan(vis))
-        assert not np.any(np.isinf(vis))
+            vis = simulate_vis(
+                polarized=True,
+                stokes=stokes,
+                raise_on_negative_flux=False,
+                **params,
+            )
+            assert not np.any(np.isnan(vis))
+            assert not np.any(np.isinf(vis))
+            assert np.any(np.abs(vis) > 0)
 
     def test_raises_on_negative_flux(self):
         """Explicit raise_on_negative_flux=True raises on negative eigenvalues."""
