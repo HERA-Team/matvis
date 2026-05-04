@@ -253,4 +253,4 @@ def simulate(
     return vis if polarized else vis[:, :, 0, 0]
 
 
-simulate.__doc__ += f"\n{simcpu.__doc__}"
+simulate.__doc__ = (simulate.__doc__ or "") + f"\n{simcpu.__doc__ or ''}"
