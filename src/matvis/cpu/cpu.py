@@ -57,99 +57,94 @@ def simulate(
     coord_method_params: dict | None = None,
 ):
     """
-        Calculate visibility from an input intensity map and beam model.
+    Calculate visibility from an input intensity map and beam model.
 
-        Parameters
-        ----------
-        antpos : array_like
-            Antenna position array. Shape=(NANT, 3).
-        freq : float
-            Frequency to evaluate the visibilities at [GHz].
-        I_sky : array_like
-            Intensity distribution of sources/pixels on the sky, assuming intensity
-            (Stokes I) only. The Stokes I intensity will be split equally between
-            the two linear polarization channels, resulting in a factor of 0.5 from
-            the value inputted here. This is done even if only one polarization
-            channel is simulated.
-            Shape=(NSRCS,).
-        beam_list : list of UVBeam, optional
-            If specified, evaluate primary beam values directly using UVBeam
-            objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
-            ``beam_list`` should be provided.Note that if `polarized` is True,
-            these beams must be efield beams, and conversely if `polarized` is False they
-            must be power beams with a single polarization (either XX or YY).
-        antpairs : array_like, optional
-            Either a 2D array, shape ``(Npairs, 2)``, or list of 2-tuples of ints, with
-            the list of antenna-pairs to return as visibilities (all feed-pairs are always
-            calculated). If None, all feed-pairs are returned.
-        precision : int, optional
-            Which precision level to use for floats and complex numbers.
-            Allowed values:
-            - 1: float32, complex64
-            - 2: float64, complex128
-        polarized : bool, optional
-            Whether to simulate a full polarized response in terms of nn, ne, en,
-            ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
-            Default: False.
-        beam_idx
-            Optional length-NANT array specifying a beam index for each antenna.
-            By default, either a single beam is assumed to apply to all antennas or
-            each antenna gets its own beam.
-        beam_spline_opts : dict, optional
-            Dictionary of options to pass to the beam interpolation function.
-        max_progress_reports : int, optional
-            Maximum number of progress reports to print to the screen (if logging level
-            allows). Default is 100.
-        matprod_method : str, optional
-            The method to use for the final matrix multiplication. Default is 'CPUMatMul',
-            which simply uses `np.dot` over the two full matrices. Currently, the other
-            option is `CPUVectorLoop`, which uses a loop over the antenna pairs,
-            computing the sum over sources as a vector dot product.
-            Whether to calculate visibilities for each antpair in antpairs as a vector
-            dot-product instead of using a full matrix-matrix multiplication for all
-            possible pairs. Default is False. Setting to True can be faster for large
-            arrays where `antpairs` is small (possibly from high redundancy). You should
-            run a performance test before using this.
-        coord_method : str, optional
-            The method to use to transform coordinates from the equatorial to horizontal
-            frame. The default is to use Astropy coordinate transforms. A faster option,
-            which is accurate to within 6 mas, is to use "CoordinateTransformERFA".
-        max_memory : int, optional
-            The maximum memory (in bytes) to use for the visibility calculation. This is
-            not a hard-set limit, but rather a guideline for how much memory to use. If the
-            expected memory usage is more than this, the calculation will be broken up into
-            chunks.
-        min_chunks : int, optional
-            The minimum number of chunks to break the source axis into.
-        source_buffer : float, optional
-            The fraction of the total sources (per chunk) to pre-allocate memory for.
-    <<<<<<< fix-gpu-source-buffer
-            Default is 1.0, which allows for 10% variance around half the sources
-            (since half should be below the horizon). If you have a particular sky model in
-            which you expect more or less sources to appear above the horizon at any time,
-            set this to a different value.
-        memory_buffer : float, optional
-            The fraction of free memory to use for the calculation. Default is 0.9,
-            which leaves some buffer for other processes and overhead.
-    =======
-            Default is 1.0, which pre-allocates for all sources in each chunk. This
-            avoids assuming that only a subset of sources will be above the horizon,
-            but uses more memory. If you expect fewer or more sources to appear above
-            the horizon at any time for a particular sky model, set this to a different
-            value.
-    >>>>>>> main
-        coord_method_params
-            Parameters particular to the coordinate rotation method of choice. For example,
-            for the CoordinateRotationERFA (and GPU version of the same) method, there
-            is the parameter ``update_bcrs_every``, which should be a time in seconds, for
-            which larger values speed up the computation.
+    Parameters
+    ----------
+    antpos : array_like
+        Antenna position array. Shape=(NANT, 3).
+    freq : float
+        Frequency to evaluate the visibilities at [GHz].
+    I_sky : array_like
+        Intensity distribution of sources/pixels on the sky, assuming intensity
+        (Stokes I) only. The Stokes I intensity will be split equally between
+        the two linear polarization channels, resulting in a factor of 0.5 from
+        the value inputted here. This is done even if only one polarization
+        channel is simulated.
+        Shape=(NSRCS,).
+    beam_list : list of UVBeam, optional
+        If specified, evaluate primary beam values directly using UVBeam
+        objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
+        ``beam_list`` should be provided.Note that if `polarized` is True,
+        these beams must be efield beams, and conversely if `polarized` is False they
+        must be power beams with a single polarization (either XX or YY).
+    antpairs : array_like, optional
+        Either a 2D array, shape ``(Npairs, 2)``, or list of 2-tuples of ints, with
+        the list of antenna-pairs to return as visibilities (all feed-pairs are always
+        calculated). If None, all feed-pairs are returned.
+    precision : int, optional
+        Which precision level to use for floats and complex numbers.
+        Allowed values:
 
-        Returns
-        -------
-        vis : array_like
-            Simulated visibilities. If `polarized = True`, the output will have
-            shape (NTIMES, NBLS, NFEED, NFEED), otherwise it will have
-            shape (NTIMES, NBLS).
+        - 1: float32, complex64
+        - 2: float64, complex128
+
+    polarized : bool, optional
+        Whether to simulate a full polarized response in terms of nn, ne, en,
+        ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
+        Default: False.
+    beam_idx
+        Optional length-NANT array specifying a beam index for each antenna.
+        By default, either a single beam is assumed to apply to all antennas or
+        each antenna gets its own beam.
+    beam_spline_opts : dict, optional
+        Dictionary of options to pass to the beam interpolation function.
+    max_progress_reports : int, optional
+        Maximum number of progress reports to print to the screen (if logging level
+        allows). Default is 100.
+    matprod_method : str, optional
+        The method to use for the final matrix multiplication. Default is 'CPUMatMul',
+        which simply uses `np.dot` over the two full matrices. Currently, the other
+        option is `CPUVectorLoop`, which uses a loop over the antenna pairs,
+        computing the sum over sources as a vector dot product.
+        Whether to calculate visibilities for each antpair in antpairs as a vector
+        dot-product instead of using a full matrix-matrix multiplication for all
+        possible pairs. Default is False. Setting to True can be faster for large
+        arrays where `antpairs` is small (possibly from high redundancy). You should
+        run a performance test before using this.
+    coord_method : str, optional
+        The method to use to transform coordinates from the equatorial to horizontal
+        frame. The default is to use Astropy coordinate transforms. A faster option,
+        which is accurate to within 6 mas, is to use "CoordinateTransformERFA".
+    max_memory : int, optional
+        The maximum memory (in bytes) to use for the visibility calculation. This is
+        not a hard-set limit, but rather a guideline for how much memory to use. If the
+        expected memory usage is more than this, the calculation will be broken up into
+        chunks.
+    min_chunks : int, optional
+        The minimum number of chunks to break the source axis into.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+        Default is 1.0, which pre-allocates for all sources in each chunk. This
+        avoids assuming that only a subset of sources will be above the horizon,
+        but uses more memory. If you expect fewer or more sources to appear above
+        the horizon at any time for a particular sky model, set this to a different
+        value.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead.
+    coord_method_params
+        Parameters particular to the coordinate rotation method of choice. For example,
+        for the CoordinateRotationERFA (and GPU version of the same) method, there
+        is the parameter ``update_bcrs_every``, which should be a time in seconds, for
+        which larger values speed up the computation.
+
+    Returns
+    -------
+    vis : array_like
+        Simulated visibilities. If `polarized = True`, the output will have
+        shape (NTIMES, NBLS, NFEED, NFEED), otherwise it will have
+        shape (NTIMES, NBLS).
 
     """
     init_time = time.time()
