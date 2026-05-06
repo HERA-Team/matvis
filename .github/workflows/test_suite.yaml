@@ -91,13 +91,14 @@ jobs:
           echo $(whoami)
           source ~/.bashrc
           micromamba activate testenv
-          uv sync --active --extra gpu --locked --dev
+          python -m pip install --upgrade pip
+          python -m pip install --group dev .[gpu]
 
       - name: Run Tests
         run: |
           source ~/.bashrc
           micromamba activate testenv
-          uv run --active --no-sync pytest -k "gpu" --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
+          python -m pytest -k "gpu" --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
