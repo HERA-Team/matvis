@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
+
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, SkyCoord
@@ -10,7 +12,6 @@ from astropy.time import Time
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Literal
 
 from . import HAVE_GPU, cpu
 from .core.beams import prepare_beam_unpolarized

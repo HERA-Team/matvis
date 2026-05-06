@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import importlib
 import logging
-import numpy as np
-import psutil
 import time
 import warnings
+from collections.abc import Sequence
+from typing import Literal
+
+import numpy as np
+import psutil
 from astropy.constants import c as speed_of_light
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
-from collections.abc import Sequence
 from docstring_parser import combine_docstrings
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
@@ -197,7 +198,7 @@ def simulate(
         coords.rotate(t)
         events = [{e: cp.cuda.Event() for e in event_order} for _ in range(nchunks)]
 
-        for c, (stream, event) in enumerate(zip(streams, events)):
+        for c, (stream, event) in enumerate(zip(streams, events, strict=True)):
             stream.use()
             event["start"].record(stream)
 

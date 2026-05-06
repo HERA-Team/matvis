@@ -1,8 +1,7 @@
 """Tests of matvis_cpu."""
 
-import pytest
-
 import numpy as np
+import pytest
 from astropy.time import Time
 from pyuvdata.analytic_beam import GaussianBeam
 from pyuvdata.telescopes import Telescope
