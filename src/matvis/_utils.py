@@ -3,12 +3,12 @@ import itertools
 import logging
 import time
 import tracemalloc as tm
-from pyuvdata import BeamInterface, UVBeam
-from pyuvdata.analytic_beam import AnalyticBeam
 from typing import Union
 
 import numpy as np
 import psutil
+from pyuvdata import BeamInterface, UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam
 
 try:
     import cupy as cp
