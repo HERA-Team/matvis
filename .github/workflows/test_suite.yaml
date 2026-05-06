@@ -91,7 +91,7 @@ jobs:
           echo $(whoami)
           source ~/.bashrc
           micromamba activate testenv
-          uv sync --active --group gpu --locked --dev
+          uv sync --active --extra gpu --locked --dev
 
       - name: Run Tests
         run: |
