@@ -127,7 +127,8 @@ def get_required_chunks(
     nbeam: int,
     nbeampix: int,
     precision: int,
-    source_buffer: float = 0.55,
+    source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
 ) -> int:
     """
     Compute number of chunks (over sources) required to fit data into available memory.
@@ -150,6 +151,12 @@ def get_required_chunks(
         The number of beam pixels.
     precision : int
         The precision of the data.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead. Must be in
+        the range (0, 1].
 
     Returns
     -------
@@ -161,12 +168,15 @@ def get_required_chunks(
     >>> get_required_chunks(1024, 2, 4, 8, 16, 32, 64, 32)
     1
     """
+    if not (0 < memory_buffer <= 1.0):
+        raise ValueError("memory_buffer must be in the range (0, 1]")
+
     rsize = 4 * precision
     csize = 2 * rsize
 
     gpusize = {"a": freemem}
     ch = 0
-    while sum(gpusize.values()) >= freemem and ch < 100:
+    while sum(gpusize.values()) >= freemem * memory_buffer and ch < 100:
         ch += 1
         nchunk = int(nsrc // ch * source_buffer)
 
@@ -188,6 +198,7 @@ def get_required_chunks(
             f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize.values())}"
         )
 
+    ch = max(ch, 1)
     logger.info(
         f"Total free mem: {freemem / (1024**3):.2f} GB. Requires {ch} chunks "
         f"(estimate {sum(gpusize.values()) / 1024**3:.2f} GB)"
@@ -204,7 +215,8 @@ def get_desired_chunks(
     nant: int,
     nsrc: int,
     precision: int,
-    source_buffer: float = 0.55,
+    source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
 ) -> tuple[int, int]:
     """Get the desired number of chunks.
 
@@ -226,6 +238,12 @@ def get_desired_chunks(
         The number of sources.
     precision : int
         The precision of the data.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead. Must be in
+        the range (0, 1].
 
     Returns
     -------
@@ -258,6 +276,7 @@ def get_desired_chunks(
                 nbeampix,
                 precision,
                 source_buffer,
+                memory_buffer,
             ),
         ),
         nsrc,

@@ -53,6 +53,7 @@ def simulate(
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
     coord_method_params: dict | None = None,
 ):
     """
@@ -84,8 +85,10 @@ def simulate(
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
+
         - 1: float32, complex64
         - 2: float64, complex128
+
     polarized : bool, optional
         Whether to simulate a full polarized response in terms of nn, ne, en,
         ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
@@ -127,6 +130,9 @@ def simulate(
         but uses more memory. If you expect fewer or more sources to appear above
         the horizon at any time for a particular sky model, set this to a different
         value.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead.
     coord_method_params
         Parameters particular to the coordinate rotation method of choice. For example,
         for the CoordinateRotationERFA (and GPU version of the same) method, there
@@ -164,6 +170,7 @@ def simulate(
         len(I_sky),
         precision,
         source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
     )
 
     coord_method = CoordinateRotation._methods[coord_method]

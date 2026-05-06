@@ -77,13 +77,14 @@ def simulate(
     matprod_method: Literal["GPUMatMul", "GPUVectorLoop"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
+    memory_buffer: float = 0.9,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
     if source_buffer > 1.0:
-        raise ValueError("source_buffer must be less than 1.0")
+        raise ValueError("source_buffer must be <=1.0")
 
     pr = psutil.Process()
     nax, nfeed, nant, ntimes = _validate_inputs(
@@ -101,6 +102,8 @@ def simulate(
         nant,
         len(I_sky),
         precision,
+        source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
     )
 
     nsrc_alloc = int(npixc * source_buffer)
