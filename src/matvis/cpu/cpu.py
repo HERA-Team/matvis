@@ -147,6 +147,11 @@ def simulate(
         shape (NTIMES, NBLS).
 
     """
+    if not 0 < source_buffer <= 1:
+        raise ValueError("source_buffer must satisfy 0 < source_buffer <= 1")
+    if not 0 < memory_buffer <= 1:
+        raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
+
     init_time = time.time()
 
     if not tm.is_tracing():
