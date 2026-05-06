@@ -7,6 +7,7 @@ from pyuvdata.analytic_beam import GaussianBeam
 from pyuvdata.telescopes import Telescope
 
 from matvis import simulate_vis
+from matvis._test_utils import get_standard_sim_params
 
 NTIMES = 10
 NFREQ = 5
@@ -54,3 +55,23 @@ def test_simulate_vis(polarized):
         max_progress_reports=2,
     )
     assert np.all(~np.isnan(vis))  # check that there are no NaN values
+
+
+def test_source_buffer_validation():
+    """Ensure invalid source_buffer values raise a ValueError on CPU path."""
+    kw, *_ = get_standard_sim_params(False, False)
+
+    with pytest.raises(
+        ValueError, match="source_buffer must satisfy 0 < source_buffer <= 1"
+    ):
+        simulate_vis(use_gpu=False, source_buffer=0.0, **kw)
+
+
+def test_memory_buffer_validation():
+    """Ensure invalid memory_buffer values raise a ValueError on CPU path."""
+    kw, *_ = get_standard_sim_params(False, False)
+
+    with pytest.raises(
+        ValueError, match="memory_buffer must satisfy 0 < memory_buffer <= 1"
+    ):
+        simulate_vis(use_gpu=False, memory_buffer=1.1, **kw)
