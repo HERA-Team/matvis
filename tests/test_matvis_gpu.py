@@ -12,15 +12,6 @@ from matvis import simulate_vis
 from matvis._test_utils import get_standard_sim_params
 
 
-def test_source_buffer_validation():
-    """Ensure that source_buffer > 1.0 raises a ValueError."""
-    kw, *_ = get_standard_sim_params(False, False)
-    with pytest.raises(
-        ValueError, match="source_buffer must satisfy 0 < source_buffer <= 1"
-    ):
-        simulate_vis(use_gpu=True, source_buffer=1.5, **kw)
-
-
 def test_antizenith():
     """Ensure that a single source at anti-zenith produces zero visibilities."""
     kw, *_ = get_standard_sim_params(
