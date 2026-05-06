@@ -156,8 +156,9 @@ def get_required_chunks(
     source_buffer : float, optional
         The fraction of the total sources (per chunk) to pre-allocate memory for.
     memory_buffer : float, optional
-        The fraction of free memory to use for the calculation. Default is 0.75,
-        which leaves some buffer for other processes and overhead.
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead. Must be in
+        the range (0, 1].
 
     Returns
     -------
@@ -169,6 +170,9 @@ def get_required_chunks(
     >>> get_required_chunks(1024, 2, 4, 8, 16, 32, 64, 32)
     1
     """
+    if not (0 < memory_buffer <= 1.0):
+        raise ValueError("memory_buffer must be in the range (0, 1]")
+
     rsize = 4 * precision
     csize = 2 * rsize
 
@@ -196,6 +200,7 @@ def get_required_chunks(
             f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize.values())}"
         )
 
+    ch = max(ch, 1)
     logger.info(
         f"Total free mem: {freemem / (1024**3):.2f} GB. Requires {ch} chunks "
         f"(estimate {sum(gpusize.values()) / 1024**3:.2f} GB)"
@@ -235,6 +240,12 @@ def get_desired_chunks(
         The number of sources.
     precision : int
         The precision of the data.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead. Must be in
+        the range (0, 1].
 
     Returns
     -------

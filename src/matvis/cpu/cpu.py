@@ -85,8 +85,10 @@ def simulate(
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
+
         - 1: float32, complex64
         - 2: float64, complex128
+
     polarized : bool, optional
         Whether to simulate a full polarized response in terms of nn, ne, en,
         ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
@@ -123,12 +125,13 @@ def simulate(
         The minimum number of chunks to break the source axis into.
     source_buffer : float, optional
         The fraction of the total sources (per chunk) to pre-allocate memory for.
-        Default is 1.0, which allows for 10% variance around half the sources
-        (since half should be below the horizon). If you have a particular sky model in
-        which you expect more or less sources to appear above the horizon at any time,
-        set this to a different value.
+        Default is 1.0, which pre-allocates for all sources in each chunk. This
+        avoids assuming that only a subset of sources will be above the horizon,
+        but uses more memory. If you expect fewer or more sources to appear above
+        the horizon at any time for a particular sky model, set this to a different
+        value.
     memory_buffer : float, optional
-        The fraction of free memory to use for the calculation. Default is 0.75,
+        The fraction of free memory to use for the calculation. Default is 0.9,
         which leaves some buffer for other processes and overhead.
     coord_method_params
         Parameters particular to the coordinate rotation method of choice. For example,
