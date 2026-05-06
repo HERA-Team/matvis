@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from typing import Literal
+
 import astropy.units as u
 import numpy as np
 import pyuvdata.utils as uvutils
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
-from copy import deepcopy
 from numpy import typing as npt
 from pyuvdata.uvbeam import UVBeam
 from scipy.linalg import orthogonal_procrustes as ortho_procr
-from typing import Literal
 
 from . import HAVE_GPU
 
@@ -224,11 +225,9 @@ def equatorial_to_eci_coords(ra, dec, obstime, location, unit="rad", frame="icrs
     ``EarthLocation`` objects that are required by this function::
 
         # HERA location
-        location = EarthLocation.from_geodetic(lat=-30.7215,
-                                               lon=21.4283,
-                                               height=1073.)
+        location = EarthLocation.from_geodetic(lat=-30.7215, lon=21.4283, height=1073.0)
         # Observation time
-        obstime = Time('2018-08-31T04:02:30.11', format='isot', scale='utc')
+        obstime = Time("2018-08-31T04:02:30.11", format="isot", scale="utc")
 
 
     Parameters

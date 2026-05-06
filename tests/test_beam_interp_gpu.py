@@ -26,7 +26,7 @@ def test_identity():
         beam, [daz] * 2, [dza] * 2, [0.0] * 2, AZ.flatten(), ZA.flatten()
     ).get()
 
-    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[:, 0, 0])):
+    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[:, 0, 0], strict=True)):
         print(f"Beam {i}")
         np.testing.assert_allclose(np.sqrt(b1.flatten()), b2)
 
@@ -59,7 +59,7 @@ def test_non_identity_linear():
         ZA.flatten(),
     ).get()
 
-    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[:, 0, 0])):
+    for i, (b1, b2) in enumerate(zip(beam[:, 0, 0], new_beam[:, 0, 0], strict=True)):
         print(f"Beam {i}", b2)
         assert np.allclose(np.sqrt(b1.flatten()), b2)
 

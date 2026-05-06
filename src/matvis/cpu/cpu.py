@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import importlib
 import logging
-import numpy as np
-import psutil
 import time
 import tracemalloc as tm
+from collections.abc import Sequence
+from typing import Literal
+
+import numpy as np
+import psutil
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
-from collections.abc import Sequence
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs

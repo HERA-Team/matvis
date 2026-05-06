@@ -1,8 +1,7 @@
 """Compare matvis with pyuvsim visibilities."""
 
-import pytest
-
 import numpy as np
+import pytest
 from pyuvdata import UVData
 from pyuvsim import simsetup, uvsim
 

@@ -1,16 +1,16 @@
 import datetime
 import itertools
 import logging
-import numpy as np
-import psutil
 import time
 import tracemalloc as tm
-from typing import Union
+
+import numpy as np
+import psutil
 
 try:
     import cupy as cp
 
-    ArrayType = Union[np.ndarray, cp.ndarray]
+    ArrayType = np.ndarray | cp.ndarray
     HAVE_CUDA = True
 except ImportError:
     ArrayType = np.ndarray

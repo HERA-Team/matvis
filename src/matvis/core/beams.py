@@ -1,14 +1,15 @@
 """Functions for working with beams."""
 
-import numpy as np
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
+from typing import Any, Literal
+
+import numpy as np
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.utils.pol import polstr2num
-from typing import Any, Literal
 
 
 def prepare_beam_unpolarized(
