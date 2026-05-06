@@ -1,9 +1,8 @@
 """Tests of coordinate conversions."""
 
-import pytest
-
 import astropy.units as u
 import numpy as np
+import pytest
 from astropy.coordinates import EarthLocation, Latitude, Longitude, SkyCoord
 from astropy.coordinates.builtin_frames import AltAz
 from astropy.time import Time
