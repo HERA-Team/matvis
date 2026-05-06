@@ -163,7 +163,7 @@ def simulate(
     current_memory = tm.get_traced_memory()[0]
 
     nchunks, npixc = get_desired_chunks(
-        min(int(max_memory) - current_memory, psutil.virtual_memory().available),
+        min(max_memory - current_memory, psutil.virtual_memory().available),
         min_chunks,
         beam_list,
         nax,
