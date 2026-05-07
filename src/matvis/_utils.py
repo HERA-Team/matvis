@@ -3,9 +3,12 @@ import itertools
 import logging
 import time
 import tracemalloc as tm
+from typing import Union
 
 import numpy as np
 import psutil
+from pyuvdata import BeamInterface, UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam
 
 try:
     import cupy as cp
@@ -207,9 +210,9 @@ def get_required_chunks(
 
 
 def get_desired_chunks(
-    freemem: int,
+    freemem: int | float,
     min_chunks: int,
-    beam_list: int,
+    beam_list: list[UVBeam | AnalyticBeam | BeamInterface],
     nax: int,
     nfeed: int,
     nant: int,
@@ -222,7 +225,7 @@ def get_desired_chunks(
 
     Parameters
     ----------
-    freemem : int
+    freemem : int | float
         The amount of free memory in bytes.
     min_chunks : int
         The minimum number of chunks desired.

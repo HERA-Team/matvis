@@ -148,9 +148,14 @@ def simulate(
         shape (NTIMES, NBLS).
 
     """
+    if not 0 < source_buffer <= 1:
+        raise ValueError("source_buffer must satisfy 0 < source_buffer <= 1")
+    if not 0 < memory_buffer <= 1:
+        raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
+
     init_time = time.time()
 
-    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
+    if not tm.is_tracing():
         tm.start()
 
     highest_peak = memtrace(0)
@@ -161,8 +166,10 @@ def simulate(
 
     rtype, ctype = get_dtypes(precision)
 
+    current_memory = tm.get_traced_memory()[0]
+
     nchunks, npixc = get_desired_chunks(
-        min(max_memory, psutil.virtual_memory().available),
+        min(max_memory - current_memory, psutil.virtual_memory().available),
         min_chunks,
         beam_list,
         nax,
