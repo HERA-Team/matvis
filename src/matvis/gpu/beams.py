@@ -1,7 +1,8 @@
 """GPU beam interpolation routines."""
 
-import cupy as cp
 import itertools
+
+import cupy as cp
 import numpy as np
 from cupyx.scipy import ndimage
 from pyuvdata import UVBeam

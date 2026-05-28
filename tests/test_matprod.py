@@ -1,8 +1,7 @@
 """Tests that the various matprod methods produce the same result."""
 
-import pytest
-
 import numpy as np
+import pytest
 
 from matvis._utils import get_dtypes
 

@@ -6,20 +6,23 @@ Running the script will write a summary of the timings of various main blocks of
 It will also save these results in pickle format to a file annotated with the inputs
 (eg. nants, ntimes, nsources, nfreqs).
 """
+
 from __future__ import annotations
 
-import click
 import inspect
 import linecache
 import logging
-import numpy as np
 import os
 import pickle
 import time
+from pathlib import Path
+from typing import Literal
+
+import click
+import numpy as np
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from line_profiler import LineProfiler
-from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import GaussianBeam
 from pyuvdata.telescopes import get_telescope
@@ -27,7 +30,6 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.rule import Rule
 from rich.traceback import Traceback
-from typing import Literal
 
 from matvis import DATA_PATH, HAVE_GPU, coordinates, cpu, simulate_vis
 

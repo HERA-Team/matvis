@@ -105,14 +105,14 @@ class ZMatrixCalc:
             m1 = m_matrix[xp.newaxis, xp.newaxis, 1, :, :]
 
             # Z = (b0*M0 + b1*M1) * exptau — single vectorized expression
-            self.z.shape = (self.nant, self.nfeed, self.nax, self.nsrc)
+            self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
             self.z[:] = (b0 * m0 + b1 * m1) * exptau[:, xp.newaxis, xp.newaxis, :]
-            self.z.shape = (self.nant * self.nfeed, self.nax * self.nsrc)
+            self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
         else:
-            # Existing unpolarized path — unchanged.
+            # Existing unpolarized path.
             exptau *= sqrt_flux
 
-            self.z.shape = (self.nant, self.nfeed, self.nax, self.nsrc)
+            self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
 
             for fd in range(self.nfeed):
                 for ax in range(self.nax):
@@ -121,11 +121,16 @@ class ZMatrixCalc:
             if beam_idx is None:
                 self.z *= beam
             else:
-                self.z *= beam[beam_idx]
+                # Since beam_idx is an array of integers, using it as an index into
+                # beam is "fancy indexing", which causes a memory copy. To avoid this,
+                # we loop over the indices. While this might be a bit slower, it avoids
+                # the memory copy and thus is more memory efficient.
+                for ant, bmidx in enumerate(beam_idx):
+                    self.z[ant] *= beam[bmidx]
 
             # Here we expand the beam to all ants (from its beams), then broadcast to
             # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
-            self.z.shape = (self.nant * self.nfeed, self.nax * self.nsrc)
+            self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
 
         if self.gpu:
             cp.cuda.Device().synchronize()

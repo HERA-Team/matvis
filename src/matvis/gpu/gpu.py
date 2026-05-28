@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
-import numpy as np
-import psutil
 import time
 import warnings
+from collections.abc import Sequence
+from typing import Literal
+
+import numpy as np
+import psutil
 from astropy.constants import c as speed_of_light
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
-from collections.abc import Sequence
 from docstring_parser import combine_docstrings
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Callable, Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
@@ -30,11 +32,16 @@ from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
 from ..cpu.cpu import simulate as simcpu
-from . import beams
-from . import matprod as mp
 
 try:
     import cupy as cp
+
+    from . import beams
+    from . import matprod as mp
+
+    importlib.import_module(
+        ".coords", package=__package__
+    )  # need to import this to register the coordinate rotation methods
 
     HAVE_CUDA = True
 
@@ -78,6 +85,7 @@ def simulate(
     matprod_method: Literal["GPUMatMul", "GPUVectorLoop"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
+    memory_buffer: float = 0.9,
     stokes: np.ndarray | None = None,
     raise_on_negative_flux: bool | None = None,
 ) -> np.ndarray:
@@ -85,8 +93,10 @@ def simulate(
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
-    if source_buffer > 1.0:
-        raise ValueError("source_buffer must be less than 1.0")
+    if not 0 < source_buffer <= 1:
+        raise ValueError("source_buffer must satisfy 0 < source_buffer <= 1")
+    if not 0 < memory_buffer <= 1:
+        raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
 
     pr = psutil.Process()
 
@@ -116,6 +126,8 @@ def simulate(
         nant,
         nsrc,
         precision,
+        source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
     )
 
     # Determine if we have a polarized sky model
@@ -241,7 +253,7 @@ def simulate(
         coords.rotate(t)
         events = [{e: cp.cuda.Event() for e in event_order} for _ in range(nchunks)]
 
-        for c, (stream, event) in enumerate(zip(streams, events)):
+        for c, (stream, event) in enumerate(zip(streams, events, strict=True)):
             stream.use()
             event["start"].record(stream)
 
@@ -331,4 +343,4 @@ def simulate(
     return vis if polarized else vis[:, :, 0, 0]
 
 
-simulate.__doc__ += simcpu.__doc__
+simulate.__doc__ = (simulate.__doc__ or "") + f"\n{simcpu.__doc__ or ''}"

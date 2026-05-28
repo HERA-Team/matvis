@@ -1,5 +1,127 @@
 [build-system]
-requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=3.4"]
+requires = ["setuptools>=77", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "matvis"
+description = "Fast matrix-based visibility simulator with interface to CPU and GPU"
+readme = { file = "README.rst", content-type = "text/x-rst" }
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+authors = [{ name = "HERA-Team", email = "steven.g.murray@asu.edu" }]
+classifiers = [
+	"Development Status :: 4 - Beta",
+	"Programming Language :: Python",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3 :: Only",
+]
+dynamic = ["version"]
+dependencies = [
+	"astropy",
+	"click",
+	"docstring-parser",
+	"line-profiler",
+	"numpy>=2.0",
+	"psutil",
+	"pyuvdata>=3.2.0",
+	"rich",
+	"scipy",
+]
+
+[project.urls]
+Homepage = "https://github.com/hera-team/matvis"
+
+[project.scripts]
+matvis = "matvis.cli:main"
+
+[project.optional-dependencies]
+gpu = [
+	"cupy",
+	"jinja2",
+]
+profile = [
+	"click",
+	"line-profiler",
+	"pyuvsim>=1.2.5",
+]
+
+[dependency-groups]
+docs = [
+	"furo",
+	"ipython",
+	"nbsphinx",
+	"numpydoc",
+	"sphinx",
+
+]
+doctests = [
+    "ipykernel>=7.2.0",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.8.0",
+    "papermill>=2.7.0",
+]
+
+test = [
+	"astropy-healpix",
+	"hypothesis",
+	"ipython",
+	"matplotlib",
+	"pyradiosky",
+	"pytest",
+	"pytest-cov",
+	"pytest-lazy-fixtures",
+	"pyuvsim[sim]>=1.2.5",
+]
+dev = [
+	{ include-group = "docs" },
+	{ include-group = "test" },
+    { include-group = "doctests" },
+	"prek",
+	"ruff",
+]
+
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests"]
+namespaces = true
+
+[tool.pytest.ini_options]
+addopts = ["--cov=matvis", "--cov-report=term-missing", "--verbose"]
+norecursedirs = ["dist", "build", ".tox"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+extend-exclude = [
+	"build",
+	"dist",
+	".eggs",
+	".tox",
+	"docs/_build",
+	"docs/conf.py",
+	"src/matvis/data",
+]
+
+[tool.ruff.lint]
+select = ["A", "B", "C4", "C90", "D", "E", "F", "G", "I", "T20", "UP", "W"]
+ignore = ["B007", "D107", "D401", "D404", "E203", "E231", "E266", "E501", "F401", "F403", "G004"]
+per-file-ignores = { "src/matvis/cli.py" = ["T20"], "tests/*.py" = ["E402", "T20"] }
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.setuptools_scm]

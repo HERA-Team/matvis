@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
-import numpy as np
-import psutil
 import time
 import tracemalloc as tm
+from collections.abc import Sequence
+from typing import Literal
+
+import numpy as np
+import psutil
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
-from collections.abc import Sequence
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Callable, Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
@@ -29,6 +31,10 @@ from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
 from . import matprod as mp
 from .beams import UVBeamInterpolator
+
+importlib.import_module(
+    ".coords", package=__package__
+)  # need to import this to register the coordinate rotation methods
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +61,7 @@ def simulate(
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
     coord_method_params: dict | None = None,
     stokes: np.ndarray | None = None,
     raise_on_negative_flux: bool | None = None,
@@ -90,8 +97,10 @@ def simulate(
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
+
         - 1: float32, complex64
         - 2: float64, complex128
+
     polarized : bool, optional
         Whether to simulate a full polarized response in terms of nn, ne, en,
         ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
@@ -125,15 +134,19 @@ def simulate(
         The maximum memory (in bytes) to use for the visibility calculation. This is
         not a hard-set limit, but rather a guideline for how much memory to use. If the
         expected memory usage is more than this, the calculation will be broken up into
-        chunks. Default is 512 MB.
+        chunks.
     min_chunks : int, optional
-        The minimum number of chunks to break the source axis into. Default is 1.
+        The minimum number of chunks to break the source axis into.
     source_buffer : float, optional
         The fraction of the total sources (per chunk) to pre-allocate memory for.
-        Default is 0.55, which allows for 10% variance around half the sources
-        (since half should be below the horizon). If you have a particular sky model in
-        which you expect more or less sources to appear above the horizon at any time,
-        set this to a different value.
+        Default is 1.0, which pre-allocates for all sources in each chunk. This
+        avoids assuming that only a subset of sources will be above the horizon,
+        but uses more memory. If you expect fewer or more sources to appear above
+        the horizon at any time for a particular sky model, set this to a different
+        value.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead.
     coord_method_params
         Parameters particular to the coordinate rotation method of choice. For example,
         for the CoordinateRotationERFA (and GPU version of the same) method, there
@@ -172,9 +185,14 @@ def simulate(
        matrix ``C = 0.5 * [[I+Q, U+iV], [U-iV, I-Q]]``.
 
     """
+    if not 0 < source_buffer <= 1:
+        raise ValueError("source_buffer must satisfy 0 < source_buffer <= 1")
+    if not 0 < memory_buffer <= 1:
+        raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
+
     init_time = time.time()
 
-    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
+    if not tm.is_tracing():
         tm.start()
 
     highest_peak = memtrace(0)
@@ -196,8 +214,10 @@ def simulate(
 
     rtype, ctype = get_dtypes(precision)
 
+    current_memory = tm.get_traced_memory()[0]
+
     nchunks, npixc = get_desired_chunks(
-        min(max_memory, psutil.virtual_memory().available),
+        min(max_memory - current_memory, psutil.virtual_memory().available),
         min_chunks,
         beam_list,
         nax,
@@ -206,7 +226,9 @@ def simulate(
         nsrc,
         precision,
         source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
     )
+
     coord_method = CoordinateRotation._methods[coord_method]
 
     # Determine if we have a polarized sky model

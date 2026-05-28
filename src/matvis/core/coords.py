@@ -1,7 +1,8 @@
 """Core abstract class for coordinate rotation."""
 
-import numpy as np
 from abc import ABC, abstractmethod
+
+import numpy as np
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
 

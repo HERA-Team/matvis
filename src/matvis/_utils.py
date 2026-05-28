@@ -1,16 +1,19 @@
 import datetime
 import itertools
 import logging
-import numpy as np
-import psutil
 import time
 import tracemalloc as tm
 from typing import Union
 
+import numpy as np
+import psutil
+from pyuvdata import BeamInterface, UVBeam
+from pyuvdata.analytic_beam import AnalyticBeam
+
 try:
     import cupy as cp
 
-    ArrayType = Union[np.ndarray, cp.ndarray]
+    ArrayType = np.ndarray | cp.ndarray
     HAVE_CUDA = True
 except ImportError:
     ArrayType = np.ndarray
@@ -107,15 +110,13 @@ def log_progress(
     mem = human_readable_size(rss)
     memdiff = human_readable_size(rss - last_mem, indicate_sign=True)
 
-    logger.info(
-        f"""
+    logger.info(f"""
         Progress Info   [{iters}/{niters} times ({100 * iters / niters:.1f}%)]
             -> Update Time:   {lapsed}
             -> Total Time:    {total} [{per_iter} per integration]
             -> Expected Time: {expected} [{expected - total} remaining]
             -> Memory Usage:  {mem}  [{memdiff}]
-        """
-    )
+        """)
 
     return t, rss
 
@@ -129,7 +130,8 @@ def get_required_chunks(
     nbeam: int,
     nbeampix: int,
     precision: int,
-    source_buffer: float = 0.55,
+    source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
 ) -> int:
     """
     Compute number of chunks (over sources) required to fit data into available memory.
@@ -152,6 +154,12 @@ def get_required_chunks(
         The number of beam pixels.
     precision : int
         The precision of the data.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead. Must be in
+        the range (0, 1].
 
     Returns
     -------
@@ -163,12 +171,15 @@ def get_required_chunks(
     >>> get_required_chunks(1024, 2, 4, 8, 16, 32, 64, 32)
     1
     """
+    if not (0 < memory_buffer <= 1.0):
+        raise ValueError("memory_buffer must be in the range (0, 1]")
+
     rsize = 4 * precision
     csize = 2 * rsize
 
     gpusize = {"a": freemem}
     ch = 0
-    while sum(gpusize.values()) >= freemem and ch < 100:
+    while sum(gpusize.values()) >= freemem * memory_buffer and ch < 100:
         ch += 1
         nchunk = int(nsrc // ch * source_buffer)
 
@@ -190,6 +201,7 @@ def get_required_chunks(
             f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize.values())}"
         )
 
+    ch = max(ch, 1)
     logger.info(
         f"Total free mem: {freemem / (1024**3):.2f} GB. Requires {ch} chunks "
         f"(estimate {sum(gpusize.values()) / 1024**3:.2f} GB)"
@@ -198,21 +210,22 @@ def get_required_chunks(
 
 
 def get_desired_chunks(
-    freemem: int,
+    freemem: int | float,
     min_chunks: int,
-    beam_list: int,
+    beam_list: list[UVBeam | AnalyticBeam | BeamInterface],
     nax: int,
     nfeed: int,
     nant: int,
     nsrc: int,
     precision: int,
-    source_buffer: float = 0.55,
+    source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
 ) -> tuple[int, int]:
     """Get the desired number of chunks.
 
     Parameters
     ----------
-    freemem : int
+    freemem : int | float
         The amount of free memory in bytes.
     min_chunks : int
         The minimum number of chunks desired.
@@ -228,6 +241,12 @@ def get_desired_chunks(
         The number of sources.
     precision : int
         The precision of the data.
+    source_buffer : float, optional
+        The fraction of the total sources (per chunk) to pre-allocate memory for.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead. Must be in
+        the range (0, 1].
 
     Returns
     -------
@@ -260,6 +279,7 @@ def get_desired_chunks(
                 nbeampix,
                 precision,
                 source_buffer,
+                memory_buffer,
             ),
         ),
         nsrc,

@@ -1,12 +1,13 @@
 """Tests."""
 
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
 from astropy.units import Quantity
-from dataclasses import replace
-from pathlib import Path
 from pyradiosky import SkyModel
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import GaussianBeam

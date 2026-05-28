@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
+
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, SkyCoord
@@ -10,7 +12,6 @@ from astropy.time import Time
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Literal
 
 from . import HAVE_GPU, cpu
 from .core.beams import prepare_beam_unpolarized
@@ -39,6 +40,20 @@ def simulate_vis(
     beam_idx: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     source_buffer: float = 1.0,
+    coord_method: Literal[
+        "CoordinateRotationAstropy",
+        "CoordinateRotationERFA",
+        "GPUCoordinateRotationERFA",
+    ] = "CoordinateRotationAstropy",
+    coord_method_params: dict | None = None,
+    matprod_method: Literal[
+        "MatMul",
+        "VectorLoop",
+        "CPUMatMul",
+        "GPUMatMul",
+        "CPUVectorLoop",
+        "GPUVectorLoop",
+    ] = "MatMul",
     stokes: np.ndarray | None = None,
     raise_on_negative_flux: bool | None = None,
     **backend_kwargs,
@@ -97,6 +112,24 @@ def simulate_vis(
         The fraction of the total number of sources to use when allocating memory
         for the sources above horizon. For large numbers of sources, a fraction of
         ~0.55 should be sufficient.
+    coord_method
+        The method to use to transform coordinates from the equatorial to horizontal
+        frame. The default is to use Astropy coordinate transforms. A faster option,
+        which is accurate to within 6 mas, is to use "CoordinateTransformERFA" (or
+        its GPU version, if using GPU).
+    coord_method_params
+        Parameters particular to the coordinate rotation method of choice. For example,
+        for the CoordinateRotationERFA (and GPU version of the same) method, there
+        is the parameter ``update_bcrs_every``, which should be a time in seconds, for
+        which larger values speed up the computation.
+    matprod_method
+        The method to use for the final matrix multiplication. Default is 'MatMul',
+        which simply uses matrix multiplication over the two full matrices. Currently,
+        the other option is `VectorLoop`, which uses a loop over the antenna pairs,
+        computing the sum over sources as a vector dot product, which can be faster for
+        large arrays where `antpairs` is small (possibly from high redundancy). You
+        should run a performance test before changing this. If not CPU/GPU prefix is
+        specified, it will be added automatically based on the value of `use_gpu`.
     stokes : array_like, optional
         Full Stokes parameters of shape (4, NSRCS, NFREQS) with [I, Q, U, V].
         Enables polarized sky model support via eigendecomposition of the
@@ -127,12 +160,10 @@ def simulate_vis(
         attrs = device.attributes
         attrs = {str(k): v for k, v in attrs.items()}
         string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
-        logger.debug(
-            f"""
+        logger.debug(f"""
             Your GPU has the following attributes:
             \t{string}
-            """
-        )
+            """)
 
     fnc = gpu.simulate if use_gpu else cpu.simulate
 
@@ -186,6 +217,9 @@ def simulate_vis(
     else:
         vis = np.zeros((freqs.size, times.size, npairs), dtype=complex_dtype)
 
+    if matprod_method in ["MatMul", "VectorLoop"]:
+        matprod_method = f"GPU{matprod_method}" if use_gpu else f"CPU{matprod_method}"
+
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
         if stokes is not None:
@@ -205,6 +239,9 @@ def simulate_vis(
             beam_idx=beam_idx,
             antpairs=antpairs,
             source_buffer=source_buffer,
+            matprod_method=matprod_method,
+            coord_method=coord_method,
+            coord_method_params=coord_method_params,
             raise_on_negative_flux=raise_on_negative_flux,
             **per_freq_kwargs,
             **backend_kwargs,
