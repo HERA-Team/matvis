@@ -25,7 +25,7 @@ from astropy.time import Time
 from line_profiler import LineProfiler
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import GaussianBeam
-from pyuvdata.telescopes import get_telescope
+from pyuvdata.telescopes import known_telescope_location
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.rule import Rule
@@ -147,7 +147,7 @@ def run_profile(
         beams=cpu_beams,
         polarized=True,
         precision=2 if double_precision else 1,
-        telescope_loc=get_telescope("hera").location,
+        telescope_loc=known_telescope_location("hera"),
         use_gpu=gpu,
         beam_idx=beam_idx,
         matprod_method=f"{'GPU' if gpu else 'CPU'}{matprod_method}",
