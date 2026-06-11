@@ -5,9 +5,8 @@ Both code paths coexist in the same simulate_vis function:
 - New path: simulate_vis(stokes=...) with full Stokes params
 """
 
-import pytest
-
 import numpy as np
+import pytest
 from astropy import units as un
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
@@ -54,8 +53,11 @@ def _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1, precision=2):
 
 
 class TestBackwardCompatibility:
-    """``stokes=[I,0,0,0]`` routed through the eigen path must reproduce
-    the legacy ``fluxes``-only path that uses ``sqrt(0.5*I)`` directly."""
+    """Check that the eigen path reproduces the legacy unpolarized path.
+
+    ``stokes=[I,0,0,0]`` routed through the eigen path must reproduce
+    the legacy ``fluxes``-only path that uses ``sqrt(0.5*I)`` directly.
+    """
 
     @pytest.mark.parametrize("precision,atol", [(2, 1e-12), (1, 1e-4)])
     def test_unpolarized_stokes_matches_existing(self, precision, atol):
@@ -138,8 +140,11 @@ class TestNegativeFluxHandling:
         ["positive_sky", "mixed_negative_sky"],
     )
     def test_negative_flux_path(self, case):
-        """Sign-split route must match eigen when sky is positive, and
-        produce finite nonzero visibilities when some Stokes I are negative."""
+        """Check the sign-split route against the eigen route.
+
+        Sign-split must match eigen when the sky is positive, and
+        produce finite nonzero visibilities when some Stokes I are negative.
+        """
         params = _make_sim_params(nsrc=10, nant=3, ntime=2, nfreq=1)
 
         if case == "positive_sky":
@@ -246,10 +251,14 @@ class TestEdgeCases:
 
 
 class TestPolarizedInference:
-    """Passing ``stokes`` must auto-enable ``polarized``; explicit
-    ``polarized=False`` alongside ``stokes`` must raise."""
+    """Check that ``polarized`` is correctly inferred from ``stokes``.
+
+    Passing ``stokes`` must auto-enable ``polarized``; explicit
+    ``polarized=False`` alongside ``stokes`` must raise.
+    """
 
     def test_stokes_alone_enables_polarized(self):
+        """Omitting ``polarized`` while passing ``stokes`` must auto-enable it."""
         params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
         nsrc = len(params["ra"])
         nfreq = len(params["freqs"])
@@ -264,6 +273,7 @@ class TestPolarizedInference:
         assert not np.any(np.isnan(vis))
 
     def test_polarized_false_with_stokes_raises(self):
+        """Explicit ``polarized=False`` alongside ``stokes`` must raise."""
         params = _make_sim_params(nsrc=5, nant=2, ntime=1, nfreq=1)
         nsrc = len(params["ra"])
         nfreq = len(params["freqs"])

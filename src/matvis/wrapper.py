@@ -168,9 +168,7 @@ def simulate_vis(
     fnc = gpu.simulate if use_gpu else cpu.simulate
 
     if (fluxes is None) == (stokes is None):
-        raise ValueError(
-            "Provide exactly one of `fluxes` or `stokes` to simulate_vis."
-        )
+        raise ValueError("Provide exactly one of `fluxes` or `stokes` to simulate_vis.")
 
     if polarized is None:
         polarized = stokes is not None

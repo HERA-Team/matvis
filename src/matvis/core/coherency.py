@@ -483,7 +483,7 @@ def partition_and_negate(stokes, skycoords, I_sky=None):
     if len(idx_M) > 0:
         raise ValueError(
             "partition_and_negate is only valid when no sources have "
-            "mixed-sign eigenvalues; got {} mixed sources.".format(len(idx_M))
+            f"mixed-sign eigenvalues; got {len(idx_M)} mixed sources."
         )
     perm = np.concatenate([idx_P, idx_N])
     n_P = int(len(idx_P))

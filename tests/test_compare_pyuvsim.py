@@ -89,7 +89,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
     ids=["analytic_beam", "uvbeam"],
 )
 def test_compare_pyuvsim_polarized_sky(use_analytic_beam, xfail):
-    """matvis stokes path vs pyuvsim for a fully polarized sky (Q,U,V≠0).
+    """Compare the matvis stokes path with pyuvsim for a fully polarized sky (Q,U,V≠0).
 
     The existing ``test_compare_pyuvsim`` only exercises Stokes I; this one
     drives non-trivial coherency rotation and XY/YX off-diagonals through
