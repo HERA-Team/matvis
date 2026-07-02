@@ -238,7 +238,12 @@ common_profile_options = [
         "--nchunks",
         default=1,
     ),
-    click.option("-o", "--outdir", default="."),
+    click.option(
+        "-o",
+        "--outdir",
+        default=".",
+        type=click.Path(file_okay=False, dir_okay=True, exists=True),
+    ),
     click.option("--double-precision/--single-precision", default=True),
     click.option("--naz", default=360, type=int),
     click.option("--nza", default=180, type=int),
