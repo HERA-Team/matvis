@@ -21,6 +21,13 @@ from pyuvdata.beam_interface import BeamInterface
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
+from ..core.coherency import (
+    categorize_sources,
+    check_sky_physicality,
+    partition_and_negate,
+    process_polarized_chunk,
+    stokes_to_coherency,
+)
 from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
@@ -61,9 +68,9 @@ def simulate(
     times: Time,
     skycoords: SkyCoord,
     telescope_loc: EarthLocation,
-    I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
-    polarized: bool = False,
+    I_sky: np.ndarray | None = None,
+    polarized: bool | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     beam_idx: np.ndarray | None = None,
     max_memory: int = np.inf,
@@ -79,6 +86,8 @@ def simulate(
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     memory_buffer: float = 0.9,
+    stokes: np.ndarray | None = None,
+    raise_on_negative_flux: bool | None = None,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
@@ -90,9 +99,21 @@ def simulate(
         raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
 
     pr = psutil.Process()
-    nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, times, I_sky
+
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
+        )
+
+    nax, nfeed, nant, ntimes, nsrc = _validate_inputs(
+        precision, polarized, antpos, times, I_sky=I_sky, stokes=stokes
     )
+    if raise_on_negative_flux is None:
+        raise_on_negative_flux = stokes is None
 
     rtype, ctype = get_dtypes(precision)
 
@@ -103,13 +124,54 @@ def simulate(
         nax,
         nfeed,
         nant,
-        len(I_sky),
+        nsrc,
         precision,
         source_buffer=source_buffer,
         memory_buffer=memory_buffer,
     )
 
-    nsrc_alloc = int(npixc * source_buffer)
+    # Determine if we have a polarized sky model
+    polarized_sky = stokes is not None and polarized
+
+    use_sign_split = False
+    use_partition = False
+    n_P = n_N = 0
+    if polarized_sky:
+        I_s, Q_s, U_s, V_s = stokes
+        use_sign_split = check_sky_physicality(
+            I_s, Q_s, U_s, V_s, raise_on_negative=raise_on_negative_flux
+        )
+        if use_sign_split:
+            idx_P, idx_N, idx_M = categorize_sources(I_s, Q_s, U_s, V_s)
+            if len(idx_M) == 0:
+                use_partition = True
+                stokes, skycoords, I_sky, n_P, n_N = partition_and_negate(
+                    stokes, skycoords, I_sky
+                )
+                I_s, Q_s, U_s, V_s = stokes
+
+    if polarized_sky:
+        coherency = stokes_to_coherency(I_s, Q_s, U_s, V_s)  # (2, 2, Nsrc)
+        flux_for_coords = coherency.transpose(2, 0, 1)[
+            :, np.newaxis, :, :
+        ]  # (Nsrc, 1, 2, 2)
+    else:
+        flux_for_coords = np.sqrt(0.5 * I_sky)
+
+    coord_method = CoordinateRotation._methods[coord_method]
+    coord_method_params = coord_method_params or {}
+    coords = coord_method(
+        flux=flux_for_coords,
+        times=times,
+        telescope_loc=telescope_loc,
+        skycoords=skycoords,
+        chunk_size=npixc,
+        precision=precision,
+        source_buffer=source_buffer,
+        gpu=True,
+        **coord_method_params,
+    )
+    nsrc_alloc = coords.nsrc_alloc
 
     bmfunc = beams.GPUBeamInterpolator(
         beam_list=beam_list,
@@ -121,19 +183,6 @@ def simulate(
         precision=precision,
         spline_opts=beam_spline_opts,
     )
-    coord_method = CoordinateRotation._methods[coord_method]
-    coord_method_params = coord_method_params or {}
-    coords = coord_method(
-        flux=np.sqrt(0.5 * I_sky),
-        times=times,
-        telescope_loc=telescope_loc,
-        skycoords=skycoords,
-        chunk_size=npixc,
-        precision=precision,
-        source_buffer=source_buffer,
-        gpu=True,
-        **coord_method_params,
-    )
     zcalc = ZMatrixCalc(
         nsrc=nsrc_alloc, nfeed=nfeed, nant=nant, nax=nax, ctype=ctype, gpu=True
     )
@@ -143,6 +192,10 @@ def simulate(
 
     mpcls = getattr(mp, matprod_method)
     matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+
+    matprod_neg = None
+    if use_sign_split:
+        matprod_neg = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     logger.debug("Starting GPU allocations...")
 
@@ -168,6 +221,8 @@ def simulate(
     logger.debug(f"After zcalc, GPU mem avail is: {memnow / 1024**3} GB.")
 
     matprod.setup()
+    if matprod_neg is not None:
+        matprod_neg.setup()
     memnow = cp.cuda.Device().mem_info[0]
     logger.debug(f"After matprod, GPU mem avail is: {memnow / 1024**3} GB.")
 
@@ -230,15 +285,43 @@ def simulate(
             )
             event["tau"].record(stream)
 
-            z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
+            if polarized_sky:
+                n_P_chunk = n_N_chunk = 0
+                if use_partition:
+                    chunk_start = c * npixc
+                    p_local_end = min(max(n_P - chunk_start, 0), npixc)
+                    n_local_end = min(max(n_P + n_N - chunk_start, 0), npixc)
+                    above = coords.above_horizon
+                    # searchsorted on device to avoid host sync.
+                    counts = cp.searchsorted(
+                        above, cp.asarray([p_local_end, n_local_end])
+                    )
+                    n_P_chunk = int(counts[0])
+                    n_N_chunk = int(counts[1]) - n_P_chunk
+                process_polarized_chunk(
+                    Isqrt,
+                    zcalc,
+                    A,
+                    exptau,
+                    bmfunc.beam_idx,
+                    matprod,
+                    c,
+                    use_sign_split=use_sign_split,
+                    matprod_neg=matprod_neg,
+                    use_partition=use_partition,
+                    n_P_chunk=n_P_chunk,
+                    n_N_chunk=n_N_chunk,
+                    xp=cp,
+                )
+            else:
+                z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
+                matprod(z, c)
+                logdebug("Z", z)
+
             event["meas_eq"].record(stream)
-            logdebug("Z", z)
             logger.debug(
                 f"After Z, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
             )
-
-            # compute vis = Z.Z^dagger
-            matprod(z, c)
             logger.debug(
                 f"After matprod, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
             )
@@ -248,6 +331,10 @@ def simulate(
 
         events[nchunks - 1]["end"].synchronize()
         matprod.sum_chunks(vis[t])
+        if matprod_neg is not None:
+            vis_neg = np.zeros_like(vis[t])
+            matprod_neg.sum_chunks(vis_neg)
+            vis[t] -= vis_neg
         logdebug("vis", vis[t])
 
         if not t % report_chunk and t != ntimes - 1:

@@ -2,7 +2,7 @@
 
 import pytest
 
-pytest.importorskip("pycuda")
+pytest.importorskip("cupy")
 
 import numpy as np
 
@@ -39,7 +39,7 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision, min_chunks, source_
         "min_chunks": min_chunks,
         "source_buffer": source_buffer,
     }
-    vis_cpu = simulate_vis(use_gpu=False, beam_spline_opts={"kx": 1, "ky": 1}, **kw)
+    vis_cpu = simulate_vis(use_gpu=False, beam_spline_opts={"order": 1}, **kw)
     vis_gpu = simulate_vis(use_gpu=True, **kw)
 
     # ---------------------------------------------------------------------------

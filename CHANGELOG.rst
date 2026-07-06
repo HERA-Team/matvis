@@ -5,6 +5,29 @@ Changelog
 Dev
 ===
 
+Added
+-----
+
+- Full-Stokes sky-model support via the new ``stokes=(4, NSRCS, NFREQS)``
+  parameter of ``simulate_vis``. Visibilities are computed from the
+  eigendecomposition of the 2x2 coherency matrix ``C = M M†``; EoR-like
+  skies with negative Stokes I are handled by source-partition sign-split
+  so total matmul cost stays at ``O(Nsrc)`` per chunk even when sources
+  carry negative flux.
+
+Changed
+-------
+
+- ``simulate_vis`` now requires exactly one of ``fluxes`` or ``stokes``;
+  passing both or neither raises ``ValueError``. The backend
+  ``simulate`` functions in ``matvis.cpu`` and ``matvis.gpu`` enforce
+  the same contract on ``I_sky`` / ``stokes``.
+- ``raise_on_negative_flux`` default is now context-aware: ``True`` when
+  ``fluxes`` is provided (a negative flux in the scalar-sky path is
+  almost always unintended), ``False`` when ``stokes`` is provided (EoR
+  models can legitimately carry negative Stokes I). Set explicitly to
+  override.
+
 Fixed
 -----
 

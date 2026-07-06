@@ -97,6 +97,7 @@ namespaces = true
 addopts = ["--cov=matvis", "--cov-report=term-missing", "--verbose"]
 norecursedirs = ["dist", "build", ".tox"]
 testpaths = ["tests"]
+markers = ["benchmark: Runtime benchmarks (skipped unless RUN_BENCHMARKS=1)"]
 
 [tool.ruff]
 line-length = 88
@@ -113,7 +114,7 @@ extend-exclude = [
 [tool.ruff.lint]
 select = ["A", "B", "C4", "C90", "D", "E", "F", "G", "I", "T20", "UP", "W"]
 ignore = ["B007", "D107", "D401", "D404", "E203", "E231", "E266", "E501", "F401", "F403", "G004"]
-per-file-ignores = { "src/matvis/cli.py" = ["T20"], "tests/*.py" = ["E402", "T20"] }
+per-file-ignores = { "src/matvis/cli.py" = ["T20"], "tests/*.py" = ["E402", "E741", "T20"], "src/matvis/core/coherency.py" = ["E741"] }
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
