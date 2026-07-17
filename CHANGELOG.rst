@@ -51,7 +51,7 @@ Tests
 - Re-enabled the CPU-vs-GPU parity test suite, which had been silently
   skipped since the move away from ``pycuda`` (it still guarded on
   ``importorskip("pycuda")``); extended it to single precision.
-- New ``tests/test_precision.py`` validating single- against double-precision
+- New ``tests/test_precision_gpu.py`` validating single- against double-precision
   results end-to-end on both backends.
 
 Version 1.0.1

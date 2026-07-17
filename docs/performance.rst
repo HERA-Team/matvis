@@ -100,7 +100,7 @@ Precision
 =========
 
 Single precision is the recommended production mode: it is validated against
-double precision in ``tests/test_precision.py`` (agreement to :math:`10^{-5}`
+double precision in ``tests/test_precision_gpu.py`` (agreement to :math:`10^{-5}`
 of the peak visibility at test scale), uses half the memory, and is at least
 2x faster even on data-centre GPUs with strong fp64 (V100/A100). On
 consumer/workstation GPUs, fp64 arithmetic runs at 1/32 of fp32 throughput,
