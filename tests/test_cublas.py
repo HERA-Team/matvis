@@ -53,3 +53,89 @@ def test_zdotz_out_and_beta():
     cb.zdotz(cp.asarray(a), out=out)
     cb.zdotz(cp.asarray(a), out=out, beta=1.0)
     np.testing.assert_allclose(out.get(), 2 * expected, rtol=1e-4)
+
+
+def test_zdotz_invalid_dtype():
+    """Zdotz should reject non-complex input dtypes."""
+    a = cp.zeros((4, 4), dtype=np.float32)
+    with pytest.raises(TypeError, match="invalid dtype"):
+        cb.zdotz(a)
+
+
+def test_complex_matmul_invalid_dtype():
+    """complex_matmul should reject non-complex input dtypes."""
+    a = cp.zeros((4, 4), dtype=np.float64)
+    with pytest.raises(TypeError, match="invalid dtype"):
+        cb.complex_matmul(a, a)
+
+
+def test_zdotz_falls_back_to_complex_matmul_without_lib(monkeypatch):
+    """When libcublas can't be bound directly, zdotz should use cgemm/zgemm."""
+    rng = np.random.default_rng(99)
+    a = (rng.standard_normal((5, 40)) + 1j * rng.standard_normal((5, 40))).astype(
+        np.complex64
+    )
+
+    monkeypatch.setattr(cb, "_LIB", None)
+    c = cb.zdotz(cp.asarray(a))
+    np.testing.assert_allclose(c.get(), np.dot(a.conj(), a.T), rtol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "dtype,symbol",
+    [(np.complex64, "cublasCherk_v2"), (np.complex128, "cublasZherk_v2")],
+)
+def test_zdotz_raises_on_herk_failure(monkeypatch, dtype, symbol):
+    """A non-zero cuBLAS status from herk should raise a RuntimeError."""
+    a = cp.ones((4, 10), dtype=dtype)
+    monkeypatch.setattr(cb._LIB, symbol, lambda *args: 13)
+    with pytest.raises(RuntimeError, match="cublas herk failed"):
+        cb.zdotz(a)
+
+
+def test_complex_matmul_raises_on_gemm3m_failure(monkeypatch):
+    """A non-zero cuBLAS status from cgemm3m should raise a RuntimeError."""
+    a = cp.ones((4, 10), dtype=np.complex64)
+    monkeypatch.setattr(cb._LIB, "cublasCgemm3m", lambda *args: 13)
+    with pytest.raises(RuntimeError, match="cublas gemm3m failed"):
+        cb.complex_matmul(a, a)
+
+
+def test_load_cublas_ext_retries_sonames(monkeypatch):
+    """_load_cublas_ext should try each soname until one loads successfully."""
+    attempted = []
+
+    class FakeCDLL:
+        def __init__(self, name):
+            attempted.append(name)
+            if len(attempted) < 3:
+                raise OSError(f"cannot load {name}")
+            self._fns = {}
+
+        def __getattr__(self, name):
+            fn = lambda *a, **kw: 0  # noqa: E731
+            self._fns[name] = fn
+            return fn
+
+    class FakeCtypes:
+        CDLL = FakeCDLL
+
+    monkeypatch.setattr(cb, "ctypes", FakeCtypes())
+    lib = cb._load_cublas_ext()
+
+    assert lib is not None
+    assert len(attempted) == 3
+
+
+def test_load_cublas_ext_returns_none_if_all_sonames_fail(monkeypatch):
+    """_load_cublas_ext should return None (not raise) if no soname loads."""
+
+    class FakeCDLL:
+        def __init__(self, name):
+            raise OSError(f"cannot load {name}")
+
+    class FakeCtypes:
+        CDLL = FakeCDLL
+
+    monkeypatch.setattr(cb, "ctypes", FakeCtypes())
+    assert cb._load_cublas_ext() is None

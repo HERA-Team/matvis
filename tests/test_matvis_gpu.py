@@ -1,5 +1,7 @@
 """Tests of functionality of matvis_gpu."""
 
+import logging
+
 import pytest
 
 pytest.importorskip("cupy")
@@ -10,6 +12,7 @@ from pyuvdata.beam_interface import BeamInterface
 
 from matvis import simulate_vis
 from matvis._test_utils import get_standard_sim_params
+from matvis.gpu.gpu import LAST_RUN_STATS
 
 
 def test_antizenith():
@@ -23,6 +26,64 @@ def test_antizenith():
     )
 
     assert np.all(vis == 0)
+
+
+def test_gpu_event_timing_zero_active_chunks():
+    """gpu_event_timing must handle a run where no chunk is ever active.
+
+    Exercises the early-continue branch in the chunk loop, where no source is
+    ever above the horizon.
+    """
+    kw, *_ = get_standard_sim_params(
+        True, False, nsource=1, first_source_antizenith=True
+    )
+
+    vis = simulate_vis(
+        precision=2,
+        use_gpu=True,
+        gpu_event_timing=True,
+        beam_spline_opts={"kx": 1, "ky": 1},
+        **kw,
+    )
+
+    assert np.all(vis == 0)
+    # chunk_total is always recorded, even for inactive chunks; the per-stage
+    # timings stay at zero since no chunk was ever active.
+    stats = LAST_RUN_STATS["event_timing_ms"]
+    assert stats["chunk_total"] >= 0
+    assert stats["matprod"] == 0.0
+
+
+@pytest.mark.parametrize("use_analytic_beam", [True, False])
+def test_gpu_event_timing_and_debug_logging(caplog, use_analytic_beam):
+    """gpu_event_timing=True plus DEBUG logging must run cleanly end-to-end.
+
+    This exercises the CUDA-event recording/aggregation for active chunks and
+    the GPU memory debug-logging calls scattered through setup and the loop.
+    Both analytic and gridded (UVBeam) beams are tested so that the
+    ``bmfunc.use_interp`` debug branch is hit both ways.
+    """
+    kw, *_ = get_standard_sim_params(
+        use_analytic_beam=use_analytic_beam, polarized=True, nfreq=1, nsource=3, ntime=2
+    )
+    kw |= {"precision": 2, "use_gpu": True, "gpu_event_timing": True}
+
+    gpu_logger = logging.getLogger("matvis.gpu.gpu")
+    prev_level = gpu_logger.level
+    gpu_logger.setLevel(logging.DEBUG)
+    try:
+        with caplog.at_level(logging.DEBUG, logger="matvis.gpu.gpu"):
+            vis = simulate_vis(**kw)
+    finally:
+        gpu_logger.setLevel(prev_level)
+
+    assert vis.shape[:2] == (1, 2)  # nfreqs, ntimes
+    assert any("GPU mem" in r.message for r in caplog.records)
+
+    stats = LAST_RUN_STATS["event_timing_ms"]
+    assert stats["chunk_total"] > 0
+    assert stats["beam"] > 0
+    assert stats["matprod"] > 0
 
 
 def test_multibeam():
