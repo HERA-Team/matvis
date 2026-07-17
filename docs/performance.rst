@@ -146,7 +146,7 @@ Changes that significantly altered performance, newest first:
    * - Version / PR
      - Change
      - Measured impact
-   * - PR TBD (July 2026)
+   * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
      - GPU hot-path overhaul: Hermitian rank-k (``cherk``) matrix product and
        ``cgemm3m`` bound directly from cuBLAS; single fused bilinear
        beam-interpolation kernel (replacing ~1400 ``map_coordinates`` launches
