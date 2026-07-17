@@ -10,6 +10,7 @@ It will also save these results in pickle format to a file annotated with the in
 from __future__ import annotations
 
 import inspect
+import json
 import linecache
 import logging
 import os
@@ -39,6 +40,7 @@ logging.basicConfig(handlers=[RichHandler(rich_tracebacks=True)])
 
 if HAVE_GPU:
     from matvis import gpu
+    from matvis.gpu import gpu as gpu_module
 
 simcpu = cpu.simulate
 
@@ -94,6 +96,7 @@ def run_profile(
     pairs=None,
     nchunks=1,
     source_buffer=1.0,
+    gpu_event_timing=False,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -128,6 +131,7 @@ def run_profile(
     cns.print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
     cns.print(f"  NAZ:              {naz:>7}")
     cns.print(f"  NZA:              {nza:>7}")
+    cns.print(f"  GPU-EVENT-TIMING: {gpu_event_timing:>7}")
     cns.print(Rule())
 
     if gpu:
@@ -155,6 +159,7 @@ def run_profile(
         antpairs=pairs,
         min_chunks=nchunks,
         source_buffer=source_buffer,
+        gpu_event_timing=gpu_event_timing,
     )
     out_time = time.time()
 
@@ -195,6 +200,40 @@ def run_profile(
 
     with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
         pickle.dump(thing_stats, fl)
+
+    # Machine-readable summary for before/after benchmark comparisons.
+    summary = {
+        "config": {
+            "analytic_beam": analytic_beam,
+            "nfreq": nfreq,
+            "ntimes": ntimes,
+            "nants": nants,
+            "nbeams": nbeams,
+            "nsource": nsource,
+            "gpu": gpu,
+            "precision": 2 if double_precision else 1,
+            "matprod_method": matprod_method,
+            "coord_method": coord_method,
+            "naz": naz,
+            "nza": nza,
+            "nchunks": nchunks,
+            "source_buffer": source_buffer,
+        },
+        "total_time": out_time - init_time,
+        "stages": {
+            thing: {
+                "hits": hits,
+                "time": _time,
+                "time_per_hit": time_per_hit,
+                "percent": percent,
+            }
+            for thing, (hits, _time, time_per_hit, percent, _) in thing_stats.items()
+        },
+    }
+    if gpu:
+        summary["run_stats"] = dict(gpu_module.LAST_RUN_STATS)
+    with open(f"{outdir}/summary-stats-{str_id}.json", "w") as fl:
+        json.dump(summary, fl, indent=2)
 
 
 common_profile_options = [
@@ -248,6 +287,7 @@ common_profile_options = [
     click.option("--naz", default=360, type=int),
     click.option("--nza", default=180, type=int),
     click.option("--source-buffer", default=1.0, type=float),
+    click.option("--gpu-event-timing/--no-gpu-event-timing", default=False),
 ]
 
 

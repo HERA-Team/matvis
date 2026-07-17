@@ -52,3 +52,9 @@ full-stats-*.txt
 stats-*.pkl
 summary-stats-*.pkl
 .hypothesis/*
+
+# Profiling/benchmark outputs
+profiling/results/
+summary-stats-*.json
+*.nsys-rep
+*.sqlite
