@@ -70,6 +70,9 @@ excluding one-off setup of a few seconds):
    * - RTX A2000 laptop (Ampere, 95 W class)
      - 350 ants, 350 beams, polarized, fp32, 10⁶ sources
      - ~2.1 s
+   * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
+     - 350 ants, 350 beams, polarized, fp32, 10⁶ sources
+     - ~1.8 s
 
 Scale this linearly in :math:`N_{\rm src}` and quadratically in
 :math:`N_{\rm ant}` (above ~200 antennas). Frequencies are embarrassingly
@@ -95,6 +98,41 @@ Measure :math:`R` for your own GPU and problem shape with
    the dominant cost directly. If your sky is roughly uniform (half below the
    horizon at any time), ``source_buffer=0.6`` is nearly a 2x saving over the
    default ``1.0``.
+
+GEMM strategy: hardware dependence
+-----------------------------------
+
+``matvis`` computes the matrix product with the cuBLAS Hermitian rank-k
+routine (``cherk``/``zherk``, half the FLOPs of a general GEMM) and, for the
+redundant-baseline ``GPUVectorDot`` path, with ``cgemm3m`` (the Gauss 3M
+algorithm, ~25% fewer real multiplies). Both are bound directly from
+``libcublas`` since cupy doesn't expose them. **How much they help is
+architecture-dependent** — measured at :math:`M=700, K=10^5` (350 antennas,
+polarized, complex64):
+
+.. list-table::
+   :header-rows: 1
+
+   * - GPU
+     - cgemm (baseline)
+     - cgemm3m
+     - cherk
+   * - RTX A2000 (Ampere)
+     - 213 ms
+     - 100 ms (2.1x)
+     - 75 ms (2.8x)
+   * - GeForce GTX Titan X (Maxwell)
+     - 72 ms
+     - 107 ms (0.7x — *slower*)
+     - 71 ms (~1.0x — no measurable gain)
+
+On Maxwell, cuBLAS's baseline ``cgemm`` kernel for this shape is already
+close to the card's roofline, leaving no headroom for either alternative;
+``cgemm3m``'s extra bookkeeping makes it a net loss. ``cherk`` is never worse
+than ``cgemm`` in either case, so it remains a safe default for the primary
+``GPUMatMul`` path regardless of hardware. Before relying on ``cgemm3m`` for
+a new GPU generation, check it with ``profiling/gemm_experiments.py`` — the
+code does not currently auto-select based on a runtime benchmark.
 
 Precision
 =========
@@ -134,6 +172,20 @@ The ``profiling/`` directory in the repository contains canonical benchmark
 configurations, GEMM/interpolation "speed of light" micro-benchmarks, and an
 ``nsys`` recipe (the GPU loop is annotated with NVTX ranges). See
 ``profiling/README.md``.
+
+.. warning::
+
+   The ``stages`` table in the JSON output (and the "Summary of timings"
+   printed by the CLI) comes from ``line_profiler`` timing individual Python
+   lines, but the GPU loop is asynchronous: a line can appear to take a long
+   time simply because it's where the host next blocks on already-queued GPU
+   work (this is especially visible in "Coordinate Rotation", which shares
+   its line-profiler bucket with the horizon-cut's blocking sync — see
+   issue #133). It is not a reliable per-stage breakdown for the GPU
+   backend. For real GPU-side costs use ``run_stats.event_timing_ms``
+   (``--gpu-event-timing``, CUDA-event based), and for overall throughput
+   use ``run_stats.time_per_integration`` — that is the number reported in
+   the Rules of Thumb table above.
 
 Performance changelog
 =====================
