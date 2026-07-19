@@ -75,8 +75,8 @@ polarized, fp32, 10⁶ sources — via ``profiling/run-canonical.sh``:
      - 1.6 s
      - 1.7 s
    * - Quadro RTX 5000 (Turing, 16 GB workstation card)
-     - TBD [2]_
-     - ~1.8 s [2]_
+     - 1.8 s
+     - 1.8 s
 
 **GPU time** (``derived.gpu_time_per_integration``: median per-chunk CUDA
 events × chunk count) measures the card and transfers between machines with
@@ -84,12 +84,7 @@ the same GPU. **Wall time** (``derived.steady_wall_per_integration``: median
 per-integration wall time, excluding the first integration) adds host-side
 work — coordinate rotation, Python dispatch — and so also depends on the
 machine's CPU; the difference between the columns is the host overhead on
-the benchmark machine.
-
-.. [2] Measured before the profiling harness gained its warmup pass and
-   median-based statistics; wall values are steady-state estimates from
-   per-integration logs, and GPU-time medians were not recorded. To be
-   re-measured.
+the benchmark machine (2% or less on all three machines above).
 
 Scale this linearly in :math:`N_{\rm src}` and quadratically in
 :math:`N_{\rm ant}` (above ~200 antennas). Frequencies are embarrassingly
@@ -152,9 +147,11 @@ substantially (Ampere), neither helps (Maxwell), or only ``cgemm3m`` helps —
 and by enough to matter (Turing: ``cherk`` is within noise of plain
 ``cgemm``, but ``cgemm3m`` is ~1.6x faster than either). Because ``matvis``'s
 primary matrix-product path (``GPUMatMul``) always uses ``cherk``, the Turing
-result is a real, currently-unrealized gain: matprod is 66% of chunk time in
-the production-slice benchmark above, so switching to ``cgemm3m`` there would
-cut chunk time by roughly 20–25%. ``cherk`` is never *worse* than ``cgemm``
+result is a real, currently-unrealized gain: on that card matprod is ~89% of
+per-chunk GPU time in the production-slice benchmark (52 of 59 ms, median),
+so switching to ``cgemm3m`` there would cut GPU time per integration by
+roughly 30% — enough to make it the fastest of the three cards measured,
+instead of the slowest. ``cherk`` is never *worse* than ``cgemm``
 in any of the three measurements, so it remains a safe default, but it is
 clearly not always the *fastest* choice. There is currently no runtime
 auto-selection between strategies (tracked in
