@@ -43,6 +43,12 @@ Infrastructure
   (including per-stage CUDA-event timings with ``--gpu-event-timing``), and
   the GPU loop is annotated with NVTX ranges for ``nsys``. Canonical
   benchmark configs and roofline micro-benchmarks live in ``profiling/``.
+- The profiling harness is robust to one-time costs and host noise: an
+  untimed warmup simulation runs first (``--no-warmup`` to disable),
+  per-integration wall times are recorded individually, CUDA-event stage
+  timings report medians as well as means, and a ``derived`` block in the
+  JSON separates steady-state wall time, GPU-only time, and host overhead
+  per integration.
 
 Tests
 -----

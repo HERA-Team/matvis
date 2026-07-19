@@ -58,36 +58,38 @@ more than one shared beam.
 Rules of thumb
 ==============
 
-Measured steady-state cost per integration (one time sample, one frequency,
-excluding one-off setup of a few seconds):
+Measured cost per integration (one time sample, one frequency) at the
+canonical production-slice configuration — 350 antennas, 350 beams,
+polarized, fp32, 10⁶ sources — via ``profiling/run-canonical.sh``:
 
 .. list-table::
    :header-rows: 1
 
    * - Hardware
-     - Configuration
-     - Time per integration
+     - GPU time / integration
+     - Wall time / integration
    * - RTX A2000 laptop (Ampere, 95 W class)
-     - 350 ants, 350 beams, polarized, fp32, 10⁶ sources
-     - ~2.1 s
+     - 2.0 s
+     - 2.1 s
    * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
-     - 350 ants, 350 beams, polarized, fp32, 10⁶ sources
-     - ~1.8 s
+     - TBD [2]_
+     - ≲1.8 s [2]_
    * - Quadro RTX 5000 (Turing, 16 GB workstation card)
-     - 350 ants, 350 beams, polarized, fp32, 10⁶ sources
-     - ~3.0 s
+     - TBD [2]_
+     - ~1.8 s [2]_
 
-.. note::
+**GPU time** (``derived.gpu_time_per_integration``: median per-chunk CUDA
+events × chunk count) measures the card and transfers between machines with
+the same GPU. **Wall time** (``derived.steady_wall_per_integration``: median
+per-integration wall time, excluding the first integration) adds host-side
+work — coordinate rotation, Python dispatch — and so also depends on the
+machine's CPU; the difference between the columns is the host overhead on
+the benchmark machine.
 
-   These end-to-end numbers combine GPU compute with host-side work
-   (coordinate rotation, Python dispatch), so they measure the whole system,
-   not just the card, and vary with the cluster's CPU as well as the GPU.
-   GPU-only time (``event_timing_ms.chunk_total`` × ``nchunks``) accounts for
-   ~95% of the RTX A2000 entry above (~0.1 s/integration of host overhead)
-   but only ~80% of the Quadro RTX 5000 entry (~0.6 s/integration of host
-   overhead on that particular cluster node) — a slower total doesn't
-   necessarily mean a slower GPU. If you want a GPU-only comparison, use
-   ``event_timing_ms`` directly rather than ``time_per_integration``.
+.. [2] Measured before the profiling harness gained its warmup pass and
+   median-based statistics; wall values are steady-state estimates from
+   per-integration logs, and GPU-time medians were not recorded. To be
+   re-measured.
 
 Scale this linearly in :math:`N_{\rm src}` and quadratically in
 :math:`N_{\rm ant}` (above ~200 antennas). Frequencies are embarrassingly
@@ -186,13 +188,29 @@ Benchmarking your own configuration
 ===================================
 
 The ``matvis profile`` CLI runs a synthetic simulation of any size and
-reports per-stage timings (line-profiler based, plus per-chunk CUDA event
-timings with ``--gpu-event-timing``), writing machine-readable
-``summary-stats-*.json`` files::
+writes a machine-readable ``summary-stats-*.json``::
 
     matvis profile -a 350 -b 350 -s 1000000 -t 4 --gpu \
         --interpolated-beam --single-precision --gpu-event-timing \
         --coord-method CoordinateRotationERFA -o outdir
+
+The harness is designed so its headline numbers are robust out of the box:
+
+- An untimed **warmup** simulation runs first (disable with ``--no-warmup``),
+  so one-time costs — cupy kernel compilation, cuBLAS workspace allocation,
+  ERFA/IERS cache loads — are paid before any timing starts. Without it, the
+  first integration can be several times slower than steady state and
+  contaminate every average.
+- Per-integration wall times are recorded individually, and the headline
+  ``derived.steady_wall_per_integration`` is the **median excluding the
+  first integration**.
+- Per-chunk CUDA-event stage timings (``--gpu-event-timing``) keep all
+  samples and report **medians** alongside means;
+  ``derived.gpu_time_per_integration`` is the median per-chunk total times
+  the chunk count.
+
+The three ``derived`` values (steady wall, GPU time, host overhead) are the
+ones to quote and compare — they are what the Rules of Thumb table reports.
 
 The ``profiling/`` directory in the repository contains canonical benchmark
 configurations, GEMM/interpolation "speed of light" micro-benchmarks, and an
@@ -201,29 +219,13 @@ configurations, GEMM/interpolation "speed of light" micro-benchmarks, and an
 
 .. warning::
 
-   The ``stages`` table in the JSON output (and the "Summary of timings"
-   printed by the CLI) comes from ``line_profiler`` timing individual Python
-   lines, but the GPU loop is asynchronous: a line can appear to take a long
-   time simply because it's where the host next blocks on already-queued GPU
-   work (this is especially visible in "Coordinate Rotation", which shares
-   its line-profiler bucket with the horizon-cut's blocking sync — see
-   issue #133). It is not a reliable per-stage breakdown for the GPU
-   backend. For real GPU-side costs use ``run_stats.event_timing_ms``
-   (``--gpu-event-timing``, CUDA-event based), and for overall throughput
-   use ``run_stats.time_per_integration`` — that is the number reported in
-   the Rules of Thumb table above.
-
-.. tip::
-
-   Small/single-chunk runs (the ``dev`` canonical config, or any run with
-   few ``ntimes``) can be skewed by one-time CUDA kernel compilation: cupy
-   JIT-compiles the fused ``RawModule``/``RawKernel`` code (beam
-   interpolation, Z matrix) on first use per process, and with few event
-   samples to average over, that one-off cost can dominate a stage's
-   reported mean — beam interpolation in particular, since it's the most
-   complex of the fused kernels. Prefer the ``prodslice`` config (30 chunks
-   × several times gives plenty of samples to average over) when reporting
-   numbers, or run the same config twice and discard the first.
+   The ``stages`` table in the JSON output comes from ``line_profiler``
+   timing individual Python lines, but the GPU loop is asynchronous: a line
+   can appear expensive simply because it's where the host next blocks on
+   already-queued GPU work (especially "Coordinate Rotation", which shares
+   its bucket with the horizon-cut's blocking sync — see issue #133). Use it
+   only as a rough indicator for the CPU backend; for the GPU backend use
+   the ``derived`` and ``run_stats.event_timing_ms`` values.
 
 Performance changelog
 =====================

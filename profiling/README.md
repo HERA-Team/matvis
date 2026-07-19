@@ -6,11 +6,25 @@ measured numbers. The tools here reproduce those measurements:
 - **`run-canonical.sh [outdir] [dev|prodslice|both]`** — runs the two canonical
   benchmark configurations through `matvis profile` (polarized, gridded beams,
   one beam per antenna, single precision). Writes human-readable summaries and
-  machine-readable `summary-stats-*.json` files (wall/setup/loop time,
-  per-stage line-profiler and CUDA-event timings) for before/after comparison.
-  Use `--gpu-event-timing` numbers (per-chunk CUDA events) rather than
-  line-profiler attribution for GPU work: the loop is asynchronous, so
-  host-side timings mostly show where the host happens to block.
+  machine-readable `summary-stats-*.json` files for before/after comparison.
+
+  The harness is warmup- and noise-robust by default: an untimed miniature
+  simulation runs first (`--no-warmup` to disable) so one-time costs (cupy
+  kernel compilation, cuBLAS workspace allocation, ERFA/IERS caches) don't
+  contaminate the timings, per-integration wall times are recorded
+  individually, and CUDA-event stage timings report medians as well as means.
+  The numbers to quote are the JSON's `derived` block:
+
+  - `steady_wall_per_integration` — median wall time per integration,
+    excluding the first (the throughput you'll actually get);
+  - `gpu_time_per_integration` — median per-chunk CUDA-event total × chunk
+    count (measures the card; transfers between machines with the same GPU);
+  - `host_overhead_per_integration` — the difference (measures the host).
+
+  Don't use the line-profiler `stages` table for GPU work: the loop is
+  asynchronous, so host-side timings mostly show where the host happens to
+  block. For quieter numbers on shared nodes, consider locking GPU clocks
+  (`nvidia-smi -lgc <clock>`) if you have permission.
 
 - **`roofline.py`** — "speed of light" micro-benchmarks: the bare cuBLAS Gram
   product at the exact Z-matrix shape, the beam interpolation, and the

@@ -97,6 +97,7 @@ def run_profile(
     nchunks=1,
     source_buffer=1.0,
     gpu_event_timing=False,
+    warmup=True,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -132,7 +133,34 @@ def run_profile(
     cns.print(f"  NAZ:              {naz:>7}")
     cns.print(f"  NZA:              {nza:>7}")
     cns.print(f"  GPU-EVENT-TIMING: {gpu_event_timing:>7}")
+    cns.print(f"  WARMUP:           {warmup:>7}")
     cns.print(Rule())
+
+    if warmup and gpu:
+        # An untimed miniature run with the same precision, beam type and
+        # backend methods, so all one-time costs (cupy RawKernel/ufunc
+        # compilation, cuBLAS handle+workspace creation, ERFA/IERS caches)
+        # are paid before any timing starts.
+        nwarm = min(nsource, 10_000)
+        logger.info("Running warmup simulation (%d sources, 1 time)...", nwarm)
+        simulate_vis(
+            ants=ants,
+            fluxes=flux[:nwarm],
+            ra=ra[:nwarm],
+            dec=dec[:nwarm],
+            freqs=freqs[:1],
+            times=times[:1],
+            beams=cpu_beams,
+            polarized=True,
+            precision=2 if double_precision else 1,
+            telescope_loc=known_telescope_location("hera"),
+            use_gpu=gpu,
+            beam_idx=beam_idx,
+            matprod_method=f"{'GPU' if gpu else 'CPU'}{matprod_method}",
+            coord_method=coord_method,
+            antpairs=pairs,
+            source_buffer=source_buffer,
+        )
 
     if gpu:
         profiler.add_function(simgpu)
@@ -189,9 +217,45 @@ def run_profile(
     line_stats = get_line_based_stats(profiler.get_stats())
     thing_stats = get_summary_stats(line_stats, STEPS)
 
+    # Derived headline numbers, robust to warmup and host noise. These are
+    # the values to quote/compare (see the docs Performance page); the
+    # line-profiler stage table below is indicative only, since the GPU loop
+    # is asynchronous.
+    derived = {}
+    if gpu:
+        run_stats = gpu_module.LAST_RUN_STATS
+        derived["steady_wall_per_integration"] = run_stats[
+            "steady_time_per_integration"
+        ]
+        if "event_timing_ms" in run_stats:
+            gpu_time = (
+                run_stats["event_timing_ms"]["chunk_total"]["median"]
+                * run_stats["nchunks"]
+                / 1000.0
+            )
+            derived["gpu_time_per_integration"] = gpu_time
+            derived["host_overhead_per_integration"] = max(
+                derived["steady_wall_per_integration"] - gpu_time, 0.0
+            )
+
     cns.print()
     cns.print(Rule("Summary of timings"))
     cns.print(f"         Total Time:            {out_time - init_time:.3e} seconds")
+    if "steady_wall_per_integration" in derived:
+        cns.print(
+            f"  Steady-state wall time per integration: "
+            f"{derived['steady_wall_per_integration']:.3e} seconds"
+        )
+    if "gpu_time_per_integration" in derived:
+        cns.print(
+            f"  GPU time per integration (median):      "
+            f"{derived['gpu_time_per_integration']:.3e} seconds"
+        )
+        cns.print(
+            f"  Host overhead per integration:          "
+            f"{derived['host_overhead_per_integration']:.3e} seconds"
+        )
+    cns.print()
     for thing, (hits, _time, time_per_hit, percent, nlines) in thing_stats.items():
         cns.print(
             f"{thing:>19}: {hits:>4} hits, {_time:.3e} seconds, {time_per_hit:.3e} sec/hit, {percent:4.2f}%, {nlines} lines"
@@ -230,6 +294,7 @@ def run_profile(
             for thing, (hits, _time, time_per_hit, percent, _) in thing_stats.items()
         },
     }
+    summary["derived"] = derived
     if gpu:
         summary["run_stats"] = dict(gpu_module.LAST_RUN_STATS)
     with open(f"{outdir}/summary-stats-{str_id}.json", "w") as fl:
@@ -288,6 +353,12 @@ common_profile_options = [
     click.option("--nza", default=180, type=int),
     click.option("--source-buffer", default=1.0, type=float),
     click.option("--gpu-event-timing/--no-gpu-event-timing", default=False),
+    click.option(
+        "--warmup/--no-warmup",
+        default=True,
+        help="Run a small untimed simulation first so one-time costs (kernel "
+        "compilation, cuBLAS workspace, coordinate caches) don't skew timings.",
+    ),
 ]
 
 

@@ -50,8 +50,10 @@ def test_gpu_event_timing_zero_active_chunks():
     # chunk_total is always recorded, even for inactive chunks; the per-stage
     # timings stay at zero since no chunk was ever active.
     stats = LAST_RUN_STATS["event_timing_ms"]
-    assert stats["chunk_total"] >= 0
-    assert stats["matprod"] == 0.0
+    assert stats["chunk_total"]["median"] >= 0
+    assert stats["chunk_total"]["n"] > 0
+    assert stats["matprod"]["median"] == 0.0
+    assert stats["matprod"]["n"] == 0
 
 
 @pytest.mark.parametrize("use_analytic_beam", [True, False])
@@ -81,9 +83,13 @@ def test_gpu_event_timing_and_debug_logging(caplog, use_analytic_beam):
     assert any("GPU mem" in r.message for r in caplog.records)
 
     stats = LAST_RUN_STATS["event_timing_ms"]
-    assert stats["chunk_total"] > 0
-    assert stats["beam"] > 0
-    assert stats["matprod"] > 0
+    assert stats["chunk_total"]["median"] > 0
+    assert stats["beam"]["median"] > 0
+    assert stats["matprod"]["mean"] > 0
+
+    # Per-integration wall times and the warmup-robust steady-state metric.
+    assert len(LAST_RUN_STATS["integration_times"]) == 2
+    assert LAST_RUN_STATS["steady_time_per_integration"] > 0
 
 
 def test_multibeam():

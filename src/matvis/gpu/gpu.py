@@ -218,14 +218,15 @@ def simulate(  # noqa: C901
         event_matprod = [cp.cuda.Event() for _ in range(nchunks)]
         event_end = [cp.cuda.Event() for _ in range(nchunks)]
         active_chunks = np.zeros(nchunks, dtype=bool)
-        event_stats = {
-            "chunk_total": 0.0,
-            "beam": 0.0,
-            "tau": 0.0,
-            "z": 0.0,
-            "matprod": 0.0,
-            "chunk_samples": 0,
-            "stage_samples": 0,
+        # Full per-chunk sample lists rather than running means: medians are
+        # robust to the one-time costs (kernel compilation, cuBLAS workspace
+        # allocation) that land in the first few samples.
+        event_samples = {
+            "chunk_total": [],
+            "beam": [],
+            "tau": [],
+            "z": [],
+            "matprod": [],
         }
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
@@ -237,8 +238,10 @@ def simulate(  # noqa: C901
     tstart = time.time()
     mlast = pr.memory_info().rss
     plast = tstart
+    integration_times = []
 
     for t in range(ntimes):
+        t_int_start = time.time()
         with nvtx_range("rotate"):
             coords.rotate(t)
         if gpu_event_timing:
@@ -316,25 +319,25 @@ def simulate(  # noqa: C901
         if gpu_event_timing:
             for c in range(nchunks):
                 event_end[c].synchronize()
-                event_stats["chunk_total"] += cp.cuda.get_elapsed_time(
-                    event_start[c], event_end[c]
+                event_samples["chunk_total"].append(
+                    cp.cuda.get_elapsed_time(event_start[c], event_end[c])
                 )
-                event_stats["chunk_samples"] += 1
 
                 if not active_chunks[c]:
                     continue
 
-                event_stats["beam"] += cp.cuda.get_elapsed_time(
-                    event_eq2top[c], event_beam[c]
+                event_samples["beam"].append(
+                    cp.cuda.get_elapsed_time(event_eq2top[c], event_beam[c])
                 )
-                event_stats["tau"] += cp.cuda.get_elapsed_time(
-                    event_beam[c], event_tau[c]
+                event_samples["tau"].append(
+                    cp.cuda.get_elapsed_time(event_beam[c], event_tau[c])
                 )
-                event_stats["z"] += cp.cuda.get_elapsed_time(event_tau[c], event_z[c])
-                event_stats["matprod"] += cp.cuda.get_elapsed_time(
-                    event_z[c], event_matprod[c]
+                event_samples["z"].append(
+                    cp.cuda.get_elapsed_time(event_tau[c], event_z[c])
                 )
-                event_stats["stage_samples"] += 1
+                event_samples["matprod"].append(
+                    cp.cuda.get_elapsed_time(event_z[c], event_matprod[c])
+                )
 
         # No explicit synchronization needed: sum_chunks' device-to-host copy
         # is ordered on the same stream as all the compute above.
@@ -342,10 +345,18 @@ def simulate(  # noqa: C901
             matprod.sum_chunks(vis[t])
         logdebug("vis", vis[t])
 
+        integration_times.append(time.time() - t_int_start)
+
         if not t % report_chunk and t != ntimes - 1:
             plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
     final_time = time.time()
+
+    # The first integration typically includes one-time costs (cupy kernel
+    # compilation, cuBLAS workspace allocation, ERFA/IERS cache loads), so the
+    # steady-state throughput is the median of the *remaining* integrations.
+    steady = integration_times[1:] if len(integration_times) > 1 else integration_times
+
     LAST_RUN_STATS.clear()
     LAST_RUN_STATS.update(
         {
@@ -354,26 +365,27 @@ def simulate(  # noqa: C901
             "ntimes": ntimes,
             "nchunks": nchunks,
             "time_per_integration": (final_time - tstart) / ntimes,
+            "integration_times": integration_times,
+            "steady_time_per_integration": float(np.median(steady)),
         }
     )
 
-    if gpu_event_timing and event_stats["chunk_samples"] > 0:
-        chunk_samples = event_stats["chunk_samples"]
-        stage_samples = max(event_stats["stage_samples"], 1)
+    if gpu_event_timing and event_samples["chunk_total"]:
         LAST_RUN_STATS["event_timing_ms"] = {
-            "chunk_total": event_stats["chunk_total"] / chunk_samples,
-            "beam": event_stats["beam"] / stage_samples,
-            "tau": event_stats["tau"] / stage_samples,
-            "z": event_stats["z"] / stage_samples,
-            "matprod": event_stats["matprod"] / stage_samples,
+            stage: {
+                "median": float(np.median(samples)) if samples else 0.0,
+                "mean": float(np.mean(samples)) if samples else 0.0,
+                "n": len(samples),
+            }
+            for stage, samples in event_samples.items()
         }
         logger.info(
-            "GPU event timing (ms): chunk_total=%.3f beam=%.3f tau=%.3f z=%.3f matprod=%.3f",
-            event_stats["chunk_total"] / chunk_samples,
-            event_stats["beam"] / stage_samples,
-            event_stats["tau"] / stage_samples,
-            event_stats["z"] / stage_samples,
-            event_stats["matprod"] / stage_samples,
+            "GPU event timing, median (ms): chunk_total=%.3f beam=%.3f tau=%.3f "
+            "z=%.3f matprod=%.3f",
+            *(
+                LAST_RUN_STATS["event_timing_ms"][stage]["median"]
+                for stage in ("chunk_total", "beam", "tau", "z", "matprod")
+            ),
         )
 
     return vis if polarized else vis[:, :, 0, 0]
@@ -385,7 +397,10 @@ simulate.__doc__ = (
     + """
     gpu_event_timing : bool, optional
         If True, collect per-chunk GPU event timings for beam interpolation,
-        tau, Z construction, and matprod stages, and log stage averages at
-        INFO level at the end of the run. Default is False.
+        tau, Z construction, and matprod stages; log stage medians at INFO
+        level at the end of the run, and expose median/mean/count per stage
+        (plus per-integration wall times and a warmup-robust
+        ``steady_time_per_integration``) via ``LAST_RUN_STATS``. Default is
+        False.
     """
 )
