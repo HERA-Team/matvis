@@ -73,6 +73,21 @@ excluding one-off setup of a few seconds):
    * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
      - 350 ants, 350 beams, polarized, fp32, 10⁶ sources
      - ~1.8 s
+   * - Quadro RTX 5000 (Turing, 16 GB workstation card)
+     - 350 ants, 350 beams, polarized, fp32, 10⁶ sources
+     - ~3.0 s
+
+.. note::
+
+   These end-to-end numbers combine GPU compute with host-side work
+   (coordinate rotation, Python dispatch), so they measure the whole system,
+   not just the card, and vary with the cluster's CPU as well as the GPU.
+   GPU-only time (``event_timing_ms.chunk_total`` × ``nchunks``) accounts for
+   ~95% of the RTX A2000 entry above (~0.1 s/integration of host overhead)
+   but only ~80% of the Quadro RTX 5000 entry (~0.6 s/integration of host
+   overhead on that particular cluster node) — a slower total doesn't
+   necessarily mean a slower GPU. If you want a GPU-only comparison, use
+   ``event_timing_ms`` directly rather than ``time_per_integration``.
 
 Scale this linearly in :math:`N_{\rm src}` and quadratically in
 :math:`N_{\rm ant}` (above ~200 antennas). Frequencies are embarrassingly
@@ -125,14 +140,25 @@ polarized, complex64):
      - 72 ms
      - 107 ms (0.7x — *slower*)
      - 71 ms (~1.0x — no measurable gain)
+   * - Quadro RTX 5000 (Turing)
+     - 80 ms
+     - 51 ms (1.6x — *fastest here*)
+     - 80 ms (~1.0x — no measurable gain)
 
-On Maxwell, cuBLAS's baseline ``cgemm`` kernel for this shape is already
-close to the card's roofline, leaving no headroom for either alternative;
-``cgemm3m``'s extra bookkeeping makes it a net loss. ``cherk`` is never worse
-than ``cgemm`` in either case, so it remains a safe default for the primary
-``GPUMatMul`` path regardless of hardware. Before relying on ``cgemm3m`` for
-a new GPU generation, check it with ``profiling/gemm_experiments.py`` — the
-code does not currently auto-select based on a runtime benchmark.
+Three data points, three different outcomes: both alternatives help
+substantially (Ampere), neither helps (Maxwell), or only ``cgemm3m`` helps —
+and by enough to matter (Turing: ``cherk`` is within noise of plain
+``cgemm``, but ``cgemm3m`` is ~1.6x faster than either). Because ``matvis``'s
+primary matrix-product path (``GPUMatMul``) always uses ``cherk``, the Turing
+result is a real, currently-unrealized gain: matprod is 66% of chunk time in
+the production-slice benchmark above, so switching to ``cgemm3m`` there would
+cut chunk time by roughly 20–25%. ``cherk`` is never *worse* than ``cgemm``
+in any of the three measurements, so it remains a safe default, but it is
+clearly not always the *fastest* choice. There is currently no runtime
+auto-selection between strategies (tracked in
+`issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then,
+check both with ``profiling/gemm_experiments.py`` before assuming ``cherk``
+is optimal on a new GPU generation.
 
 Precision
 =========
@@ -186,6 +212,18 @@ configurations, GEMM/interpolation "speed of light" micro-benchmarks, and an
    (``--gpu-event-timing``, CUDA-event based), and for overall throughput
    use ``run_stats.time_per_integration`` — that is the number reported in
    the Rules of Thumb table above.
+
+.. tip::
+
+   Small/single-chunk runs (the ``dev`` canonical config, or any run with
+   few ``ntimes``) can be skewed by one-time CUDA kernel compilation: cupy
+   JIT-compiles the fused ``RawModule``/``RawKernel`` code (beam
+   interpolation, Z matrix) on first use per process, and with few event
+   samples to average over, that one-off cost can dominate a stage's
+   reported mean — beam interpolation in particular, since it's the most
+   complex of the fused kernels. Prefer the ``prodslice`` config (30 chunks
+   × several times gives plenty of samples to average over) when reporting
+   numbers, or run the same config twice and discard the first.
 
 Performance changelog
 =====================
