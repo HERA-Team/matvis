@@ -72,8 +72,8 @@ polarized, fp32, 10⁶ sources — via ``profiling/run-canonical.sh``:
      - 2.0 s
      - 2.1 s
    * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
-     - TBD [2]_
-     - ≲1.8 s [2]_
+     - 1.6 s
+     - 1.7 s
    * - Quadro RTX 5000 (Turing, 16 GB workstation card)
      - TBD [2]_
      - ~1.8 s [2]_
