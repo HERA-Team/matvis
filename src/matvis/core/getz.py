@@ -99,7 +99,4 @@ class ZMatrixCalc:
         # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
         self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
 
-        if self.gpu:
-            cp.cuda.Device().synchronize()
-
         return self.z
