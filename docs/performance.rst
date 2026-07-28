@@ -77,6 +77,9 @@ polarized, fp32, 10⁶ sources — via ``profiling/run-canonical.sh``:
    * - Quadro RTX 5000 (Turing, 16 GB workstation card)
      - 1.8 s
      - 1.8 s
+   * - Tesla V100-SXM2-32GB (Volta, data-centre)
+     - 0.8 s
+     - 0.8 s
 
 **GPU time** (``derived.gpu_time_per_integration``: median per-chunk CUDA
 events × chunk count) measures the card and transfers between machines with
@@ -84,7 +87,11 @@ the same GPU. **Wall time** (``derived.steady_wall_per_integration``: median
 per-integration wall time, excluding the first integration) adds host-side
 work — coordinate rotation, Python dispatch — and so also depends on the
 machine's CPU; the difference between the columns is the host overhead on
-the benchmark machine (2% or less on all three machines above).
+the benchmark machine (2% or less on all four machines above). The V100 is
+the reference architecture for HERA production (see
+`issue #131 <https://github.com/HERA-Team/matvis/issues/131>`_): more than
+2x faster than any of the workstation/laptop cards above, as expected for a
+data-centre part.
 
 Scale this linearly in :math:`N_{\rm src}` and quadratically in
 :math:`N_{\rm ant}` (above ~200 antennas). Frequencies are embarrassingly
@@ -98,8 +105,9 @@ For a GEMM-dominated estimate on other hardware:
 
 where :math:`R` is the achieved complex-GEMM rate of your GPU. ``matvis``
 computes :math:`V = ZZ^\dagger` with ``cherk``, which does half the work of a
-general GEMM; on the A2000 the *effective* :math:`R` is ~5.2 TFLOPS (fp32).
-Measure :math:`R` for your own GPU and problem shape with
+general GEMM; the *effective* :math:`R` (fp32) is ~5.2 TFLOPS on the A2000
+and ~10.7 TFLOPS on a Tesla V100 — data-centre GPUs are not just "a bit
+faster" here. Measure :math:`R` for your own GPU and problem shape with
 ``profiling/gemm_experiments.py``.
 
 .. important::
@@ -158,6 +166,11 @@ auto-selection between strategies (tracked in
 `issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then,
 check both with ``profiling/gemm_experiments.py`` before assuming ``cherk``
 is optimal on a new GPU generation.
+
+On a Tesla V100 (Volta) — the HERA production reference architecture — the
+plain ``cgemm`` baseline alone reaches ~10.9 TFLOPS at this shape, more than
+double any of the three cards above; the ``cgemm3m``/``cherk`` comparison for
+Volta is pending re-measurement and will be added here once available.
 
 Precision
 =========
