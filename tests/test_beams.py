@@ -1,9 +1,9 @@
 """Test that pixel and analytic beams are properly aligned."""
 
-import pytest
-
 import copy
+
 import numpy as np
+import pytest
 from pytest_lazy_fixtures import lf
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam, GaussianBeam

@@ -1,8 +1,7 @@
 """Test coordinate rotation modules."""
 
-import pytest
-
 import numpy as np
+import pytest
 from astropy import units as un
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
@@ -74,7 +73,7 @@ def get_random_coordrot(n, method, gpu, seed, precision=2, setup: bool = True, *
         skycoords=skycoords,
         gpu=gpu,
         precision=precision,
-        **kw
+        **kw,
     )
     if setup:
         coords.setup()

@@ -4,23 +4,27 @@ from __future__ import annotations
 
 import importlib
 import logging
-import numpy as np
-import psutil
 import time
 import warnings
+from collections.abc import Sequence
+from typing import Literal
+
+import numpy as np
+import psutil
 from astropy.constants import c as speed_of_light
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
-from collections.abc import Sequence
 from docstring_parser import combine_docstrings
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
 from ..core.coherency import (
+    categorize_sources,
+    check_sky_physicality,
+    partition_and_negate,
     process_polarized_chunk,
     stokes_to_coherency,
 )
@@ -64,9 +68,9 @@ def simulate(
     times: Time,
     skycoords: SkyCoord,
     telescope_loc: EarthLocation,
-    I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
-    polarized: bool = False,
+    I_sky: np.ndarray | None = None,
+    polarized: bool | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     beam_idx: np.ndarray | None = None,
     max_memory: int = np.inf,
@@ -81,20 +85,35 @@ def simulate(
     matprod_method: Literal["GPUMatMul", "GPUVectorLoop"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
+    memory_buffer: float = 0.9,
     stokes: np.ndarray | None = None,
-    raise_on_negative_flux: bool = True,
+    raise_on_negative_flux: bool | None = None,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
-    if source_buffer > 1.0:
-        raise ValueError("source_buffer must be less than 1.0")
+    if not 0 < source_buffer <= 1:
+        raise ValueError("source_buffer must satisfy 0 < source_buffer <= 1")
+    if not 0 < memory_buffer <= 1:
+        raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
 
     pr = psutil.Process()
-    nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, times, I_sky, stokes=stokes
+
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
+        )
+
+    nax, nfeed, nant, ntimes, nsrc = _validate_inputs(
+        precision, polarized, antpos, times, I_sky=I_sky, stokes=stokes
     )
+    if raise_on_negative_flux is None:
+        raise_on_negative_flux = stokes is None
 
     rtype, ctype = get_dtypes(precision)
 
@@ -105,15 +124,33 @@ def simulate(
         nax,
         nfeed,
         nant,
-        len(I_sky),
+        nsrc,
         precision,
+        source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
     )
 
     # Determine if we have a polarized sky model
     polarized_sky = stokes is not None and polarized
 
+    use_sign_split = False
+    use_partition = False
+    n_P = n_N = 0
     if polarized_sky:
         I_s, Q_s, U_s, V_s = stokes
+        use_sign_split = check_sky_physicality(
+            I_s, Q_s, U_s, V_s, raise_on_negative=raise_on_negative_flux
+        )
+        if use_sign_split:
+            idx_P, idx_N, idx_M = categorize_sources(I_s, Q_s, U_s, V_s)
+            if len(idx_M) == 0:
+                use_partition = True
+                stokes, skycoords, I_sky, n_P, n_N = partition_and_negate(
+                    stokes, skycoords, I_sky
+                )
+                I_s, Q_s, U_s, V_s = stokes
+
+    if polarized_sky:
         coherency = stokes_to_coherency(I_s, Q_s, U_s, V_s)  # (2, 2, Nsrc)
         flux_for_coords = coherency.transpose(2, 0, 1)[
             :, np.newaxis, :, :
@@ -157,7 +194,7 @@ def simulate(
     matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     matprod_neg = None
-    if polarized_sky and not raise_on_negative_flux:
+    if use_sign_split:
         matprod_neg = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     logger.debug("Starting GPU allocations...")
@@ -216,7 +253,7 @@ def simulate(
         coords.rotate(t)
         events = [{e: cp.cuda.Event() for e in event_order} for _ in range(nchunks)]
 
-        for c, (stream, event) in enumerate(zip(streams, events)):
+        for c, (stream, event) in enumerate(zip(streams, events, strict=True)):
             stream.use()
             event["start"].record(stream)
 
@@ -249,6 +286,18 @@ def simulate(
             event["tau"].record(stream)
 
             if polarized_sky:
+                n_P_chunk = n_N_chunk = 0
+                if use_partition:
+                    chunk_start = c * npixc
+                    p_local_end = min(max(n_P - chunk_start, 0), npixc)
+                    n_local_end = min(max(n_P + n_N - chunk_start, 0), npixc)
+                    above = coords.above_horizon
+                    # searchsorted on device to avoid host sync.
+                    counts = cp.searchsorted(
+                        above, cp.asarray([p_local_end, n_local_end])
+                    )
+                    n_P_chunk = int(counts[0])
+                    n_N_chunk = int(counts[1]) - n_P_chunk
                 process_polarized_chunk(
                     Isqrt,
                     zcalc,
@@ -257,8 +306,11 @@ def simulate(
                     bmfunc.beam_idx,
                     matprod,
                     c,
+                    use_sign_split=use_sign_split,
                     matprod_neg=matprod_neg,
-                    raise_on_negative_flux=raise_on_negative_flux,
+                    use_partition=use_partition,
+                    n_P_chunk=n_P_chunk,
+                    n_N_chunk=n_N_chunk,
                     xp=cp,
                 )
             else:
@@ -291,4 +343,4 @@ def simulate(
     return vis if polarized else vis[:, :, 0, 0]
 
 
-simulate.__doc__ += simcpu.__doc__
+simulate.__doc__ = (simulate.__doc__ or "") + f"\n{simcpu.__doc__ or ''}"

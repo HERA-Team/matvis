@@ -7,8 +7,8 @@ matvis
     :target: https://badge.fury.io/py/vis-cpu
 .. image:: https://codecov.io/gh/hera-team/ matvis/branch/main/graph/badge.svg
     :target: https://codecov.io/gh/hera-team/ matvis
-.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
-    :target: https://github.com/psf/black
+.. image:: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json
+    :target: https://github.com/astral-sh/ruff
 
 
 Fast matrix-based visibility simulator capable of running on CPU and GPU.

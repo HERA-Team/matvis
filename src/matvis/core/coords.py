@@ -1,7 +1,8 @@
 """Core abstract class for coordinate rotation."""
 
-import numpy as np
 from abc import ABC, abstractmethod
+
+import numpy as np
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
 
@@ -112,6 +113,10 @@ class CoordinateRotation(ABC):
         flux = self.flux[slc]
 
         above_horizon = self.xp.where(topo[2] > 0)[0]
+        # Expose chunk-local above-horizon indices so polarized-sky callers
+        # can compute per-chunk source-category counts without recomputing
+        # the horizon mask.
+        self.above_horizon = above_horizon
         n = len(above_horizon)
         if n > self.nsrc_alloc:
             raise ValueError(

@@ -1,8 +1,9 @@
 """Base class for performing the source-summing operation."""
 
-import numpy as np
 from abc import ABC, abstractmethod
 from typing import Any
+
+import numpy as np
 
 from .._utils import get_dtypes
 

@@ -3,17 +3,18 @@
 Not run in CI — use: pytest tests/test_polarized_benchmark.py -v -s
 """
 
-import pytest
-
 import os
+
+import pytest
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("RUN_BENCHMARKS"),
     reason="Set RUN_BENCHMARKS=1 to run benchmarks",
 )
 
-import numpy as np
 import time
+
+import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation
 from astropy.time import Time

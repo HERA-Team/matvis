@@ -1,12 +1,13 @@
 """Tests."""
 
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, Latitude, Longitude
 from astropy.time import Time
 from astropy.units import Quantity
-from dataclasses import replace
-from pathlib import Path
 from pyradiosky import SkyModel
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import GaussianBeam
@@ -154,10 +155,22 @@ def get_standard_sim_params(
     # Calculate stokes at all the frequencies.
     sky_model.at_frequencies(Quantity(freqs, "Hz"), inplace=True)
 
+    if use_polarized_sky:
+        # (4, Nfreq, Ncomp) Quantity in Jy → (4, Ncomp, Nfreq) numpy.
+        # Extract from the SkyModel post-at_frequencies so the matvis
+        # input is bit-identical to what pyuvsim sees.
+        stokes_full = sky_model.stokes.to_value("Jy").transpose(0, 2, 1)
+        assert not np.any(np.isnan(stokes_full)), (
+            "NaN in stokes — pyradiosky spectral interpolation failed"
+        )
+        flux_kw = {"stokes": stokes_full}
+    else:
+        flux_kw = {"fluxes": flux}
+
     return (
         {
             "ants": ants,
-            "fluxes": flux,
+            **flux_kw,
             "ra": sky_model.ra.rad,
             "dec": sky_model.dec.rad,
             "freqs": freqs,

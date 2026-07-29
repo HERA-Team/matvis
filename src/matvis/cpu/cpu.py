@@ -4,21 +4,25 @@ from __future__ import annotations
 
 import importlib
 import logging
-import numpy as np
-import psutil
 import time
 import tracemalloc as tm
+from collections.abc import Sequence
+from typing import Literal
+
+import numpy as np
+import psutil
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.time import Time
-from collections.abc import Sequence
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
-from typing import Literal
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
 from ..core.coherency import (
+    categorize_sources,
+    check_sky_physicality,
+    partition_and_negate,
     process_polarized_chunk,
     stokes_to_coherency,
 )
@@ -42,11 +46,11 @@ def simulate(
     times: Time,
     skycoords: SkyCoord,
     telescope_loc: EarthLocation,
-    I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
+    I_sky: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     precision: int = 1,
-    polarized: bool = False,
+    polarized: bool | None = None,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
@@ -57,9 +61,10 @@ def simulate(
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
+    memory_buffer: float = 0.9,
     coord_method_params: dict | None = None,
     stokes: np.ndarray | None = None,
-    raise_on_negative_flux: bool = True,
+    raise_on_negative_flux: bool | None = None,
 ):
     """
     Calculate visibility from an input sky model and beam model.
@@ -71,11 +76,13 @@ def simulate(
     freq : float
         Frequency to evaluate the visibilities at [GHz].
     I_sky : array_like
-        Intensity distribution of sources/pixels on the sky, assuming intensity
-        (Stokes I) only. The Stokes I intensity will be split equally between
-        the two linear polarization channels, resulting in a factor of 0.5 from
-        the value inputted here. This is done even if only one polarization
-        channel is simulated.
+        Per-source Stokes I values used when a scalar sky model is passed
+        (no ``stokes`` argument). The intensity is split equally between
+        the two linear polarization channels, introducing a factor of 0.5
+        relative to the value given here; this applies even when only one
+        polarization channel is simulated. When ``stokes`` is provided,
+        ``I_sky`` is used only for source counting and memory allocation
+        and does not enter the visibility calculation.
         Shape=(NSRCS,).
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
@@ -90,12 +97,16 @@ def simulate(
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
+
         - 1: float32, complex64
         - 2: float64, complex128
+
     polarized : bool, optional
         Whether to simulate a full polarized response in terms of nn, ne, en,
         ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
-        Default: False.
+        If left as ``None`` (default), inferred from ``stokes``: True when
+        ``stokes`` is given, False otherwise. Passing ``polarized=False`` with
+        ``stokes`` raises ``ValueError``.
     beam_idx
         Optional length-NANT array specifying a beam index for each antenna.
         By default, either a single beam is assumed to apply to all antennas or
@@ -123,15 +134,19 @@ def simulate(
         The maximum memory (in bytes) to use for the visibility calculation. This is
         not a hard-set limit, but rather a guideline for how much memory to use. If the
         expected memory usage is more than this, the calculation will be broken up into
-        chunks. Default is 512 MB.
+        chunks.
     min_chunks : int, optional
-        The minimum number of chunks to break the source axis into. Default is 1.
+        The minimum number of chunks to break the source axis into.
     source_buffer : float, optional
         The fraction of the total sources (per chunk) to pre-allocate memory for.
-        Default is 0.55, which allows for 10% variance around half the sources
-        (since half should be below the horizon). If you have a particular sky model in
-        which you expect more or less sources to appear above the horizon at any time,
-        set this to a different value.
+        Default is 1.0, which pre-allocates for all sources in each chunk. This
+        avoids assuming that only a subset of sources will be above the horizon,
+        but uses more memory. If you expect fewer or more sources to appear above
+        the horizon at any time for a particular sky model, set this to a different
+        value.
+    memory_buffer : float, optional
+        The fraction of free memory to use for the calculation. Default is 0.9,
+        which leaves some buffer for other processes and overhead.
     coord_method_params
         Parameters particular to the coordinate rotation method of choice. For example,
         for the CoordinateRotationERFA (and GPU version of the same) method, there
@@ -139,11 +154,12 @@ def simulate(
         which larger values speed up the computation.
     stokes : array_like, optional
         Full Stokes parameters of shape (4, NSRCS) with [I, Q, U, V].
-        When provided with ``polarized=True``, enables polarized sky model
-        via eigendecomposition of the coherency matrix. If None (default),
-        uses ``I_sky`` as Stokes I only (existing behavior). When ``stokes``
-        is provided, ``I_sky`` is only used for source counting and memory
-        allocation, not for computation.
+        Setting ``stokes`` automatically enables ``polarized=True`` and
+        routes through the eigendecomposition of the coherency matrix;
+        passing ``polarized=False`` alongside is an error. If ``None``
+        (default), uses ``I_sky`` as Stokes I only (existing behavior).
+        When ``stokes`` is provided, ``I_sky`` is only used for source
+        counting and memory allocation, not for computation.
     raise_on_negative_flux : bool, optional
         How to handle negative eigenvalues in the coherency matrix.
         If True (default), raise ValueError if any eigenvalue is negative.
@@ -157,30 +173,60 @@ def simulate(
         shape (NTIMES, NBLS, NFEED, NFEED), otherwise it will have
         shape (NTIMES, NBLS).
 
+    Notes
+    -----
+    Three sky-model modes are supported:
+
+    1. ``polarized=False`` — single-feed calculation using ``I_sky``.
+    2. ``polarized=True, stokes=None`` — uses ``I_sky`` as Stokes I only,
+       split 50/50 across the two feeds (legacy behavior).
+    3. ``polarized=True, stokes.shape == (4, NSRCS)`` — full-Stokes
+       visibility via eigendecomposition of the per-source coherency
+       matrix ``C = 0.5 * [[I+Q, U+iV], [U-iV, I-Q]]``.
+
     """
+    if not 0 < source_buffer <= 1:
+        raise ValueError("source_buffer must satisfy 0 < source_buffer <= 1")
+    if not 0 < memory_buffer <= 1:
+        raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
+
     init_time = time.time()
 
-    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
+    if not tm.is_tracing():
         tm.start()
 
     highest_peak = memtrace(0)
 
-    nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, times, I_sky, stokes=stokes
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
+        )
+
+    nax, nfeed, nant, ntimes, nsrc = _validate_inputs(
+        precision, polarized, antpos, times, I_sky=I_sky, stokes=stokes
     )
+    if raise_on_negative_flux is None:
+        raise_on_negative_flux = stokes is None
 
     rtype, ctype = get_dtypes(precision)
 
+    current_memory = tm.get_traced_memory()[0]
+
     nchunks, npixc = get_desired_chunks(
-        min(max_memory, psutil.virtual_memory().available),
+        min(max_memory - current_memory, psutil.virtual_memory().available),
         min_chunks,
         beam_list,
         nax,
         nfeed,
         nant,
-        len(I_sky),
+        nsrc,
         precision,
         source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
     )
 
     coord_method = CoordinateRotation._methods[coord_method]
@@ -188,11 +234,24 @@ def simulate(
     # Determine if we have a polarized sky model
     polarized_sky = stokes is not None and polarized
 
+    use_sign_split = False
+    use_partition = False
+    n_P = n_N = 0
     if polarized_sky:
-        # Build coherency matrices from Stokes params and pass to coord rotation.
-        # CoordinateRotation detects polarized flux via flux.ndim == 4 and will
-        # rotate the coherency from equatorial to alt/az frame automatically.
         I_s, Q_s, U_s, V_s = stokes
+        use_sign_split = check_sky_physicality(
+            I_s, Q_s, U_s, V_s, raise_on_negative=raise_on_negative_flux
+        )
+        if use_sign_split:
+            idx_P, idx_N, idx_M = categorize_sources(I_s, Q_s, U_s, V_s)
+            if len(idx_M) == 0:
+                use_partition = True
+                stokes, skycoords, I_sky, n_P, n_N = partition_and_negate(
+                    stokes, skycoords, I_sky
+                )
+                I_s, Q_s, U_s, V_s = stokes
+
+    if polarized_sky:
         coherency = stokes_to_coherency(I_s, Q_s, U_s, V_s)  # (2, 2, Nsrc)
         flux_for_coords = coherency.transpose(2, 0, 1)[
             :, np.newaxis, :, :
@@ -240,7 +299,7 @@ def simulate(
 
     # For sign-split, allocate a second matprod for negative eigenvalue contributions
     matprod_neg = None
-    if polarized_sky and not raise_on_negative_flux:
+    if use_sign_split:
         matprod_neg = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
@@ -284,6 +343,15 @@ def simulate(
             logdebug("exptau", exptau[:, :nn])
 
             if polarized_sky:
+                n_P_chunk = n_N_chunk = 0
+                if use_partition:
+                    chunk_start = c * npixc
+                    p_local_end = min(max(n_P - chunk_start, 0), npixc)
+                    n_local_end = min(max(n_P + n_N - chunk_start, 0), npixc)
+                    above = coords.above_horizon
+                    n_P_chunk = int(np.searchsorted(above, p_local_end))
+                    n_PN_chunk = int(np.searchsorted(above, n_local_end))
+                    n_N_chunk = n_PN_chunk - n_P_chunk
                 process_polarized_chunk(
                     flux_sqrt,
                     zcalc,
@@ -292,8 +360,11 @@ def simulate(
                     bmfunc.beam_idx,
                     matprod,
                     c,
+                    use_sign_split=use_sign_split,
                     matprod_neg=matprod_neg,
-                    raise_on_negative_flux=raise_on_negative_flux,
+                    use_partition=use_partition,
+                    n_P_chunk=n_P_chunk,
+                    n_N_chunk=n_N_chunk,
                 )
             else:
                 z = zcalc(flux_sqrt, A, exptau, bmfunc.beam_idx)
