@@ -149,28 +149,28 @@ polarized, complex64):
      - 80 ms
      - 51 ms (1.6x — *fastest here*)
      - 80 ms (~1.0x — no measurable gain)
+   * - Tesla V100-SXM2-32GB (Volta)
+     - 36 ms
+     - 21 ms (1.7x — *fastest here*)
+     - 37 ms (~1.0x — no measurable gain)
 
-Three data points, three different outcomes: both alternatives help
-substantially (Ampere), neither helps (Maxwell), or only ``cgemm3m`` helps —
-and by enough to matter (Turing: ``cherk`` is within noise of plain
-``cgemm``, but ``cgemm3m`` is ~1.6x faster than either). Because ``matvis``'s
-primary matrix-product path (``GPUMatMul``) always uses ``cherk``, the Turing
-result is a real, currently-unrealized gain: on that card matprod is ~89% of
-per-chunk GPU time in the production-slice benchmark (52 of 59 ms, median),
-so switching to ``cgemm3m`` there would cut GPU time per integration by
-roughly 30% — enough to make it the fastest of the three cards measured,
-instead of the slowest. ``cherk`` is never *worse* than ``cgemm``
-in any of the three measurements, so it remains a safe default, but it is
-clearly not always the *fastest* choice. There is currently no runtime
-auto-selection between strategies (tracked in
-`issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then,
-check both with ``profiling/gemm_experiments.py`` before assuming ``cherk``
-is optimal on a new GPU generation.
-
-On a Tesla V100 (Volta) — the HERA production reference architecture — the
-plain ``cgemm`` baseline alone reaches ~10.9 TFLOPS at this shape, more than
-double any of the three cards above; the ``cgemm3m``/``cherk`` comparison for
-Volta is pending re-measurement and will be added here once available.
+Four data points, and a pattern rather than a one-off: both alternatives
+help substantially (Ampere), neither helps (Maxwell), or only ``cgemm3m``
+helps — and by enough to matter — on the two most modern architectures
+sampled, Turing (1.6x) and Volta (1.7x). ``cherk`` gives no measurable gain
+on either. Because ``matvis``'s primary matrix-product path (``GPUMatMul``)
+always uses ``cherk``, this is a real, currently-unrealized gain on
+**production hardware**: on the V100, matprod is ~81% of per-chunk GPU time
+in the production-slice benchmark, so switching to ``cgemm3m`` there would
+cut GPU time per integration by roughly 30–35% — a similar-sized win to the
+one measured on Turing. ``cherk`` is never *worse* than ``cgemm`` in any of
+the four measurements, so it remains a safe default, but on the two most
+modern architectures measured it captures none of the available speedup.
+There is currently no runtime auto-selection between strategies (tracked in
+`issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_, now more
+pressing given the V100 result); until then, check both with
+``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal on a
+new GPU generation.
 
 Precision
 =========
