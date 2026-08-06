@@ -144,9 +144,6 @@ class CoordinateRotation(ABC):
         self.coords_above_horizon[:, :n] = topo[:, above_horizon]
         self.flux_above_horizon[n:] = 0
 
-        if self.gpu:
-            self.xp.cuda.Device().synchronize()
-
         return self.coords_above_horizon, self.flux_above_horizon, n
 
     def _rotate_frame_coherency(self, coherency_matrix, ra, dec, alt, az, time) -> None:

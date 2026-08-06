@@ -7,6 +7,7 @@ import logging
 import time
 import warnings
 from collections.abc import Sequence
+from contextlib import contextmanager, nullcontext
 from typing import Literal
 
 import numpy as np
@@ -22,7 +23,6 @@ from pyuvdata.beam_interface import BeamInterface
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
 from ..core.coords import CoordinateRotation
-from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
 from ..cpu.cpu import simulate as simcpu
 
@@ -31,6 +31,7 @@ try:
 
     from . import beams
     from . import matprod as mp
+    from .getz import GPUZMatrixCalc
 
     importlib.import_module(
         ".coords", package=__package__
@@ -52,9 +53,30 @@ logger = logging.getLogger(__name__)
 
 ONE_OVER_C = 1.0 / speed_of_light.value
 
+# Wall-clock and (optional) CUDA-event timings of the most recent simulate()
+# call, for profiling harnesses. Not part of the public API.
+LAST_RUN_STATS: dict = {}
+
+try:
+    from cupy.cuda import nvtx as _nvtx
+
+    @contextmanager
+    def nvtx_range(name: str):
+        """Annotate a block as an NVTX range (visible in nsys timelines)."""
+        _nvtx.RangePush(name)
+        try:
+            yield
+        finally:
+            _nvtx.RangePop()
+
+except ImportError:
+
+    def nvtx_range(name: str):  # noqa: D103
+        return nullcontext()
+
 
 @combine_docstrings(simcpu)
-def simulate(
+def simulate(  # noqa: C901
     *,
     antpos: np.ndarray,
     freq: float,
@@ -75,10 +97,11 @@ def simulate(
         "CoordinateRotationERFA",
         "GPUCoordinateRotationERFA",
     ] = "CoordinateRotationAstropy",
-    matprod_method: Literal["GPUMatMul", "GPUVectorLoop"] = "GPUMatMul",
+    matprod_method: Literal["GPUMatMul", "GPUVectorDot"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     memory_buffer: float = 0.9,
+    gpu_event_timing: bool = False,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator."""
     if not HAVE_CUDA:
@@ -89,6 +112,7 @@ def simulate(
     if not 0 < memory_buffer <= 1:
         raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
 
+    init_time = time.time()
     pr = psutil.Process()
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, times, I_sky
@@ -109,18 +133,6 @@ def simulate(
         memory_buffer=memory_buffer,
     )
 
-    nsrc_alloc = int(npixc * source_buffer)
-
-    bmfunc = beams.GPUBeamInterpolator(
-        beam_list=beam_list,
-        beam_idx=beam_idx,
-        polarized=polarized,
-        nant=nant,
-        freq=freq,
-        nsrc=nsrc_alloc,
-        precision=precision,
-        spline_opts=beam_spline_opts,
-    )
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
     coords = coord_method(
@@ -134,7 +146,21 @@ def simulate(
         gpu=True,
         **coord_method_params,
     )
-    zcalc = ZMatrixCalc(
+    # Use the same buffer width as the coordinate rotator, which may ignore
+    # source_buffer for small chunks (see CoordinateRotation.__init__).
+    nsrc_alloc = coords.nsrc_alloc
+
+    bmfunc = beams.GPUBeamInterpolator(
+        beam_list=beam_list,
+        beam_idx=beam_idx,
+        polarized=polarized,
+        nant=nant,
+        freq=freq,
+        nsrc=nsrc_alloc,
+        precision=precision,
+        spline_opts=beam_spline_opts,
+    )
+    zcalc = GPUZMatrixCalc(
         nsrc=nsrc_alloc, nfeed=nfeed, nant=nant, nax=nax, ctype=ctype, gpu=True
     )
     taucalc = TauCalculator(
@@ -143,6 +169,7 @@ def simulate(
 
     mpcls = getattr(mp, matprod_method)
     matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+    debug_enabled = logger.isEnabledFor(logging.DEBUG)
 
     logger.debug("Starting GPU allocations...")
 
@@ -151,38 +178,56 @@ def simulate(
 
     # antpos here is imaginary and in wavelength units
     taucalc.setup()
-    memnow = cp.cuda.Device().mem_info[0]
-    logger.debug(f"After antpos, GPU mem avail is: {memnow / 1024**3} GB.")
+    if debug_enabled:
+        memnow = cp.cuda.Device().mem_info[0]
+        logger.debug(f"After antpos, GPU mem avail is: {memnow / 1024**3} GB.")
 
     bmfunc.setup()
-    memnow = cp.cuda.Device().mem_info[0]
-    if bmfunc.use_interp:
-        logger.debug(f"After bmfunc, GPU mem avail is: {memnow / 1024**3} GB.")
+    if debug_enabled:
+        memnow = cp.cuda.Device().mem_info[0]
+        if bmfunc.use_interp:
+            logger.debug(f"After bmfunc, GPU mem avail is: {memnow / 1024**3} GB.")
 
     coords.setup()
-    memnow = cp.cuda.Device().mem_info[0]
-    logger.debug(f"After coords, GPU mem avail is: {memnow / 1024**3} GB.")
+    if debug_enabled:
+        memnow = cp.cuda.Device().mem_info[0]
+        logger.debug(f"After coords, GPU mem avail is: {memnow / 1024**3} GB.")
 
     zcalc.setup()
-    memnow = cp.cuda.Device().mem_info[0]
-    logger.debug(f"After zcalc, GPU mem avail is: {memnow / 1024**3} GB.")
+    if debug_enabled:
+        memnow = cp.cuda.Device().mem_info[0]
+        logger.debug(f"After zcalc, GPU mem avail is: {memnow / 1024**3} GB.")
 
     matprod.setup()
-    memnow = cp.cuda.Device().mem_info[0]
-    logger.debug(f"After matprod, GPU mem avail is: {memnow / 1024**3} GB.")
+    if debug_enabled:
+        memnow = cp.cuda.Device().mem_info[0]
+        logger.debug(f"After matprod, GPU mem avail is: {memnow / 1024**3} GB.")
 
-    # output CPU buffers for downloading answers
-    streams = [cp.cuda.Stream() for _ in range(nchunks)]
-    event_order = [
-        "start",
-        "upload",
-        "eq2top",
-        "tau",
-        "beam",
-        "meas_eq",
-        "vis",
-        "end",
-    ]
+    # A single in-order stream serializes the chunk pipeline on the device.
+    # This is required for correctness (the stage objects share one set of
+    # buffers across chunks) and lets the host queue many chunks ahead
+    # without any device-side synchronization in the loop.
+    stream = cp.cuda.Stream()
+    stream.use()
+    if gpu_event_timing:
+        event_start = [cp.cuda.Event() for _ in range(nchunks)]
+        event_eq2top = [cp.cuda.Event() for _ in range(nchunks)]
+        event_beam = [cp.cuda.Event() for _ in range(nchunks)]
+        event_tau = [cp.cuda.Event() for _ in range(nchunks)]
+        event_z = [cp.cuda.Event() for _ in range(nchunks)]
+        event_matprod = [cp.cuda.Event() for _ in range(nchunks)]
+        event_end = [cp.cuda.Event() for _ in range(nchunks)]
+        active_chunks = np.zeros(nchunks, dtype=bool)
+        # Full per-chunk sample lists rather than running means: medians are
+        # robust to the one-time costs (kernel compilation, cuBLAS workspace
+        # allocation) that land in the first few samples.
+        event_samples = {
+            "chunk_total": [],
+            "beam": [],
+            "tau": [],
+            "z": [],
+            "matprod": [],
+        }
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
 
@@ -193,67 +238,169 @@ def simulate(
     tstart = time.time()
     mlast = pr.memory_info().rss
     plast = tstart
+    integration_times = []
 
     for t in range(ntimes):
-        coords.rotate(t)
-        events = [{e: cp.cuda.Event() for e in event_order} for _ in range(nchunks)]
+        t_int_start = time.time()
+        with nvtx_range("rotate"):
+            coords.rotate(t)
+        if gpu_event_timing:
+            active_chunks.fill(False)
 
-        for c, (stream, event) in enumerate(zip(streams, events, strict=True)):
-            stream.use()
-            event["start"].record(stream)
+        for c in range(nchunks):
+            if gpu_event_timing:
+                event_start[c].record(stream)
 
-            crdtop, Isqrt, nsrcs_up = coords.select_chunk(c, t)
+            with nvtx_range("select_chunk"):
+                crdtop, Isqrt, nsrcs_up = coords.select_chunk(c, t)
             logdebug("crdtop", crdtop)
             logdebug("Isqrt", Isqrt)
 
             if nsrcs_up < 1:
+                if gpu_event_timing:
+                    event_end[c].record(stream)
                 continue
 
-            event["eq2top"].record(stream)
-            logger.debug(
-                f"After coords, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
-            )
+            if gpu_event_timing:
+                active_chunks[c] = True
+
+            if gpu_event_timing:
+                event_eq2top[c].record(stream)
+
+            if debug_enabled:
+                logger.debug(
+                    f"After coords, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+                )
 
             # Get beam. Shape is (nax, nfeed, nbeam, nsrc_alloc)
-            A = bmfunc(crdtop[0], crdtop[1], check=t == 0)
-            event["beam"].record(stream)
+            with nvtx_range("beam"):
+                A = bmfunc(crdtop[0], crdtop[1], check=t == 0)
+            if gpu_event_timing:
+                event_beam[c].record(stream)
             logdebug("Beam", A)
-            logger.debug(
-                f"After beam, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
-            )
+            if debug_enabled:
+                logger.debug(
+                    f"After beam, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+                )
 
             # exptau has shape (nant, nsrc)
-            exptau = taucalc(crdtop)
+            with nvtx_range("tau"):
+                exptau = taucalc(crdtop)
             logdebug("exptau", exptau)
-            logger.debug(
-                f"After exptau, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
-            )
-            event["tau"].record(stream)
+            if debug_enabled:
+                logger.debug(
+                    f"After exptau, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+                )
+            if gpu_event_timing:
+                event_tau[c].record(stream)
 
-            z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
-            event["meas_eq"].record(stream)
+            with nvtx_range("z"):
+                z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
+            if gpu_event_timing:
+                event_z[c].record(stream)
             logdebug("Z", z)
-            logger.debug(
-                f"After Z, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
-            )
+            if debug_enabled:
+                logger.debug(
+                    f"After Z, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+                )
 
             # compute vis = Z.Z^dagger
-            matprod(z, c)
-            logger.debug(
-                f"After matprod, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
-            )
+            with nvtx_range("matprod"):
+                matprod(z, c)
+            if debug_enabled:
+                logger.debug(
+                    f"After matprod, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+                )
 
-            event["vis"].record(stream)
-            event["end"].record(stream)
+            if gpu_event_timing:
+                event_matprod[c].record(stream)
+                event_end[c].record(stream)
 
-        events[nchunks - 1]["end"].synchronize()
-        matprod.sum_chunks(vis[t])
+        if gpu_event_timing:
+            for c in range(nchunks):
+                event_end[c].synchronize()
+                event_samples["chunk_total"].append(
+                    cp.cuda.get_elapsed_time(event_start[c], event_end[c])
+                )
+
+                if not active_chunks[c]:
+                    continue
+
+                event_samples["beam"].append(
+                    cp.cuda.get_elapsed_time(event_eq2top[c], event_beam[c])
+                )
+                event_samples["tau"].append(
+                    cp.cuda.get_elapsed_time(event_beam[c], event_tau[c])
+                )
+                event_samples["z"].append(
+                    cp.cuda.get_elapsed_time(event_tau[c], event_z[c])
+                )
+                event_samples["matprod"].append(
+                    cp.cuda.get_elapsed_time(event_z[c], event_matprod[c])
+                )
+
+        # No explicit synchronization needed: sum_chunks' device-to-host copy
+        # is ordered on the same stream as all the compute above.
+        with nvtx_range("sum_chunks"):
+            matprod.sum_chunks(vis[t])
         logdebug("vis", vis[t])
+
+        integration_times.append(time.time() - t_int_start)
 
         if not t % report_chunk and t != ntimes - 1:
             plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
 
+    final_time = time.time()
+
+    # The first integration typically includes one-time costs (cupy kernel
+    # compilation, cuBLAS workspace allocation, ERFA/IERS cache loads), so the
+    # steady-state throughput is the median of the *remaining* integrations.
+    steady = integration_times[1:] if len(integration_times) > 1 else integration_times
+
+    LAST_RUN_STATS.clear()
+    LAST_RUN_STATS.update(
+        {
+            "setup_time": tstart - init_time,
+            "loop_time": final_time - tstart,
+            "ntimes": ntimes,
+            "nchunks": nchunks,
+            "time_per_integration": (final_time - tstart) / ntimes,
+            "integration_times": integration_times,
+            "steady_time_per_integration": float(np.median(steady)),
+        }
+    )
+
+    if gpu_event_timing and event_samples["chunk_total"]:
+        LAST_RUN_STATS["event_timing_ms"] = {
+            stage: {
+                "median": float(np.median(samples)) if samples else 0.0,
+                "mean": float(np.mean(samples)) if samples else 0.0,
+                "n": len(samples),
+            }
+            for stage, samples in event_samples.items()
+        }
+        logger.info(
+            "GPU event timing, median (ms): chunk_total=%.3f beam=%.3f tau=%.3f "
+            "z=%.3f matprod=%.3f",
+            *(
+                LAST_RUN_STATS["event_timing_ms"][stage]["median"]
+                for stage in ("chunk_total", "beam", "tau", "z", "matprod")
+            ),
+        )
+
     return vis if polarized else vis[:, :, 0, 0]
 
 
-simulate.__doc__ = (simulate.__doc__ or "") + f"\n{simcpu.__doc__ or ''}"
+simulate.__doc__ = (
+    (simulate.__doc__ or "")
+    + f"\n{simcpu.__doc__ or ''}"
+    + """
+    gpu_event_timing : bool, optional
+        If True, collect per-chunk GPU event timings for beam interpolation,
+        tau, Z construction, and matprod stages; log stage medians at INFO
+        level at the end of the run, and expose median/mean/count per stage
+        (plus per-integration wall times and a warmup-robust
+        ``steady_time_per_integration``) via ``LAST_RUN_STATS``. Default is
+        False.
+    """
+)

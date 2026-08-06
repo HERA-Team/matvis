@@ -28,7 +28,11 @@ class TauCalculator:
         self.nant = len(antpos)
         self.nsrc = nsrc
         ang_freq = self.rtype(2.0 * np.pi * freq)
-        self.antpos = antpos.astype(self.rtype) * ang_freq * 1j / speed_of_light.value
+        # The 1j promotes to complex128; cast back so the per-chunk matmul
+        # runs at the requested precision.
+        self.antpos = (
+            antpos.astype(self.rtype) * ang_freq * 1j / speed_of_light.value
+        ).astype(self.ctype)
 
         self.gpu = gpu
         if gpu and not HAVE_CUDA:
@@ -64,8 +68,5 @@ class TauCalculator:
         """
         self._xp.matmul(self.antpos, crdtop, out=self.exptau)
         self._xp.exp(self.exptau, out=self.exptau)
-
-        if self.gpu:
-            cp.cuda.Device().synchronize()
 
         return self.exptau

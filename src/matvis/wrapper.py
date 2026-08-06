@@ -47,11 +47,11 @@ def simulate_vis(
     coord_method_params: dict | None = None,
     matprod_method: Literal[
         "MatMul",
-        "VectorLoop",
+        "VectorDot",
         "CPUMatMul",
         "GPUMatMul",
-        "CPUVectorLoop",
-        "GPUVectorLoop",
+        "CPUVectorDot",
+        "GPUVectorDot",
     ] = "MatMul",
     **backend_kwargs,
 ):
@@ -118,7 +118,7 @@ def simulate_vis(
     matprod_method
         The method to use for the final matrix multiplication. Default is 'MatMul',
         which simply uses matrix multiplication over the two full matrices. Currently,
-        the other option is `VectorLoop`, which uses a loop over the antenna pairs,
+        one other option is `VectorDot`, which uses a loop over the antenna pairs,
         computing the sum over sources as a vector dot product, which can be faster for
         large arrays where `antpairs` is small (possibly from high redundancy). You
         should run a performance test before changing this. If not CPU/GPU prefix is
@@ -173,7 +173,7 @@ def simulate_vis(
     else:
         vis = np.zeros((freqs.size, times.size, npairs), dtype=complex_dtype)
 
-    if matprod_method in ["MatMul", "VectorLoop"]:
+    if matprod_method in ["MatMul", "VectorDot"]:
         matprod_method = f"GPU{matprod_method}" if use_gpu else f"CPU{matprod_method}"
 
     # Loop over frequencies and call matvis_cpu/gpu

@@ -34,9 +34,6 @@ class CoordinateRotationAstropy(CoordinateRotation):
         self.all_coords_topo[1] = self.xp.cos(el) * self.xp.cos(az)
         self.all_coords_topo[2] = self.xp.sin(el)
 
-        if self.gpu:
-            self.xp.cuda.Device().synchronize()
-
 
 class CoordinateRotationERFA(CoordinateRotation):
     """Perform coordinate rotation with functions pulled from ERFA.
@@ -225,6 +222,3 @@ class CoordinateRotationERFA(CoordinateRotation):
 
         # now perform observed conversion
         self._atioq(self.all_coords_topo, astrom)
-
-        if self.gpu:
-            self.xp.cuda.Device().synchronize()

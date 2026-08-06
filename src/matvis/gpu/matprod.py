@@ -32,7 +32,6 @@ class GPUMatMul(MatProd):
     def compute(self, z: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
         """Perform the source-summing operation for a single time and chunk."""
         zdotz(z, out=out)
-        cp.cuda.Device().synchronize()
         return out
 
     def sum_chunks(self, out: np.ndarray):
@@ -60,8 +59,6 @@ class GPUMatMul(MatProd):
         else:
             out[:] = cpu[self.ant1_idx, self.ant2_idx]
 
-        cp.cuda.Device().synchronize()
-
 
 class GPUVectorDot(MatProd):
     """Use a loop over specific pairs, performing a vdot over the source axis."""
@@ -84,8 +81,6 @@ class GPUVectorDot(MatProd):
 
         for i, (ai, aj) in enumerate(self.antpairs):
             complex_matmul(z[ai], z[aj], out=out[:, :, i])
-
-        cp.cuda.Device().synchronize()
         return out
 
     def sum_chunks(self, out: np.ndarray):
@@ -95,4 +90,3 @@ class GPUVectorDot(MatProd):
                 self.vis[0] += self.vis[i]
 
         out[:] = self.vis[0].transpose((2, 1, 0)).get()
-        cp.cuda.Device().synchronize()

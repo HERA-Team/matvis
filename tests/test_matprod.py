@@ -15,7 +15,13 @@ def simple_matprod(z):
 @pytest.mark.parametrize("antpairs", [True, False])
 @pytest.mark.parametrize("precision", [1, 2])
 @pytest.mark.parametrize(
-    "method", ["CPUMatMul", "CPUVectorDot", "GPUMatMul", "GPUVectorDot"]
+    "method",
+    [
+        "CPUMatMul",
+        "CPUVectorDot",
+        "GPUMatMul",
+        "GPUVectorDot",
+    ],
 )
 @pytest.mark.parametrize("nchunks", [1, 2])
 def test_matprod(nfeed, antpairs, precision, method, nchunks):

@@ -10,6 +10,7 @@ Contents
    Authors <authors>
    Changelog <changelog>
    Understanding The Algorithm <understanding_the_algorithm>
+   Performance <performance>
    Tutorials <tutorials>
    Module Reference <api>
 

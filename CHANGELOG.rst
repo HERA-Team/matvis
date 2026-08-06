@@ -5,16 +5,60 @@ Changelog
 Dev
 ===
 
+Performance
+-----------
+
+- Major GPU hot-path overhaul (~7.7x faster per chunk at 350 antennas / 350
+  beams / polarized / single precision; see the new "Performance" docs page):
+
+  - Matrix product now uses the cuBLAS Hermitian rank-k routine
+    (``cherk``/``zherk``, half the FLOPs) with ``cgemm3m`` for general
+    products, bound directly from ``libcublas``.
+  - Beam interpolation for gridded beams is a single fused bilinear kernel
+    over all (beam, feed, axis) planes instead of one ``map_coordinates``
+    launch per plane.
+  - The Z matrix is computed in one fused kernel (previously several
+    broadcast passes plus a Python loop over antennas).
+  - The GPU loop runs on a single stream with no device synchronization,
+    keeping the GPU ~95% utilized.
+  - The phase-factor matmul no longer silently runs in complex128 when
+    single precision is requested (this also removes a large hidden
+    temporary that could cause out-of-memory errors).
+
 Fixed
 -----
 
 - Better handling of errors when GPUs are present but currently unavailable for some
   reason.
+- Single-precision GPU simulations with gridded (``UVBeam``) beams no longer
+  crash on a dtype mismatch when uploading beam data.
+- GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
+  ignores ``source_buffer`` for chunks of fewer than 1000 sources),
+  preventing shape-mismatch errors in small simulations.
+
+Infrastructure
+--------------
+
+- ``matvis profile`` writes machine-readable ``summary-stats-*.json``
+  (including per-stage CUDA-event timings with ``--gpu-event-timing``), and
+  the GPU loop is annotated with NVTX ranges for ``nsys``. Canonical
+  benchmark configs and roofline micro-benchmarks live in ``profiling/``.
+- The profiling harness is robust to one-time costs and host noise: an
+  untimed warmup simulation runs first (``--no-warmup`` to disable),
+  per-integration wall times are recorded individually, CUDA-event stage
+  timings report medians as well as means, and a ``derived`` block in the
+  JSON separates steady-state wall time, GPU-only time, and host overhead
+  per integration.
 
 Tests
 -----
 
 - Correct formation of SkyModel for ``pyradiosky>=0.3.0`` in tests.
+- Re-enabled the CPU-vs-GPU parity test suite, which had been silently
+  skipped since the move away from ``pycuda`` (it still guarded on
+  ``importorskip("pycuda")``); extended it to single precision.
+- New ``tests/test_precision_gpu.py`` validating single- against double-precision
+  results end-to-end on both backends.
 
 Version 1.0.1
 =============

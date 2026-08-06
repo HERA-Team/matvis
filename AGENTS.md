@@ -87,3 +87,12 @@ Ask first:
 - Treat the self-hosted GPU runner as environment-sensitive infrastructure.
 - Keep the existing micromamba activation flow unless the user explicitly asks to replace it.
 - Prefer replacing `pip` usage with `uv` usage inside the existing GPU environment rather than redesigning the runner.
+
+## Profiling
+
+- run built-in end-to-end profiling with `uv run matvis profile`
+- use the `--outdir` option to write out line-profiling information (including
+  machine-readable `summary-stats-*.json`).
+- canonical benchmark configs and roofline micro-benchmarks: see `profiling/README.md`.
+- for GPU stage timings, prefer `--gpu-event-timing` (CUDA events) over
+  line-profiler attribution — the GPU loop is asynchronous.
