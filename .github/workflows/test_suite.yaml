@@ -33,7 +33,7 @@ jobs:
       # - uses: FedericoCarboni/setup-ffmpeg@v2
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -51,7 +51,7 @@ jobs:
           uv run --no-sync pytest --ignore tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL }}
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }} # required
@@ -77,7 +77,7 @@ jobs:
         with:
           node-version: 16
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -101,7 +101,7 @@ jobs:
           python -m pytest -k "gpu" --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: ./coverage.xml
           flags: unittests
