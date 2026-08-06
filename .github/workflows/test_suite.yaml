@@ -51,7 +51,7 @@ jobs:
           uv run --no-sync pytest --ignore tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL }}
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }} # required
@@ -101,7 +101,7 @@ jobs:
           python -m pytest -k "gpu" --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=INFO
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: ./coverage.xml
           flags: unittests
