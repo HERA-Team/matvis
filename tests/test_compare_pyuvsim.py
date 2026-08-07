@@ -51,6 +51,69 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
     compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol)
 
 
+@pytest.mark.parametrize(
+    "use_analytic_beam,xfail",
+    [
+        (True, False),
+        pytest.param(
+            False,
+            True,
+            marks=pytest.mark.xfail(
+                reason=(
+                    "Naxes_vec axis-ordering convention mismatch between "
+                    "matvis and pyuvsim on the Jones matrix. matvis stores "
+                    "J[feed, ax=0] = theta-hat, matching: pyuvdata's "
+                    "documented order (uvbeam.py: `# theta hat` on axis 0 "
+                    "of interp_basis_vector); pyradiosky's coherency_calc "
+                    "(spherical_coords_transforms.py: rotation 'in the "
+                    "theta/phi basis'); and Kittiwisit et al. 2025 "
+                    "(arXiv:2312.09763) Sec. 3.2 / App. B which defines C "
+                    "with theta-component first. pyuvsim explicitly swaps "
+                    "to J[feed, ax=0] = phi-hat (antenna.py:145-149 with "
+                    "the comment 'opposite order of beam!', introduced in "
+                    "2018 commit 78ca8bc4 'fix tests'). The swap was never "
+                    "validated against an independent analytic polarized "
+                    "ground truth — see pyuvsim issues #196 and #395, and "
+                    "matvis issues #15, #28, #41. For analytic Gaussian "
+                    "beams theta and phi e-field components are identical "
+                    "so the swap is a no-op and the cross-check passes; "
+                    "for an interpolated UVBeam the swap matters and "
+                    "matvis disagrees with pyuvsim by O(10%) on diagonals "
+                    "(Q-only ~7-9%, U-only ~12-16%, V-only matches "
+                    "because Stokes V is invariant under the swap)."
+                ),
+                strict=True,
+            ),
+        ),
+    ],
+    ids=["analytic_beam", "uvbeam"],
+)
+def test_compare_pyuvsim_polarized_sky(use_analytic_beam, xfail):
+    """Compare the matvis stokes path with pyuvsim for a fully polarized sky (Q,U,V≠0).
+
+    The existing ``test_compare_pyuvsim`` only exercises Stokes I; this one
+    drives non-trivial coherency rotation and XY/YX off-diagonals through
+    the eigendecomposition path.
+    """
+    kw, sky_model, uvbeams, bmdict, uvdata = get_standard_sim_params(
+        use_analytic_beam,
+        polarized=True,
+        use_polarized_sky=True,
+        nsource=250,
+    )
+
+    vis_matvis = simulate_vis(precision=2, **kw)
+    uvd_uvsim = uvsim.run_uvdata_uvsim(
+        uvdata,
+        uvbeams,
+        beam_dict=bmdict,
+        catalog=simsetup.SkyModelData(sky_model),
+    )
+
+    rtol = 2e-4 if use_analytic_beam else 0.01
+    compare_sims(uvd_uvsim, vis_matvis, nants, polarized=True, rtol=rtol)
+
+
 @pytest.mark.parametrize("min_chunks", (1, 2, 3))
 @pytest.mark.parametrize("source_buffer", (1.0, 0.75))
 def test_compare_pyuvsim_chunking(min_chunks, source_buffer, default_uvsim):
@@ -93,7 +156,7 @@ def compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol):
                     if np.max(np.abs(delta.real)) > diff_re:
                         diff_re = np.max(np.abs(delta.real))
                     if np.max(np.abs(delta.imag)) > diff_im:
-                        diff_im = np.abs(np.max(delta.imag))
+                        diff_im = np.max(np.abs(delta.imag))
 
                     err = f"\nMax diff: {diff_re:10.10e} + 1j*{diff_im:10.10e}\n"
                     err += f"Baseline: ({i},{j},{feed1}{feed2})\n"
