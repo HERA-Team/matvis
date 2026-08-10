@@ -107,7 +107,10 @@ where :math:`R` is the achieved complex-GEMM rate of your GPU. ``matvis``
 computes :math:`V = ZZ^\dagger` with ``cherk``, which does half the work of a
 general GEMM; the *effective* :math:`R` (fp32) is ~5.2 TFLOPS on the A2000
 and ~10.7 TFLOPS on a Tesla V100 — data-centre GPUs are not just "a bit
-faster" here. Measure :math:`R` for your own GPU and problem shape with
+faster" here. This formula, evaluated with your own measured :math:`R`, *is*
+the theoretical-minimum GPU time for the matprod stage: :math:`R` already
+reflects the achieved cuBLAS rate, so there's no further headroom to model.
+Measure :math:`R` for your own GPU and problem shape with
 ``profiling/gemm_experiments.py``.
 
 .. important::
@@ -194,6 +197,16 @@ automatically chunked to fit free GPU memory (see ``min_chunks`` and
 ``memory_buffer``); chunking is cheap as long as chunks stay :math:`\gtrsim
 10^4` sources, so large problems run fine on small GPUs.
 
+The raw beam-grid term doesn't scale with chunk size (it's the same whether
+you have 1 chunk or 100), while the :math:`Z`/interpolated-beam terms scale
+with :math:`N_{\rm src}^{\rm alloc}`, i.e. with the chunk size. For
+production-scale runs (:math:`N_{\rm pix} \sim 6.5 \times 10^4` for
+degree-scale beam sampling), the raw beam grids can dominate total memory
+when chunks are small, but become a negligible fraction once chunks are
+large enough that the chunk-scaled terms take over. Worth checking
+explicitly if you're tuning ``min_chunks``/``memory_buffer`` on a
+memory-constrained GPU with many unique beams.
+
 Benchmarking your own configuration
 ===================================
 
@@ -223,7 +236,7 @@ The three ``derived`` values (steady wall, GPU time, host overhead) are the
 ones to quote and compare — they are what the Rules of Thumb table reports.
 
 The ``profiling/`` directory in the repository contains canonical benchmark
-configurations, GEMM/interpolation "speed of light" micro-benchmarks, and an
+configurations, GEMM/interpolation roofline micro-benchmarks, and an
 ``nsys`` recipe (the GPU loop is annotated with NVTX ranges). See
 ``profiling/README.md``.
 
@@ -233,7 +246,8 @@ configurations, GEMM/interpolation "speed of light" micro-benchmarks, and an
    timing individual Python lines, but the GPU loop is asynchronous: a line
    can appear expensive simply because it's where the host next blocks on
    already-queued GPU work (especially "Coordinate Rotation", which shares
-   its bucket with the horizon-cut's blocking sync — see issue #133). Use it
+   its bucket with the horizon-cut's blocking sync — see
+   `issue #133 <https://github.com/HERA-Team/matvis/issues/133>`_). Use it
    only as a rough indicator for the CPU backend; for the GPU backend use
    the ``derived`` and ``run_stats.event_timing_ms`` values.
 
@@ -249,13 +263,21 @@ Changes that significantly altered performance, newest first:
      - Change
      - Measured impact
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
-     - GPU hot-path overhaul: Hermitian rank-k (``cherk``) matrix product and
-       ``cgemm3m`` bound directly from cuBLAS; single fused bilinear
-       beam-interpolation kernel (replacing ~1400 ``map_coordinates`` launches
-       per chunk at 350 beams); fused Z-matrix kernel; single compute stream
-       with no device syncs in the loop; fixed a silent complex128 promotion
-       in the phase-factor matmul (which also caused OOMs); fixed
-       single-precision gridded-beam support.
+     - GPU hot-path overhaul:
+
+       - Matrix product uses the cuBLAS Hermitian rank-k routine (``cherk``)
+         and ``cgemm3m``, bound directly from cuBLAS.
+       - Beam interpolation: replaced per-beam, per-feed, per-polarization
+         ``map_coordinates`` calls (~1400 separate GPU launches per chunk at
+         350 beams) with a single fused kernel launch that covers all of
+         them at once ("fused" = combined into one GPU launch instead of
+         many).
+       - Z-matrix construction is also a single fused kernel.
+       - The per-time, per-chunk simulation loop runs on a single compute
+         stream with no device syncs.
+       - Fixed a silent complex128 promotion in the phase-factor matmul
+         (which also caused OOMs).
+       - Fixed single-precision gridded-beam support.
      - 7.7x per-chunk GPU time (505 → 65 ms), 7.4x steady-state wall time at
        350 antennas / 350 beams / polarized / fp32; GPU utilization ~35% →
        ~95% (RTX A2000).
