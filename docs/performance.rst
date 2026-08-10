@@ -7,9 +7,18 @@ gives measured rule-of-thumb numbers for estimating run times, and records a
 changelog of changes that significantly affected performance.
 
 Unless noted otherwise, all statements refer to the GPU implementation with
-the recommended production settings: **single precision**, polarized (2 feeds
+the following settings: **single precision**, polarized (2 feeds
 × 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation, and
-the ERFA coordinate method.
+the ERFA coordinate method with a large value set for ``update_bcrs_every`` so
+that it doesn't dominate the runs.
+
+The simulations reported here were run with the ``matvis profile`` script,
+documented at :doc:`cli`. This script outputs a JSON file with profiling
+information in it, also documented at :doc:`cli`. Below we make
+reference to some of the data in this JSON output (e.g.
+``derived.gpu_time_per_integration``).
+
+
 
 Where the time goes
 ===================
