@@ -1,4 +1,11 @@
-"""GPU-accelerated source-summing operation."""
+"""GPU-accelerated source-summing operation.
+
+Neither class here calls ``cp.cuda.Device().synchronize()`` (earlier
+versions did, after every ``compute``/``sum_chunks``). See the comment in
+``core.coords.CoordinateRotation.select_chunk`` for why: gpu.simulate() runs
+the whole loop on a single persistent stream, so kernel launches are already
+ordered without a device-wide sync.
+"""
 
 import cupy as cp
 import numpy as np

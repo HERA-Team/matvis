@@ -186,7 +186,9 @@ def get_required_chunks(
         gpusize = {
             "antpos": nant * 3 * rsize,
             "flux": nsrc * rsize,
-            # nbeampix is already summed over beams by the caller
+            # nbeampix is pre-summed across all beams by get_desired_chunks;
+            # multiplying by nbeam here would double-count beam memory (this
+            # was a real bug, fixed in PR #130).
             "beam": nbeampix * nfeed * nax * csize,
             "crd_eq": 3 * nsrc * rsize,
             "eq2top": 3 * 3 * rsize,

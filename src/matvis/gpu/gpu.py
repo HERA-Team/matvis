@@ -375,6 +375,7 @@ def simulate(  # noqa: C901
             stage: {
                 "median": float(np.median(samples)) if samples else 0.0,
                 "mean": float(np.mean(samples)) if samples else 0.0,
+                "std": float(np.std(samples)) if samples else 0.0,
                 "n": len(samples),
             }
             for stage, samples in event_samples.items()
@@ -398,7 +399,7 @@ simulate.__doc__ = (
     gpu_event_timing : bool, optional
         If True, collect per-chunk GPU event timings for beam interpolation,
         tau, Z construction, and matprod stages; log stage medians at INFO
-        level at the end of the run, and expose median/mean/count per stage
+        level at the end of the run, and expose median/mean/std/count per stage
         (plus per-integration wall times and a warmup-robust
         ``steady_time_per_integration``) via ``LAST_RUN_STATS``. Default is
         False.

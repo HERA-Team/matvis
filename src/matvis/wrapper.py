@@ -118,7 +118,7 @@ def simulate_vis(
     matprod_method
         The method to use for the final matrix multiplication. Default is 'MatMul',
         which simply uses matrix multiplication over the two full matrices. Currently,
-        one other option is `VectorDot`, which uses a loop over the antenna pairs,
+        the other option is `VectorDot`, which uses a loop over the antenna pairs,
         computing the sum over sources as a vector dot product, which can be faster for
         large arrays where `antpairs` is small (possibly from high redundancy). You
         should run a performance test before changing this. If not CPU/GPU prefix is
