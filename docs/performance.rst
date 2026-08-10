@@ -229,8 +229,8 @@ The harness is designed so its headline numbers are robust out of the box:
   first integration**.
 - Per-chunk CUDA-event stage timings (``--gpu-event-timing``) keep all
   samples and report **medians** alongside means;
-  ``derived.gpu_time_per_integration`` is the median per-chunk total times
-  the chunk count.
+  ``derived.gpu_time_per_integration`` is the median per-chunk total
+  multiplied by the chunk count.
 
 The three ``derived`` values (steady wall, GPU time, host overhead) are the
 ones to quote and compare — they are what the Rules of Thumb table reports.
