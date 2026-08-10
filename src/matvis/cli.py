@@ -65,7 +65,10 @@ STEPS = {
 
 profiler = LineProfiler()
 
-main = click.Group()
+main = click.Group(
+    help="Profiling and benchmarking utilities for matvis. See `matvis profile "
+    "--help` and `matvis hera-profile --help` for the two subcommands."
+)
 
 
 def get_label(**kwargs):
@@ -218,9 +221,13 @@ def run_profile(
     thing_stats = get_summary_stats(line_stats, STEPS)
 
     # Derived headline numbers, robust to warmup and host noise. These are
-    # the values to quote/compare (see the docs Performance page); the
-    # line-profiler stage table below is indicative only, since the GPU loop
-    # is asynchronous.
+    # the values to quote/compare (see the docs Performance page).
+    #
+    # The `stages` table further down times Python lines, but GPU work is
+    # queued asynchronously -- a line's measured time is often how long the
+    # host waited for already-queued GPU work to finish, not the cost of
+    # that line itself. Use these derived numbers for the GPU backend
+    # instead.
     derived = {}
     if gpu:
         run_stats = gpu_module.LAST_RUN_STATS
@@ -234,6 +241,12 @@ def run_profile(
                 / 1000.0
             )
             derived["gpu_time_per_integration"] = gpu_time
+            # gpu_time is median(per-chunk total) x nchunks -- a biased
+            # estimator of the true per-integration GPU total when chunks
+            # vary in cost (e.g. the horizon cut leaves different numbers of
+            # sources active in different chunks), whereas steady wall time
+            # sums the *actual* per-integration total. The two can cross
+            # without either being wrong, hence the clamp below.
             derived["host_overhead_per_integration"] = max(
                 derived["steady_wall_per_integration"] - gpu_time, 0.0
             )
@@ -302,32 +315,42 @@ def run_profile(
 
 
 common_profile_options = [
-    click.option("-A/-I", "--analytic-beam/--interpolated-beam", default=True),
-    click.option("-f", "--nfreq", default=1),
+    click.option(
+        "-A/-I",
+        "--analytic-beam/--interpolated-beam",
+        default=True,
+        help="Use an analytic (Gaussian) beam, or a gridded UVBeam requiring interpolation.",
+    ),
+    click.option("-f", "--nfreq", default=1, help="Number of frequency channels."),
     click.option(
         "-t",
         "--ntimes",
         default=1,
+        help="Number of time integrations.",
     ),
     click.option(
         "-b",
         "--nbeams",
         default=1,
+        help="Number of unique beams (1, or up to --nants for one beam per antenna).",
     ),
     click.option(
         "-g/-c",
         "--gpu/--cpu",
         default=False,
+        help="Run on the GPU or CPU backend.",
     ),
     click.option(
         "--matprod-method",
         default="MatMul",
         type=click.Choice(["MatMul", "VectorDot"]),
+        help="Matrix-product strategy; the CPU/GPU prefix is added automatically.",
     ),
     click.option(
         "--coord-method",
         default="CoordinateRotationAstropy",
         type=click.Choice(list(CoordinateRotation._methods.keys())),
+        help="Coordinate rotation method.",
     ),
     click.option(
         "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"
@@ -337,22 +360,49 @@ common_profile_options = [
         "--log-level",
         default="INFO",
         type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+        help="Logging verbosity.",
     ),
     click.option(
         "--nchunks",
         default=1,
+        help="Minimum number of source chunks (more may be used automatically "
+        "if memory requires it).",
     ),
     click.option(
         "-o",
         "--outdir",
         default=".",
         type=click.Path(file_okay=False, dir_okay=True, exists=True),
+        help="Directory to write summary-stats JSON and profiling output to.",
     ),
-    click.option("--double-precision/--single-precision", default=True),
-    click.option("--naz", default=360, type=int),
-    click.option("--nza", default=180, type=int),
-    click.option("--source-buffer", default=1.0, type=float),
-    click.option("--gpu-event-timing/--no-gpu-event-timing", default=False),
+    click.option(
+        "--double-precision/--single-precision",
+        default=True,
+        help="Use float64/complex128 or float32/complex64 throughout.",
+    ),
+    click.option(
+        "--naz",
+        default=360,
+        type=int,
+        help="Number of azimuth grid points for gridded beams.",
+    ),
+    click.option(
+        "--nza",
+        default=180,
+        type=int,
+        help="Number of zenith-angle grid points for gridded beams.",
+    ),
+    click.option(
+        "--source-buffer",
+        default=1.0,
+        type=float,
+        help="Fraction of nsource to pre-allocate per chunk for sources above the horizon.",
+    ),
+    click.option(
+        "--gpu-event-timing/--no-gpu-event-timing",
+        default=False,
+        help="Collect per-chunk CUDA-event timings (see the docs Performance page).",
+    ),
     click.option(
         "--warmup/--no-warmup",
         default=True,
@@ -370,19 +420,17 @@ def add_common_options(func):
 
 
 @main.command()
-@click.option(
-    "-s",
-    "--nsource",
-    default=1,
-)
-@click.option(
-    "-a",
-    "--nants",
-    default=1,
-)
+@click.option("-s", "--nsource", default=1, help="Number of point sources.")
+@click.option("-a", "--nants", default=1, help="Number of antennas.")
 @add_common_options
 def profile(**kwargs):
-    """Run the script."""
+    """Profile a matvis simulation with a synthetic (random-position) sky model.
+
+    Writes human-readable summaries plus machine-readable summary-stats JSON
+    and full-stats text files to --outdir. See the docs Performance page for
+    how to interpret the output, and profiling/run-canonical.sh for the
+    canonical benchmark configurations used to track performance over time.
+    """
     run_profile(**kwargs)
 
 
@@ -408,20 +456,34 @@ def get_redundancies(bls, ndecimals: int = 2):
 
 @main.command()
 @click.option(
-    "-a",
-    "--hex-num",
-    default=11,
+    "-a", "--hex-num", default=11, help="Hex-grid parameter for the HERA-like array."
 )
 @click.option(
     "-s",
     "--nside",
     default=64,
+    help="HEALPix nside for the sky model (nsource = 12 x nside^2).",
 )
-@click.option("-k", "--keep-ants", type=str, default="")
-@click.option("--outriggers/--no-outriggers", default=False)
+@click.option(
+    "-k",
+    "--keep-ants",
+    type=str,
+    default="",
+    help="Comma-separated antenna indices to keep (default: all).",
+)
+@click.option(
+    "--outriggers/--no-outriggers",
+    default=False,
+    help="Include HERA outrigger antennas.",
+)
 @add_common_options
 def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
-    """Run profiling of matvis with a HERA-like array."""
+    """Profile a matvis simulation with a HERA-like array and a HEALPix sky model.
+
+    Unlike `profile` (synthetic random-position sky), this uses a real
+    HERA-like antenna layout (hex-packed core, optional outriggers) and a
+    full-sky HEALPix source grid, so it's a closer proxy for a production run.
+    """
     from py21cmsense.antpos import hera
 
     antpos = hera(hex_num=hex_num, split_core=True, outriggers=2 if outriggers else 0)

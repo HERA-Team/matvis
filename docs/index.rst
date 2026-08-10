@@ -11,6 +11,7 @@ Contents
    Changelog <changelog>
    Understanding The Algorithm <understanding_the_algorithm>
    Performance <performance>
+   CLI <cli>
    Tutorials <tutorials>
    Module Reference <api>
 
