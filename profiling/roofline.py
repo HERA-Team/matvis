@@ -1,14 +1,16 @@
-"""Speed-of-light micro-benchmarks for the matvis GPU hot path.
+"""GPU benchmarks for the operations that dominate a matvis run.
 
 Times the individual device operations that dominate a production-scale matvis
 run, independent of the orchestration code:
 
-1. The cuBLAS complex GEMM at the exact Z-matrix shape (the theoretical best
-   for the ``Compute V`` stage — if the matprod stage is much slower than
+1. The cuBLAS complex GEMM at the specified simulation size (the theoretical
+   best for the ``Compute V`` stage — if the matprod stage is much slower than
    this, the wrapper is wasting time; if this itself is far below the GPU's
    peak, the GEMM call/shape needs work).
-2. The beam interpolation at nbeam=nant (production has one beam per antenna).
-3. The Z-matrix construction.
+2. The beam interpolation, one beam per antenna by default (``--nbeam`` to
+   override).
+3. The Z-matrix construction (Z = per-source, per-antenna voltage: sky
+   amplitude x beam x phase; see :doc:`understanding_the_algorithm`).
 
 Run with e.g.::
 
@@ -84,7 +86,9 @@ def main():
     # --- 2. Beam interpolation (current map_coordinates storm) --------------
     beam = crandom((nbeam, nax, nfeed, nza, naz))
     az = rng.random(nsrc, dtype=rtype) * rtype(2 * np.pi)
-    za = rng.random(nsrc, dtype=rtype) * rtype(np.pi / 2)
+    # cos(za) ~ Uniform(0, 1), not za itself, gives points uniform on the
+    # (upper) sphere rather than crowded toward the zenith.
+    za = cp.arccos(rng.random(nsrc, dtype=rtype)).astype(rtype)
     daz, dza = 2 * np.pi / (naz - 1), np.pi / 2 / (nza - 1)
     out_beam = cp.zeros((nbeam, nfeed, nax, nsrc), dtype=ctype)
 

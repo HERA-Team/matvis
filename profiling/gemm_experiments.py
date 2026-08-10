@@ -24,10 +24,6 @@ from cupy_backends.cuda.libs import cublas
 
 from matvis.gpu._cublas import zdotz
 
-# cublasStatus_t cublasCgemm3m(handle, transa, transb, m, n, k, alpha, A, lda,
-#                              B, ldb, beta, C, ldc)  -- same signature as cgemm.
-# cublasStatus_t cublasCherk(handle, uplo, trans, n, k, alpha(float*), A, lda,
-#                            beta(float*), C, ldc)
 CUBLAS_FILL_MODE_LOWER = 0
 CUBLAS_FILL_MODE_UPPER = 1
 
@@ -73,18 +69,31 @@ def main():
 
     dev = cp.cuda.runtime.getDeviceProperties(0)
     print(f"GPU: {dev['name'].decode()}   M={M} K={K}  complex64")
-    print(f"{'strategy':<28}{'ms':>10}{'TFLOPS':>10}{'max rel err':>14}")
+    print(
+        f"{'strategy':<28}{'ms':>10}{'TFLOPS':>10}{'max rel err':>14}{'rms rel err':>14}"
+    )
 
+    # max rel err is a quick, cheap-to-eyeball worst-case check; rms rel err
+    # is closer to what actually distinguishes "different but valid
+    # rounding" (e.g. cgemm3m's Gauss decomposition) from "wrong". Neither
+    # is the correctness gate for matvis itself -- that's
+    # tests/test_cublas_gpu.py's assert_allclose against a numpy reference.
     ref = None
 
     def report(name, t, result, eff_flops=flops):
         nonlocal ref
         if ref is None:
             ref = result.copy()
-            err = 0.0
+            max_err = rms_err = 0.0
         else:
-            err = float(cp.abs(result - ref).max() / cp.abs(ref).max())
-        print(f"{name:<28}{t * 1e3:>10.2f}{eff_flops / t / 1e12:>10.2f}{err:>14.2e}")
+            diff = cp.abs(result - ref)
+            ref_mag = cp.abs(ref)
+            max_err = float(diff.max() / ref_mag.max())
+            rms_err = float(cp.sqrt(cp.mean(diff**2)) / cp.sqrt(cp.mean(ref_mag**2)))
+        print(
+            f"{name:<28}{t * 1e3:>10.2f}{eff_flops / t / 1e12:>10.2f}"
+            f"{max_err:>14.2e}{rms_err:>14.2e}"
+        )
 
     # --- current implementation --------------------------------------------
     t = timeit(lambda: zdotz(z, out=out))
@@ -99,37 +108,43 @@ def main():
 
     # The v2 symbols must be used, with explicit prototypes: the legacy
     # non-_v2 symbols take the old API and silently misinterpret arguments.
-    ptr, i32 = ctypes.c_void_p, ctypes.c_int
-    lib.cublasCgemm3m.restype = i32
+    _PTR, _INT = ctypes.c_void_p, ctypes.c_int
+
+    # cublasStatus_t cublasCgemm3m(handle, transa, transb, m, n, k, alpha, A,
+    #                              lda, B, ldb, beta, C, ldc) -- same
+    #                              signature as cgemm.
+    lib.cublasCgemm3m.restype = _INT
     lib.cublasCgemm3m.argtypes = [
-        ptr,
-        i32,
-        i32,
-        i32,
-        i32,
-        i32,
-        ptr,
-        ptr,
-        i32,
-        ptr,
-        i32,
-        ptr,
-        ptr,
-        i32,
+        _PTR,
+        _INT,
+        _INT,
+        _INT,
+        _INT,
+        _INT,
+        _PTR,
+        _PTR,
+        _INT,
+        _PTR,
+        _INT,
+        _PTR,
+        _PTR,
+        _INT,
     ]
-    lib.cublasCherk_v2.restype = i32
+    # cublasStatus_t cublasCherk(handle, uplo, trans, n, k, alpha(float*), A,
+    #                            lda, beta(float*), C, ldc)
+    lib.cublasCherk_v2.restype = _INT
     lib.cublasCherk_v2.argtypes = [
-        ptr,
-        i32,
-        i32,
-        i32,
-        i32,
-        ptr,
-        ptr,
-        i32,
-        ptr,
-        ptr,
-        i32,
+        _PTR,
+        _INT,
+        _INT,
+        _INT,
+        _INT,
+        _PTR,
+        _PTR,
+        _INT,
+        _PTR,
+        _PTR,
+        _INT,
     ]
 
     orig_mode = cublas.getPointerMode(handle)

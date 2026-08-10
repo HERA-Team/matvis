@@ -3,8 +3,9 @@
 #
 # Usage: profiling/run-canonical.sh [outdir] [dev|prodslice|both]
 #
-# Both configs are polarized with gridded (interpolated) beams and one unique
-# beam per antenna, single precision — the production configuration.
+# Both configs use production settings (polarized, gridded/interpolated
+# beams, one unique beam per antenna, single precision); only prodslice is
+# production *scale*.
 #  * dev:       small enough to iterate quickly, still steady-state dominated.
 #  * prodslice: 350 antennas / 350 beams, the production bottleneck ordering.
 #               Fits a 4 GB GPU via auto-chunking.
