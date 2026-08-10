@@ -1,9 +1,12 @@
-"""Thin, fast wrappers around cuBLAS for the matvis hot path.
+"""Thin wrappers around cuBLAS for core matvis operations.
 
 Two entry points:
 
 ``zdotz(a, out)``
-    The Gram product ``a.conj() @ a.T`` (the matvis V = Z Z^H). Uses the
+    Computes ``a.conj() @ a.T``, matching the convention already used by
+    ``cpu.matprod.CPUMatMul`` (``z.conj().dot(z.T)``, unchanged by this
+    module). Note this is not literally ``Z Z^H``: since ``Z Z^H`` is
+    Hermitian, ``a.conj() @ a.T = (Z Z^H)^T = conj(Z Z^H)``. Uses the
     Hermitian rank-k routine ``cherk``/``zherk`` (half the FLOPs of a general
     GEMM: only one triangle is computed), then mirrors the triangle with a
     small kernel. Falls back to ``complex_matmul`` if the cuBLAS shared
@@ -21,6 +24,7 @@ current cupy stream.
 
 import ctypes
 import logging
+from pathlib import Path
 
 import cupy as cp
 import numpy as np
@@ -28,6 +32,8 @@ from cupy.cuda import device
 from cupy_backends.cuda.libs import cublas
 
 logger = logging.getLogger(__name__)
+
+KERNELS_PATH = Path(__file__).parent / "kernels"
 
 CUBLAS_FILL_MODE_LOWER = 0
 
@@ -79,25 +85,7 @@ if _LIB is None:  # pragma: no cover
 
 # Mirror the (valid) lower triangle of a column-major hermitian matrix into
 # the upper triangle.
-_MIRROR_MODULE = cp.RawModule(
-    code=r"""
-#include <cupy/complex.cuh>
-extern "C" {
-__global__ void mirror_c(complex<float>* C, long n) {
-    long p = blockIdx.x * (long)blockDim.x + threadIdx.x;
-    if (p >= n * n) return;
-    long c = p / n, r = p % n;  // column-major: p = c*n + r
-    if (r < c) C[p] = conj(C[r * n + c]);
-}
-__global__ void mirror_z(complex<double>* C, long n) {
-    long p = blockIdx.x * (long)blockDim.x + threadIdx.x;
-    if (p >= n * n) return;
-    long c = p / n, r = p % n;
-    if (r < c) C[p] = conj(C[r * n + c]);
-}
-}
-"""
-)
+_MIRROR_MODULE = cp.RawModule(code=(KERNELS_PATH / "mirror_hermitian.cu").read_text())
 
 
 def _mirror_hermitian(out: cp.ndarray, n: int):
@@ -110,6 +98,8 @@ def _mirror_hermitian(out: cp.ndarray, n: int):
         "mirror_c" if out.dtype == np.complex64 else "mirror_z"
     )
     total = n * n
+    # 256 is a conventional warp-multiple default, not empirically tuned
+    # for this kernel/shape.
     block = 256
     kern(((total + block - 1) // block,), (block,), (out, np.int64(n)))
 

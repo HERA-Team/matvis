@@ -1,6 +1,7 @@
 """GPU beam interpolation routines."""
 
 import itertools
+from pathlib import Path
 
 import cupy as cp
 import numpy as np
@@ -11,90 +12,10 @@ from .. import coordinates
 from ..core.beams import BeamInterpolator
 from ..cpu.beams import UVBeamInterpolator
 
-# One fused bilinear-interpolation kernel evaluating every (beam, feed, axis)
-# plane for every source in a single launch. The previous implementation made
-# nbeam*nfeed*nax separate map_coordinates launches per chunk (1400 launches
-# for a 350-antenna array with per-antenna beams), which left the GPU idle
-# most of the time waiting on the host to issue work.
-#
-# Grid: x covers sources, y covers planes. Out-of-range coordinates clamp to
-# the grid edge. Input layout (nbeam, nax, nfeed, nza, naz) [UVBeam order],
-# output layout (nbeam, nfeed, nax, nsrc) [matvis order].
-_BILINEAR_MODULE = cp.RawModule(
-    code=r"""
-#include <cupy/complex.cuh>
+KERNELS_PATH = Path(__file__).parent / "kernels"
 
-template<typename R, typename T>
-__device__ void bilinear_all_planes(
-    const T* __restrict__ beam,
-    const R* __restrict__ az,
-    const R* __restrict__ za,
-    const R* __restrict__ daz,
-    const R* __restrict__ dza,
-    const R* __restrict__ azmin,
-    const int nfeed,
-    const int nax,
-    const long nza,
-    const long naz,
-    const long nsrc,
-    T* __restrict__ out)
-{
-    const long s = blockIdx.x * (long)blockDim.x + threadIdx.x;
-    if (s >= nsrc) return;
-    const int p = blockIdx.y;
-    const int bm = p / (nax * nfeed);
-    const int r = p % (nax * nfeed);
-    const int ax = r / nfeed;
-    const int fd = r % nfeed;
-
-    R x = za[s] / dza[bm];
-    R y = (az[s] - azmin[bm]) / daz[bm];
-
-    long x0 = (long)floor(x);
-    long y0 = (long)floor(y);
-    R fx = x - x0;
-    R fy = y - y0;
-    if (x0 < 0) { x0 = 0; fx = 0; }
-    if (x0 > nza - 2) { x0 = nza - 2; fx = 1; }
-    if (y0 < 0) { y0 = 0; fy = 0; }
-    if (y0 > naz - 2) { y0 = naz - 2; fy = 1; }
-
-    const T* b = beam + ((((long)bm * nax + ax) * nfeed + fd) * nza + x0) * naz + y0;
-    T v = b[0] * ((1 - fx) * (1 - fy))
-        + b[1] * ((1 - fx) * fy)
-        + b[naz] * (fx * (1 - fy))
-        + b[naz + 1] * (fx * fy);
-
-    out[(((long)bm * nfeed + fd) * nax + ax) * nsrc + s] = v;
-}
-
-extern "C" {
-__global__ void bilinear_c64(
-    const complex<float>* beam, const float* az, const float* za,
-    const float* daz, const float* dza, const float* azmin,
-    int nfeed, int nax, long nza, long naz, long nsrc, complex<float>* out)
-{ bilinear_all_planes<float, complex<float> >(beam, az, za, daz, dza, azmin, nfeed, nax, nza, naz, nsrc, out); }
-
-__global__ void bilinear_c128(
-    const complex<double>* beam, const double* az, const double* za,
-    const double* daz, const double* dza, const double* azmin,
-    int nfeed, int nax, long nza, long naz, long nsrc, complex<double>* out)
-{ bilinear_all_planes<double, complex<double> >(beam, az, za, daz, dza, azmin, nfeed, nax, nza, naz, nsrc, out); }
-
-__global__ void bilinear_f32(
-    const float* beam, const float* az, const float* za,
-    const float* daz, const float* dza, const float* azmin,
-    int nfeed, int nax, long nza, long naz, long nsrc, float* out)
-{ bilinear_all_planes<float, float>(beam, az, za, daz, dza, azmin, nfeed, nax, nza, naz, nsrc, out); }
-
-__global__ void bilinear_f64(
-    const double* beam, const double* az, const double* za,
-    const double* daz, const double* dza, const double* azmin,
-    int nfeed, int nax, long nza, long naz, long nsrc, double* out)
-{ bilinear_all_planes<double, double>(beam, az, za, daz, dza, azmin, nfeed, nax, nza, naz, nsrc, out); }
-}
-"""
-)
+# See kernels/bilinear_interp.cu for the kernel source and layout notes.
+_BILINEAR_MODULE = cp.RawModule(code=(KERNELS_PATH / "bilinear_interp.cu").read_text())
 
 _BILINEAR_KERNELS = {
     np.dtype("complex64"): ("bilinear_c64", np.float32),
@@ -214,6 +135,7 @@ class GPUBeamInterpolator(BeamInterpolator):
             az,
             za,
             beam_at_src=out,
+            power_beam=not self.polarized,
             **self.spline_opts,
         )
 
@@ -227,6 +149,7 @@ def gpu_beam_interpolation(
     za: np.ndarray | cp.ndarray,
     beam_at_src: cp.ndarray | None = None,
     order: int = 1,
+    power_beam: bool | None = None,
 ):
     """
     Interpolate beam values from a regular az/za grid using GPU.
@@ -243,6 +166,15 @@ def gpu_beam_interpolation(
     az, za
         The azimuth and zenith-angle values of the sources to which to interpolate.
         These should be  1D arrays. They are not treated as a "grid".
+    power_beam
+        Whether ``beam`` holds power (non-negative, needs a ``sqrt`` before
+        use as a voltage) rather than E-field values. Callers that know this
+        (e.g. ``GPUBeamInterpolator``, which knows ``polarized``) should
+        pass it explicitly. If not given, it's inferred from ``beam``'s
+        dtype (real => power, complex => E-field) — a reasonable default
+        for a real beam, but note that a complex *power* beam (e.g. one
+        holding cross-polarization terms) would be mis-detected as E-field
+        by that inference and silently skip the ``sqrt``.
 
     Returns
     -------
@@ -265,7 +197,11 @@ def gpu_beam_interpolation(
             f"Got {beam.dtype} as the dtype for beam, which is unrecognized"
         )
 
-    complex_beam = beam.dtype.name.startswith("complex")
+    complex_beam = (
+        not power_beam
+        if power_beam is not None
+        else beam.dtype.name.startswith("complex")
+    )
 
     nbeam, nax, nfeed, nza, naz = beam.shape
     nsrc = len(az)
@@ -276,11 +212,9 @@ def gpu_beam_interpolation(
         assert beam_at_src.shape == (nbeam, nfeed, nax, nsrc)
 
     if order == 1:
-        # Single fused launch over all (beam, feed, axis) planes and sources.
-        # The kernel writes values of the beam's own dtype; when the caller
-        # supplies a complex output buffer for a real (power) beam, go through
-        # a real-valued scratch array and cast on copy (as map_coordinates
-        # would have done element-wise).
+        # Use the custom beam interpolation kernel. If provided a power beam
+        # and a complex output buffer, cast interpolated beam to complex on
+        # copy.
         target = (
             beam_at_src
             if beam_at_src.dtype == beam.dtype
@@ -294,6 +228,8 @@ def gpu_beam_interpolation(
         dza = cp.asarray(dza, dtype=rdtype)
         azmin = cp.asarray(azmin, dtype=rdtype)
         assert beam._c_contiguous and target._c_contiguous
+        # 128 is a conventional warp-multiple default, not empirically
+        # tuned for this kernel/shape.
         block = 128
         grid = ((nsrc + block - 1) // block, nbeam * nfeed * nax)
         kern(
