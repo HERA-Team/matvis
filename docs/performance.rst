@@ -245,7 +245,8 @@ The three ``derived`` values (steady wall, GPU time, host overhead) are the
 ones to quote and compare — they are what the Rules of Thumb table reports.
 
 The ``profiling/`` directory in the repository contains canonical benchmark
-configurations, GEMM/interpolation roofline micro-benchmarks, and an
+configurations, GEMM/interpolation roofline micro-benchmarks (i.e. measures
+of performance compared to the theoretical maximum), and an
 ``nsys`` recipe (the GPU loop is annotated with NVTX ranges). See
 ``profiling/README.md``.
 

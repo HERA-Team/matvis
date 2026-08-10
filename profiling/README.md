@@ -7,9 +7,9 @@ measurements:
 - **`run-canonical.sh [outdir] [dev|prodslice|both]`** — runs two canonical
   benchmark configurations through `matvis profile`: `dev` (64 antennas/beams,
   200k sources — small enough to iterate quickly) and `prodslice` (350
-  antennas/beams, 1M sources — the production-scale bottleneck ordering).
-  Both use production settings (polarized, gridded beams, one beam per
-  antenna, single precision). Writes human-readable summaries and
+  antennas/beams, 1M sources — a 'production-scale' run).
+  Both use the following settings: polarized, gridded beams, one beam per
+  antenna, single precision. Writes human-readable summaries and
   machine-readable `summary-stats-*.json` files for before/after comparison.
   See `docs/cli.rst` for the full `matvis profile` parameter reference and an
   annotated example of the JSON output.
