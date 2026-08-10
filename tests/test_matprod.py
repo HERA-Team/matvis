@@ -19,8 +19,8 @@ def simple_matprod(z):
     [
         "CPUMatMul",
         "CPUVectorDot",
-        "GPUMatMul",
-        "GPUVectorDot",
+        pytest.param("GPUMatMul", marks=pytest.mark.gpu),
+        pytest.param("GPUVectorDot", marks=pytest.mark.gpu),
     ],
 )
 @pytest.mark.parametrize("nchunks", [1, 2])

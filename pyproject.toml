@@ -53,6 +53,7 @@ docs = [
 	"nbsphinx",
 	"numpydoc",
 	"sphinx",
+	"sphinx-click",
 
 ]
 doctests = [
@@ -97,6 +98,7 @@ namespaces = true
 addopts = ["--cov=matvis", "--cov-report=term-missing", "--verbose"]
 norecursedirs = ["dist", "build", ".tox"]
 testpaths = ["tests"]
+markers = ["gpu: requires a CUDA GPU (selected by the self-hosted CI job via -m gpu)"]
 
 [tool.ruff]
 line-length = 88

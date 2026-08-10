@@ -6,6 +6,8 @@ import pytest
 
 pytest.importorskip("cupy")
 
+pytestmark = pytest.mark.gpu
+
 import numpy as np
 from pyuvdata.analytic_beam import GaussianBeam
 from pyuvdata.beam_interface import BeamInterface
