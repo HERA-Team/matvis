@@ -3,10 +3,8 @@
 Two entry points:
 
 ``zdotz(a, out)``
-    Computes ``a.conj() @ a.T``, matching the convention already used by
-    ``cpu.matprod.CPUMatMul`` (``z.conj().dot(z.T)``, unchanged by this
-    module). Note this is not literally ``Z Z^H``: since ``Z Z^H`` is
-    Hermitian, ``a.conj() @ a.T = (Z Z^H)^T = conj(Z Z^H)``. Uses the
+    Computes ``a.conj() @ a.T`` (note that this is the convention used throughout
+    matvis, rather than aa^H). Uses the
     Hermitian rank-k routine ``cherk``/``zherk`` (half the FLOPs of a general
     GEMM: only one triangle is computed), then mirrors the triangle with a
     small kernel. Falls back to ``complex_matmul`` if the cuBLAS shared

@@ -26,7 +26,7 @@ measurements:
     occur, e.g. a lazily-allocated buffer touched for the first time in a
     later integration).
   - `gpu_time_per_integration` — median per-chunk CUDA-event total × chunk
-    count, i.e. device compute and transfer time only, no host-side
+    count, i.e. device compute and transfer time only, no host-side (CPU)
     dispatch. Comparable across machines that have the same GPU, since it
     excludes the host's contribution.
   - `host_overhead_per_integration` — `steady_wall_per_integration` minus

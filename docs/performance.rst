@@ -18,6 +18,11 @@ information in it, also documented at :doc:`cli`. Below we make
 reference to some of the data in this JSON output (e.g.
 ``derived.gpu_time_per_integration``).
 
+Throughout, we reference a "production-slice". By this we refer to a simulation
+with 350 antennas (each with unique beams) and one million sources, simulated for
+just one time and one channel (i.e. "production" scale refers to the large array
+and number of sources, while the "slice" refers to the single time/frequency).
+This simulation size is large enough that overheads are relatively negligible.
 
 
 Where the time goes
@@ -51,11 +56,11 @@ For each time and frequency, ``matvis`` performs five stages (see
      - × :math:`N_{\rm times} \times N_{\rm freq}`
      -
 
-.. [1] Measured with per-chunk CUDA events at
-   :math:`N_{\rm ant} = N_{\rm beam} = 350`, polarized, single precision,
-   on an RTX A2000 (Ampere) laptop GPU. The matrix product uses the cuBLAS
-   Hermitian rank-k routine (``cherk``) and runs at the library's roofline,
-   so the ~70% share is a hard floor rather than overhead.
+.. [1] Measured with per-chunk CUDA events for a "production-slice" on an RTX A2000
+   (Ampere) laptop GPU. The matrix product uses the cuBLAS
+   Hermitian rank-k routine (``cherk``) and was tested to run at the library's
+   roofline (i.e. the theoretical maximum),
+   so the ~70% share is a minimum for this setup, with minimal overhead.
 
 Because the matrix product dominates for large arrays, total time is
 approximately **linear in the number of sources and quadratic in the number
@@ -68,8 +73,7 @@ Rules of thumb
 ==============
 
 Measured cost per integration (one time sample, one frequency) at the
-canonical production-slice configuration — 350 antennas, 350 beams,
-polarized, fp32, 10⁶ sources — via ``profiling/run-canonical.sh``:
+canonical production-slice configuration via ``profiling/run-canonical.sh``:
 
 .. list-table::
    :header-rows: 1
@@ -91,16 +95,13 @@ polarized, fp32, 10⁶ sources — via ``profiling/run-canonical.sh``:
      - 0.8 s
 
 **GPU time** (``derived.gpu_time_per_integration``: median per-chunk CUDA
-events × chunk count) measures the card and transfers between machines with
-the same GPU. **Wall time** (``derived.steady_wall_per_integration``: median
+events × chunk count) measures the time spent computing on the GPU (and transferring
+data to/from the GPU).
+**Wall time** (``derived.steady_wall_per_integration``: median
 per-integration wall time, excluding the first integration) adds host-side
 work — coordinate rotation, Python dispatch — and so also depends on the
 machine's CPU; the difference between the columns is the host overhead on
-the benchmark machine (2% or less on all four machines above). The V100 is
-the reference architecture for HERA production (see
-`issue #131 <https://github.com/HERA-Team/matvis/issues/131>`_): more than
-2x faster than any of the workstation/laptop cards above, as expected for a
-data-centre part.
+the benchmark machine (2% or less on all four machines above).
 
 Scale this linearly in :math:`N_{\rm src}` and quadratically in
 :math:`N_{\rm ant}` (above ~200 antennas). Frequencies are embarrassingly
@@ -115,10 +116,8 @@ For a GEMM-dominated estimate on other hardware:
 where :math:`R` is the achieved complex-GEMM rate of your GPU. ``matvis``
 computes :math:`V = ZZ^\dagger` with ``cherk``, which does half the work of a
 general GEMM; the *effective* :math:`R` (fp32) is ~5.2 TFLOPS on the A2000
-and ~10.7 TFLOPS on a Tesla V100 — data-centre GPUs are not just "a bit
-faster" here. This formula, evaluated with your own measured :math:`R`, *is*
-the theoretical-minimum GPU time for the matprod stage: :math:`R` already
-reflects the achieved cuBLAS rate, so there's no further headroom to model.
+and ~10.7 TFLOPS on a Tesla V100. This formula, evaluated with your own
+measured :math:`R`, is the theoretical minimum GPU time for the matprod stage.
 Measure :math:`R` for your own GPU and problem shape with
 ``profiling/gemm_experiments.py``.
 
@@ -129,7 +128,7 @@ Measure :math:`R` for your own GPU and problem shape with
    through the GEMM too. The ``source_buffer`` parameter therefore multiplies
    the dominant cost directly. If your sky is roughly uniform (half below the
    horizon at any time), ``source_buffer=0.6`` is nearly a 2x saving over the
-   default ``1.0``.
+   default ``1.0``. These results use the default source buffer.
 
 GEMM strategy: hardware dependence
 -----------------------------------
@@ -166,23 +165,14 @@ polarized, complex64):
      - 21 ms (1.7x — *fastest here*)
      - 37 ms (~1.0x — no measurable gain)
 
-Four data points, and a pattern rather than a one-off: both alternatives
-help substantially (Ampere), neither helps (Maxwell), or only ``cgemm3m``
-helps — and by enough to matter — on the two most modern architectures
-sampled, Turing (1.6x) and Volta (1.7x). ``cherk`` gives no measurable gain
-on either. Because ``matvis``'s primary matrix-product path (``GPUMatMul``)
-always uses ``cherk``, this is a real, currently-unrealized gain on
-**production hardware**: on the V100, matprod is ~81% of per-chunk GPU time
-in the production-slice benchmark, so switching to ``cgemm3m`` there would
-cut GPU time per integration by roughly 30–35% — a similar-sized win to the
-one measured on Turing. ``cherk`` is never *worse* than ``cgemm`` in any of
+As you can see, on the cards measured here, there is a significant difference between
+the different matrix-multiply strategies, and which one is fastest is dependent on the
+GPU. ``cherk`` is never *worse* than ``cgemm`` in any of
 the four measurements, so it remains a safe default, but on the two most
 modern architectures measured it captures none of the available speedup.
 There is currently no runtime auto-selection between strategies (tracked in
-`issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_, now more
-pressing given the V100 result); until then, check both with
-``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal on a
-new GPU generation.
+`issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then, check
+both with ``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal.
 
 Precision
 =========
@@ -226,7 +216,7 @@ writes a machine-readable ``summary-stats-*.json``::
         --interpolated-beam --single-precision --gpu-event-timing \
         --coord-method CoordinateRotationERFA -o outdir
 
-The harness is designed so its headline numbers are robust out of the box:
+The script is designed so its headline numbers are robust out of the box:
 
 - An untimed **warmup** simulation runs first (disable with ``--no-warmup``),
   so one-time costs — cupy kernel compilation, cuBLAS workspace allocation,
