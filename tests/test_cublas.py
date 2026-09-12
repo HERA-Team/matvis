@@ -116,7 +116,7 @@ def test_load_cublas_ext_retries_sonames(monkeypatch):
     class FakeCDLL:
         def __init__(self, name):
             attempted.append(name)
-            if len(attempted) < 3:
+            if len(attempted) < len(cb._SO_NAMES) - 1:
                 raise OSError(f"cannot load {name}")
             self._fns = {}
 
@@ -132,7 +132,7 @@ def test_load_cublas_ext_retries_sonames(monkeypatch):
     lib = cb._load_cublas_ext()
 
     assert lib is not None
-    assert len(attempted) == 3
+    assert len(attempted) == len(cb._SO_NAMES) - 1
 
 
 def test_load_cublas_ext_returns_none_if_all_sonames_fail(monkeypatch):

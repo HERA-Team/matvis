@@ -17,6 +17,13 @@ CUBLAS_FILL_MODE_LOWER = 0
 
 _PTR, _INT = ctypes.c_void_p, ctypes.c_int
 
+_SO_NAMES = (
+    "libcublas.so.13",
+    "libcublas.so.12",
+    "libcublas.so.11",
+    "libcublas.so",
+)
+
 
 def _load_cublas_ext():
     """Bind cgemm3m/cherk/zherk from the libcublas already loaded by cupy.
@@ -27,12 +34,7 @@ def _load_cublas_ext():
     """
     # cupy has already loaded libcublas into the process, so dlopen-ing by
     # soname resolves to the same library (no new load).
-    for soname in (
-        "libcublas.so.13",
-        "libcublas.so.12",
-        "libcublas.so.11",
-        "libcublas.so",
-    ):
+    for soname in _SO_NAMES:
         try:
             lib = ctypes.CDLL(soname)
             break
