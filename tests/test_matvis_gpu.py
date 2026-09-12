@@ -56,6 +56,7 @@ def test_gpu_event_timing_zero_active_chunks():
     assert stats["chunk_total"]["n"] > 0
     assert stats["matprod"]["median"] == 0.0
     assert stats["matprod"]["n"] == 0
+    assert LAST_RUN_STATS["steady_gpu_time_per_integration"] >= 0
 
 
 @pytest.mark.parametrize("use_analytic_beam", [True, False])
@@ -89,9 +90,10 @@ def test_gpu_event_timing_and_debug_logging(caplog, use_analytic_beam):
     assert stats["beam"]["median"] > 0
     assert stats["matprod"]["mean"] > 0
 
-    # Per-integration wall times and the warmup-robust steady-state metric.
+    # Per-integration wall times and the warmup-robust steady-state metrics.
     assert len(LAST_RUN_STATS["integration_times"]) == 2
     assert LAST_RUN_STATS["steady_time_per_integration"] > 0
+    assert LAST_RUN_STATS["steady_gpu_time_per_integration"] > 0
 
 
 def test_multibeam():

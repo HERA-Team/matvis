@@ -380,6 +380,19 @@ def simulate(  # noqa: C901
             }
             for stage, samples in event_samples.items()
         }
+
+        per_integration_gpu_ms = (
+            np.array(event_samples["chunk_total"]).reshape(ntimes, nchunks).sum(axis=1)
+        )
+        steady_gpu_ms = (
+            per_integration_gpu_ms[1:]
+            if len(per_integration_gpu_ms) > 1
+            else per_integration_gpu_ms
+        )
+        LAST_RUN_STATS["steady_gpu_time_per_integration"] = (
+            float(np.median(steady_gpu_ms)) / 1000.0
+        )
+
         logger.info(
             "GPU event timing, median (ms): chunk_total=%.3f beam=%.3f tau=%.3f "
             "z=%.3f matprod=%.3f",
@@ -400,8 +413,9 @@ simulate.__doc__ = (
         If True, collect per-chunk GPU event timings for beam interpolation,
         tau, Z construction, and matprod stages; log stage medians at INFO
         level at the end of the run, and expose median/mean/std/count per stage
-        (plus per-integration wall times and a warmup-robust
-        ``steady_time_per_integration``) via ``LAST_RUN_STATS``. Default is
-        False.
+        (plus per-integration wall times, a warmup-robust
+        ``steady_time_per_integration``, and a warmup-robust
+        ``steady_gpu_time_per_integration`` summed from the actual chunks of
+        each integration) via ``LAST_RUN_STATS``. Default is False.
     """
 )

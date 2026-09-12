@@ -235,18 +235,16 @@ def run_profile(
             "steady_time_per_integration"
         ]
         if "event_timing_ms" in run_stats:
-            gpu_time = (
-                run_stats["event_timing_ms"]["chunk_total"]["median"]
-                * run_stats["nchunks"]
-                / 1000.0
-            )
+            gpu_time = run_stats["steady_gpu_time_per_integration"]
             derived["gpu_time_per_integration"] = gpu_time
-            # gpu_time is median(per-chunk total) x nchunks -- a biased
-            # estimator of the true per-integration GPU total when chunks
-            # vary in cost (e.g. the horizon cut leaves different numbers of
-            # sources active in different chunks), whereas steady wall time
-            # sums the *actual* per-integration total. The two can cross
-            # without either being wrong, hence the clamp below.
+            # host_overhead shouldn't be negative -- the host wall-clock
+            # steady state already includes the GPU busy time. The clamp
+            # guards against measurement noise: the host timer and the
+            # per-chunk GPU events bound different, overlapping windows
+            # (e.g. GPU work queued during one integration can still be
+            # executing when the next integration's host timer starts), so
+            # the two per-integration estimates can cross by a small amount
+            # without either being wrong.
             derived["host_overhead_per_integration"] = max(
                 derived["steady_wall_per_integration"] - gpu_time, 0.0
             )

@@ -35,6 +35,7 @@ brevity — see below for what they contain):
       "run_stats": {
         "integration_times": [1.230, 0.816, 0.795, 0.806],
         "steady_time_per_integration": 0.806,
+        "steady_gpu_time_per_integration": 0.799,
         "event_timing_ms": {
           "chunk_total": {"median": 26.62, "mean": 28.31, "std": 7.4, "n": 120}
         }
@@ -44,14 +45,17 @@ brevity — see below for what they contain):
 - **``derived``** — the three numbers to quote and compare (see the Rules of
   Thumb table on the :doc:`Performance <performance>` page):
   ``steady_wall_per_integration`` (median wall time per integration,
-  excluding the first), ``gpu_time_per_integration`` (median per-chunk
-  CUDA-event total × chunk count — device time only), and
+  excluding the first), ``gpu_time_per_integration`` (copied from
+  ``run_stats.steady_gpu_time_per_integration`` — device time only), and
   ``host_overhead_per_integration`` (their difference).
 - **``run_stats``** — the full detail behind ``derived``: every
   per-integration wall time (``integration_times``), and, with
   ``--gpu-event-timing``, per-stage CUDA-event median/mean/std/sample-count
   under ``event_timing_ms`` (one entry per stage: ``chunk_total``, ``beam``,
-  ``tau``, ``z``, ``matprod``).
+  ``tau``, ``z``, ``matprod``) plus ``steady_gpu_time_per_integration`` —
+  each integration's actual chunk totals summed, then the median taken
+  across integrations excluding the first (the same warmup-robust
+  treatment as ``steady_time_per_integration``).
 - **``stages``** — line-profiler timings of named code regions. Useful for
   the CPU backend; for the GPU backend the loop is asynchronous, so treat it
   as a rough indicator only (see the warning on the Performance page).

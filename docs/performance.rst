@@ -151,9 +151,10 @@ provided ``profiling/gemm_experiments.py`` script.
      - 0.25 s
      - 31%
 
-**GPU time** (``derived.gpu_time_per_integration``: median per-chunk CUDA
-events × chunk count) measures the time spent computing on the GPU (and transferring
-data to/from the GPU).
+**GPU time** (``derived.gpu_time_per_integration``: per-integration sum of
+per-chunk CUDA event totals, median over integrations excluding the first)
+measures the time spent computing on the GPU (and transferring data to/from
+the GPU).
 **Wall time** (``derived.steady_wall_per_integration``: median
 per-integration wall time, excluding the first integration) adds host-side
 work — coordinate rotation, Python dispatch — and so also depends on the
@@ -280,9 +281,10 @@ The script is designed so its headline numbers are robust out of the box:
   ``derived.steady_wall_per_integration`` is the **median excluding the
   first integration**.
 - Per-chunk CUDA-event stage timings (``--gpu-event-timing``) keep all
-  samples and report **medians** alongside means;
-  ``derived.gpu_time_per_integration`` is the median per-chunk total
-  multiplied by the chunk count.
+  samples and report per-stage **medians** alongside means;
+  ``derived.gpu_time_per_integration`` sums each integration's actual chunk
+  totals and takes the **median across integrations, excluding the first**
+  — the same warmup-robust treatment as the wall time above.
 
 The three ``derived`` values (steady wall, GPU time, host overhead) are the
 ones to quote and compare — they are what the Rules of Thumb table reports.

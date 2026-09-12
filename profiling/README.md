@@ -25,10 +25,11 @@ measurements:
     excluding the first (which is skewed even after warmup: outliers still
     occur, e.g. a lazily-allocated buffer touched for the first time in a
     later integration).
-  - `gpu_time_per_integration` — median per-chunk CUDA-event total × chunk
-    count, i.e. device compute and transfer time only, no host-side (CPU)
-    dispatch. Comparable across machines that have the same GPU, since it
-    excludes the host's contribution.
+  - `gpu_time_per_integration` — each integration's actual per-chunk
+    CUDA-event totals summed, then the median taken across integrations
+    (excluding the first), i.e. device compute and transfer time only, no
+    host-side (CPU) dispatch. Comparable across machines that have the same
+    GPU, since it excludes the host's contribution.
   - `host_overhead_per_integration` — `steady_wall_per_integration` minus
     `gpu_time_per_integration`: everything that isn't GPU compute
     (coordinate rotation, Python dispatch, horizon-cut bookkeeping). Varies
