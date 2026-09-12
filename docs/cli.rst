@@ -5,6 +5,8 @@ CLI
 ``matvis`` installs a ``matvis`` command-line entry point with profiling and
 benchmarking subcommands (see also the :doc:`Performance <performance>` page
 and ``profiling/README.md`` for how to use these in practice).
+The python code for this CLI command lives in ``src/matvis/cli.py`` and is delegated
+through the ``main()`` function there.
 
 .. click:: matvis.cli:main
    :prog: matvis
