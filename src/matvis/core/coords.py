@@ -144,12 +144,6 @@ class CoordinateRotation(ABC):
         self.coords_above_horizon[:, :n] = topo[:, above_horizon]
         self.flux_above_horizon[n:] = 0
 
-        # No device sync needed here (or at the other call sites that used to
-        # have one): gpu.simulate() now runs the whole per-time, per-chunk
-        # loop on a single persistent cp.cuda.Stream, so every kernel launch
-        # is already ordered relative to the ones before and after it. The
-        # old per-chunk-stream design needed an explicit sync to order work
-        # across streams; a single stream doesn't.
         return self.coords_above_horizon, self.flux_above_horizon, n
 
     def _rotate_frame_coherency(self, coherency_matrix, ra, dec, alt, az, time) -> None:
