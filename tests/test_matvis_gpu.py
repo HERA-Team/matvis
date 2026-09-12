@@ -68,8 +68,14 @@ def test_gpu_event_timing_and_debug_logging(caplog, use_analytic_beam):
     Both analytic and gridded (UVBeam) beams are tested so that the
     ``bmfunc.use_interp`` debug branch is hit both ways.
     """
+    ntime = 2
+    nfreq = 1
     kw, *_ = get_standard_sim_params(
-        use_analytic_beam=use_analytic_beam, polarized=True, nfreq=1, nsource=3, ntime=2
+        use_analytic_beam=use_analytic_beam,
+        polarized=True,
+        nfreq=nfreq,
+        nsource=3,
+        ntime=ntime,
     )
     kw |= {"precision": 2, "use_gpu": True, "gpu_event_timing": True}
 
@@ -82,7 +88,7 @@ def test_gpu_event_timing_and_debug_logging(caplog, use_analytic_beam):
     finally:
         gpu_logger.setLevel(prev_level)
 
-    assert vis.shape[:2] == (1, 2)  # nfreqs, ntimes
+    assert vis.shape[:2] == (nfreq, ntime)
     assert any("GPU mem" in r.message for r in caplog.records)
 
     stats = LAST_RUN_STATS["event_timing_ms"]
@@ -91,7 +97,7 @@ def test_gpu_event_timing_and_debug_logging(caplog, use_analytic_beam):
     assert stats["matprod"]["mean"] > 0
 
     # Per-integration wall times and the warmup-robust steady-state metrics.
-    assert len(LAST_RUN_STATS["integration_times"]) == 2
+    assert len(LAST_RUN_STATS["integration_times"]) == ntime
     assert LAST_RUN_STATS["steady_time_per_integration"] > 0
     assert LAST_RUN_STATS["steady_gpu_time_per_integration"] > 0
 

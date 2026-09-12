@@ -37,8 +37,14 @@ def _reference_z(beam, exptau, sqrt_flux, beam_idx, nant, nfeed, nax, nsrc):
         (4, 4, np.array([2, 0, 3, 1])),  # explicit beam_idx, permuted
         (5, 1, None),  # single beam shared by all antennas
         (4, 4, None),  # one beam per antenna, aligned to antenna order
+        (6, 3, np.array([0, 1, 2, 0, 1, 2])),  # 1 < nbeam < nant, beams reused
     ],
-    ids=["beam_idx", "shared_beam", "beam_per_antenna_implicit"],
+    ids=[
+        "beam_idx",
+        "shared_beam",
+        "beam_per_antenna_implicit",
+        "nbeam_between_1_and_nant",
+    ],
 )
 def test_fused_z(ctype, nant, nbeam, beam_idx):
     """Fused Z must match the reference computation, including on a cached call."""
