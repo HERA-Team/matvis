@@ -70,11 +70,49 @@ def test_zdotz_invalid_dtype():
         cb.zdotz(a)
 
 
+def test_zdotz_raises_on_non_c_contiguous_a():
+    """Zdotz should reject an `a` that is not C-contiguous."""
+    a = cp.zeros((4, 8), dtype=np.complex64, order="F")
+    with pytest.raises(ValueError, match="a must be C-contiguous"):
+        cb.zdotz(a)
+
+
+def test_zdotz_raises_on_non_f_contiguous_out():
+    """Zdotz should reject a preallocated `out` that is not F-contiguous."""
+    a = cp.zeros((4, 8), dtype=np.complex64)
+    out = cp.zeros((4, 4), dtype=np.complex64, order="C")
+    with pytest.raises(ValueError, match="out must be F-contiguous"):
+        cb.zdotz(a, out=out)
+
+
 def test_complex_matmul_invalid_dtype():
     """complex_matmul should reject non-complex input dtypes."""
     a = cp.zeros((4, 4), dtype=np.float64)
     with pytest.raises(TypeError, match="invalid dtype"):
         cb.complex_matmul(a, a)
+
+
+def test_complex_matmul_raises_on_shape_mismatch():
+    """complex_matmul should reject a and b with different shapes."""
+    a = cp.zeros((4, 8), dtype=np.complex64)
+    b = cp.zeros((5, 8), dtype=np.complex64)
+    with pytest.raises(ValueError, match="a and b must have the same shape"):
+        cb.complex_matmul(a, b)
+
+
+def test_complex_matmul_raises_on_non_c_contiguous_a():
+    """complex_matmul should reject an `a` that is not C-contiguous."""
+    a = cp.zeros((4, 8), dtype=np.complex64, order="F")
+    with pytest.raises(ValueError, match="a must be C-contiguous"):
+        cb.complex_matmul(a, a)
+
+
+def test_complex_matmul_raises_on_non_f_contiguous_out():
+    """complex_matmul should reject a preallocated `out` that is not F-contiguous."""
+    a = cp.zeros((4, 8), dtype=np.complex64)
+    out = cp.zeros((4, 4), dtype=np.complex64, order="C")
+    with pytest.raises(ValueError, match="out must be F-contiguous"):
+        cb.complex_matmul(a, a, out=out)
 
 
 def test_zdotz_falls_back_to_complex_matmul_without_lib(monkeypatch):
