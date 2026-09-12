@@ -1,24 +1,4 @@
-"""Thin wrappers around cuBLAS for core matvis operations.
-
-Two entry points:
-
-``zdotz(a, out)``
-    Computes ``a.conj() @ a.T`` (note that this is the convention used throughout
-    matvis, rather than aa^H). Uses the
-    Hermitian rank-k routine ``cherk``/``zherk`` (half the FLOPs of a general
-    GEMM: only one triangle is computed), then mirrors the triangle with a
-    small kernel. Falls back to ``complex_matmul`` if the cuBLAS shared
-    library cannot be loaded directly.
-
-``complex_matmul(a, b, out)``
-    General ``a.conj() @ b.T``. For complex64 uses ``cgemm3m`` (Gauss
-    3M algorithm, ~25% fewer real FLOPs — measured ~2x faster than ``cgemm``
-    for the skinny matvis shapes) when available, otherwise ``cgemm``/``zgemm``.
-
-The 3M/HERK routines are not exposed by cupy, so they are bound with ctypes
-from the same libcublas that cupy loaded, and run on cupy's handle and the
-current cupy stream.
-"""
+"""Thin cuBLAS wrappers exposing ``zdotz`` and ``complex_matmul``."""
 
 import ctypes
 import logging
@@ -39,7 +19,12 @@ _PTR, _INT = ctypes.c_void_p, ctypes.c_int
 
 
 def _load_cublas_ext():
-    """Bind cgemm3m/cherk/zherk from the libcublas already loaded by cupy."""
+    """Bind cgemm3m/cherk/zherk from the libcublas already loaded by cupy.
+
+    These routines are not exposed by cupy, so they are bound with ctypes
+    from the same libcublas that cupy loaded, and run on cupy's handle and
+    the current cupy stream.
+    """
     # cupy has already loaded libcublas into the process, so dlopen-ing by
     # soname resolves to the same library (no new load).
     for soname in (
@@ -108,14 +93,22 @@ def _sync_handle_stream(handle):
 
 
 def zdotz(a, out=None, alpha=1.0, beta=0.0):
-    """Compute the Hermitian Gram product a.conj() @ a.T."""
+    """Compute the Hermitian Gram product ``a.conj() @ a.T``.
+
+    Note that this is the convention used throughout matvis, rather than
+    ``aa^H``. Uses the Hermitian rank-k routine ``cherk``/``zherk`` to compute one half
+    of the visibility matrix, then fills in the other half with a small mirroring kernel.
+    Falls back to :func:`complex_matmul` if the
+    cuBLAS shared library cannot be loaded directly (see ``_load_cublas_ext``).
+    """
     m, k = a.shape
-    assert a._c_contiguous
+    if not a._c_contiguous:
+        raise ValueError("a must be C-contiguous")
 
     if out is None:
         out = cp.empty((m, m), dtype=a.dtype, order="F")
-    else:
-        assert out._f_contiguous
+    elif not out._f_contiguous:
+        raise ValueError("out must be F-contiguous")
 
     if _LIB is None:
         return complex_matmul(a, a, out=out, alpha=alpha, beta=beta)
@@ -127,13 +120,18 @@ def zdotz(a, out=None, alpha=1.0, beta=0.0):
         func = _LIB.cublasZherk_v2
         rtype = np.float64
     else:
-        raise TypeError(f"invalid dtype: {a.dtype}")
+        raise TypeError(
+            f"invalid dtype for a: {a.dtype} (must be complex64 or complex128)"
+        )
 
     alpha = np.array(alpha, dtype=rtype)
     beta = np.array(beta, dtype=rtype)
 
     handle = device.get_cublas_handle()
     _sync_handle_stream(handle)
+    # alpha/beta are host (numpy) scalars passed by pointer, so the handle needs
+    # HOST pointer mode here; restore the caller's mode afterwards since the
+    # handle is cupy's shared global one and other code may rely on its mode.
     orig_mode = cublas.getPointerMode(handle)
     cublas.setPointerMode(handle, cublas.CUBLAS_POINTER_MODE_HOST)
     try:
@@ -160,8 +158,15 @@ def zdotz(a, out=None, alpha=1.0, beta=0.0):
 
 
 def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
-    """Computes a.conj() @ b.T."""
-    assert a.shape == b.shape
+    """Compute ``a.conj() @ b.T``.
+
+    For complex64 uses ``cgemm3m`` (Gauss 3M algorithm, which is roughly 2x faster than
+    cgemm for typical matvis shapes) when available, otherwise ``cgemm``/``zgemm``.
+    """
+    if a.shape != b.shape:
+        raise ValueError(
+            f"a and b must have the same shape, got {a.shape} and {b.shape}"
+        )
     use_3m = _LIB is not None
     if a.dtype == "complex64":
         func = _LIB.cublasCgemm3m if use_3m else cublas.cgemm
@@ -171,24 +176,30 @@ def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
         use_3m = False
         func = cublas.zgemm
     else:
-        raise TypeError(f"invalid dtype: {a.dtype}")
+        raise TypeError(
+            f"invalid dtype for a: {a.dtype} (must be complex64 or complex128)"
+        )
 
     transa = cublas.CUBLAS_OP_C
     transb = cublas.CUBLAS_OP_N
     m, k = a.shape
     n = m
-    assert a._c_contiguous
+    if not a._c_contiguous:
+        raise ValueError("a must be C-contiguous")
 
     if out is None:
         out = cp.empty((m, n), dtype=a.dtype, order="F")
-    else:
-        assert out._f_contiguous
+    elif not out._f_contiguous:
+        raise ValueError("out must be F-contiguous")
 
     alpha = np.array(alpha, dtype=a.dtype)
     beta = np.array(beta, dtype=a.dtype)
 
     handle = device.get_cublas_handle()
     _sync_handle_stream(handle)
+    # alpha/beta are host (numpy) scalars passed by pointer, so the handle needs
+    # HOST pointer mode here; restore the caller's mode afterwards since the
+    # handle is cupy's shared global one and other code may rely on its mode.
     orig_mode = cublas.getPointerMode(handle)
     cublas.setPointerMode(handle, cublas.CUBLAS_POINTER_MODE_HOST)
 
@@ -233,6 +244,7 @@ def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
                 m,
             )
     finally:
+        # Restore the original pointer mode for CUBLAS (see comment above)
         cublas.setPointerMode(handle, orig_mode)
 
     return out

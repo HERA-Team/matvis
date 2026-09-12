@@ -4,6 +4,7 @@ from pathlib import Path
 
 import cupy as cp
 import numpy as np
+from docstring_parser import combine_docstrings
 
 from ..core.getz import ZMatrixCalc
 
@@ -22,6 +23,7 @@ class GPUZMatrixCalc(ZMatrixCalc):
         super().__init__(*args, **kwargs)
         self._beam_idx_gpu = None
 
+    @combine_docstrings(ZMatrixCalc.__call__)
     def __call__(
         self,
         sqrt_flux: cp.ndarray,
@@ -31,7 +33,6 @@ class GPUZMatrixCalc(ZMatrixCalc):
     ) -> cp.ndarray:
         """Compute Z = A * sqrtI * exp(tau) in one pass.
 
-        See :meth:`matvis.core.getz.ZMatrixCalc.__call__` for parameters.
         Unlike the base implementation, ``exptau`` is not modified in place.
         """
         if beam_idx is None:
@@ -54,7 +55,8 @@ class GPUZMatrixCalc(ZMatrixCalc):
         block = 256
         rdtype = np.float32 if self.ctype == np.complex64 else np.float64
         sqrt_flux = cp.ascontiguousarray(sqrt_flux, dtype=rdtype)
-        assert beam._c_contiguous and exptau._c_contiguous
+        if not (beam._c_contiguous and exptau._c_contiguous):
+            raise ValueError("beam and exptau must be C-contiguous")
 
         kern(
             ((ntot + block - 1) // block,),

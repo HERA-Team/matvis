@@ -103,7 +103,20 @@ def simulate(  # noqa: C901
     memory_buffer: float = 0.9,
     gpu_event_timing: bool = False,
 ) -> np.ndarray:
-    """GPU implementation of the visibility simulator."""
+    """GPU implementation of the visibility simulator.
+
+    Parameters
+    ----------
+    gpu_event_timing : bool, optional
+        If True, collect per-chunk GPU event timings for beam interpolation,
+        tau, Z construction, and matprod stages; log stage medians at INFO
+        level at the end of the run, and expose median/mean/std/count per stage
+        (plus per-integration wall times, a warmup-robust
+        ``steady_time_per_integration``, and a warmup-robust
+        ``steady_gpu_time_per_integration`` summed from the actual chunks of
+        each integration) via ``LAST_RUN_STATS``. Default is False.
+
+    """
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
 
@@ -403,19 +416,3 @@ def simulate(  # noqa: C901
         )
 
     return vis if polarized else vis[:, :, 0, 0]
-
-
-simulate.__doc__ = (
-    (simulate.__doc__ or "")
-    + f"\n{simcpu.__doc__ or ''}"
-    + """
-    gpu_event_timing : bool, optional
-        If True, collect per-chunk GPU event timings for beam interpolation,
-        tau, Z construction, and matprod stages; log stage medians at INFO
-        level at the end of the run, and expose median/mean/std/count per stage
-        (plus per-integration wall times, a warmup-robust
-        ``steady_time_per_integration``, and a warmup-robust
-        ``steady_gpu_time_per_integration`` summed from the actual chunks of
-        each integration) via ``LAST_RUN_STATS``. Default is False.
-    """
-)

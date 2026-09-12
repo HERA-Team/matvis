@@ -145,7 +145,7 @@ def run_profile(
         # compilation, cuBLAS handle+workspace creation, ERFA/IERS caches)
         # are paid before any timing starts.
         nwarm = min(nsource, 10_000)
-        logger.info("Running warmup simulation (%d sources, 1 time)...", nwarm)
+        logger.info(f"Running warmup simulation ({nwarm} sources, 1 time)...")
         simulate_vis(
             ants=ants,
             fluxes=flux[:nwarm],
@@ -220,14 +220,7 @@ def run_profile(
     line_stats = get_line_based_stats(profiler.get_stats())
     thing_stats = get_summary_stats(line_stats, STEPS)
 
-    # Derived headline numbers, robust to warmup and host noise. These are
-    # the values to quote/compare (see the docs Performance page).
-    #
-    # The `stages` table further down times Python lines, but GPU work is
-    # queued asynchronously -- a line's measured time is often how long the
-    # host waited for already-queued GPU work to finish, not the cost of
-    # that line itself. Use these derived numbers for the GPU backend
-    # instead.
+    # Initialize a dictionary to track timing summary statistics
     derived = {}
     if gpu:
         run_stats = gpu_module.LAST_RUN_STATS
@@ -237,14 +230,10 @@ def run_profile(
         if "event_timing_ms" in run_stats:
             gpu_time = run_stats["steady_gpu_time_per_integration"]
             derived["gpu_time_per_integration"] = gpu_time
-            # host_overhead shouldn't be negative -- the host wall-clock
-            # steady state already includes the GPU busy time. The clamp
-            # guards against measurement noise: the host timer and the
+            # Guard against measurement noise: the host timer and the
             # per-chunk GPU events bound different, overlapping windows
             # (e.g. GPU work queued during one integration can still be
-            # executing when the next integration's host timer starts), so
-            # the two per-integration estimates can cross by a small amount
-            # without either being wrong.
+            # executing when the next integration's host timer starts)
             derived["host_overhead_per_integration"] = max(
                 derived["steady_wall_per_integration"] - gpu_time, 0.0
             )

@@ -25,8 +25,22 @@ _BILINEAR_KERNELS = {
 }
 
 
-def prepare_for_map_coords(uvbeam: UVBeam):
-    """Obtain coordinates for doing map_coordinates interpolation from a UVBeam."""
+def prepare_for_map_coords(uvbeam: UVBeam) -> tuple[np.ndarray, float, float, float]:
+    """Obtain coordinates for doing map_coordinates interpolation from a UVBeam.
+
+    Returns
+    -------
+    array
+        The beam data array in the shape defined by UVBeam, but without a frequency
+        axis. For a power beam, shape (1, Npols, Nza, Naz). For Efield
+        beam (Naxes_vec, Nfeeds, Nza, Naz).
+    float
+        The regular grid spacing in azimuth for the beam data.
+    float
+        The regular grid spacing in zenith angle for the beam data.
+    float
+        The minimum azimuth of the beam data.
+    """
     d0, az, za = uvbeam._prepare_coordinate_data(uvbeam.data_array)
     d0 = d0[:, :, 0]  # only one frequency
     return d0, np.diff(az)[0], np.diff(za)[0], az.min()
@@ -167,14 +181,12 @@ def gpu_beam_interpolation(
         The azimuth and zenith-angle values of the sources to which to interpolate.
         These should be  1D arrays. They are not treated as a "grid".
     power_beam
-        Whether ``beam`` holds power (non-negative, needs a ``sqrt`` before
-        use as a voltage) rather than E-field values. Callers that know this
-        (e.g. ``GPUBeamInterpolator``, which knows ``polarized``) should
-        pass it explicitly. If not given, it's inferred from ``beam``'s
-        dtype (real => power, complex => E-field) — a reasonable default
-        for a real beam, but note that a complex *power* beam (e.g. one
-        holding cross-polarization terms) would be mis-detected as E-field
-        by that inference and silently skip the ``sqrt``.
+        Whether the provided ``beam`` is in power units or E-field units. If not
+        provided, then it is inferred based on whether the provided ``beam`` is real- or
+        complex-valued. Failing to set ``power_beam=True`` and providing a power beam
+        with cross-polarized components will result in the interpolation routine
+        treating the beam as if it were an E-field beam instead of a power beam (i.e.,
+        no square root will be taken after interpolation).
 
     Returns
     -------

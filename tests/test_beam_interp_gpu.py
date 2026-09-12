@@ -25,7 +25,11 @@ def power_beam_1freq(uvbeam_unpol):
 
 
 def _grid(uvb):
-    """Get (beam planes, daz, dza, azmin, az grid nodes, za grid nodes) for a UVBeam."""
+    """Get (beam data, daz, dza, azmin, az grid nodes, za grid nodes) for a UVBeam.
+
+    The beam data shape is (1, Npols, Nza, Naz) for power beams. For Efield
+    beams it is (Naxes_vec, Nfeeds, Nza, Naz).
+    """
     d0, daz, dza, azmin = prepare_for_map_coords(uvb)
     nza, naz = d0.shape[-2:]
     az_nodes = azmin + daz * np.arange(naz)
@@ -84,6 +88,7 @@ def test_order_gt_1_matches_uvbeam_interp(efield_beam_1freq):
     testing at grid nodes (which any correctly-implemented interpolator
     reproduces exactly regardless of order).
     """
+    order = 2
     d0, daz, dza, azmin, az_nodes, za_nodes = _grid(efield_beam_1freq)
 
     rng = np.random.default_rng(0)
@@ -99,7 +104,7 @@ def test_order_gt_1_matches_uvbeam_interp(efield_beam_1freq):
         [azmin],
         cp.asarray(AZ.flatten()),
         cp.asarray(ZA.flatten()),
-        order=2,
+        order=order,
     ).get()
     nax, nfeed, nza, naz = d0.shape
     out = out[0].reshape(nfeed, nax, AZ.shape[0], AZ.shape[1])
@@ -108,7 +113,7 @@ def test_order_gt_1_matches_uvbeam_interp(efield_beam_1freq):
         az_array=AZ.flatten(),
         za_array=ZA.flatten(),
         interpolation_function="az_za_map_coordinates",
-        spline_opts={"order": 2},
+        spline_opts={"order": order},
         freq_array=np.atleast_1d(efield_beam_1freq.freq_array[0]),
         reuse_spline=False,
         return_basis_vector=False,
