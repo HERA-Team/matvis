@@ -127,11 +127,11 @@ provided ``profiling/gemm_experiments.py`` script.
      - :math:`t_{\rm min}`
      - Efficiency
    * - RTX A2000 laptop (Ampere, 95 W class)
-     - 2.0 s
-     - 2.1 s
+     - 2.34 s
+     - 2.37 s
      - 8
      - 0.49 s
-     - 25%
+     - 21%
    * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
      - 1.6 s
      - 1.7 s
