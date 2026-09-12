@@ -206,6 +206,11 @@ def gpu_beam_interpolation(
     nbeam, nax, nfeed, nza, naz = beam.shape
     nsrc = len(az)
 
+    if np.iscomplexobj(beam) and nax == 1:
+        raise ValueError(
+            "The beam is complex valued but has only one Efield axis. Are you sure this isn't a power beam?"
+        )
+
     if beam_at_src is None:
         beam_at_src = cp.zeros((nbeam, nfeed, nax, nsrc), dtype=beam.dtype)
     else:
