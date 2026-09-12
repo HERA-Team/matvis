@@ -1,9 +1,7 @@
 // Z[ant, feed, ax, src] = A[beam_idx[ant], feed, ax, src] * exptau[ant, src] * sqrtI[src]
 //
-// One elementwise pass replaces the previous implementation's nfeed*nax
-// broadcast copies, the Python loop over antennas, and the full-device
-// synchronize -- about 9 passes over the Z-sized array in total, plus host
-// stalls, become a single pass. Used by matvis.gpu.getz.GPUZMatrixCalc.
+// One elementwise kernel for all nfeed, nax, nants.
+// Used by matvis.gpu.getz.GPUZMatrixCalc.
 #include <cupy/complex.cuh>
 
 template<typename R, typename T>

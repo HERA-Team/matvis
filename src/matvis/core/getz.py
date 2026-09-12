@@ -99,9 +99,4 @@ class ZMatrixCalc:
         # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
         self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
 
-        # No device sync needed: see the comment in
-        # core.coords.CoordinateRotation.select_chunk. (The GPU backend
-        # actually uses gpu.getz.GPUZMatrixCalc, which overrides __call__
-        # entirely; this base implementation only runs on GPU if constructed
-        # directly with gpu=True.)
         return self.z

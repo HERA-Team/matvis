@@ -34,9 +34,6 @@ class CoordinateRotationAstropy(CoordinateRotation):
         self.all_coords_topo[1] = self.xp.cos(el) * self.xp.cos(az)
         self.all_coords_topo[2] = self.xp.sin(el)
 
-        # No device sync needed: see the comment in
-        # core.coords.CoordinateRotation.select_chunk.
-
 
 class CoordinateRotationERFA(CoordinateRotation):
     """Perform coordinate rotation with functions pulled from ERFA.
@@ -225,6 +222,3 @@ class CoordinateRotationERFA(CoordinateRotation):
 
         # now perform observed conversion
         self._atioq(self.all_coords_topo, astrom)
-
-        # No device sync needed: see the comment in
-        # core.coords.CoordinateRotation.select_chunk.

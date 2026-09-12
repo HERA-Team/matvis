@@ -1,13 +1,12 @@
 // One fused bilinear-interpolation kernel evaluating every (beam, feed, axis)
 // combination for every source in a single launch. The previous implementation made
-// nbeam*nfeed*nax separate map_coordinates launches per chunk (1400 launches
-// for a 350-antenna array with per-antenna beams), which left the GPU idle
+// nbeam*nfeed*nax separate map_coordinates launches per chunk, which left the GPU idle
 // most of the time waiting on the host to issue work.
 //
 // Grid: x indexes sources, y indexes (beam, feed, axis) combinations.
-// Out-of-range coordinates clamp to the grid edge. Input layout
-// (nbeam, nax, nfeed, nza, naz) [UVBeam order], output layout
-// (nbeam, nfeed, nax, nsrc) [matvis order].
+// Out-of-range coordinates clamp to the grid edge.
+// Input layout (nbeam, nax, nfeed, nza, naz) [UVBeam order],
+// Output layout (nbeam, nfeed, nax, nsrc) [matvis order].
 // Used by matvis.gpu.beams.gpu_beam_interpolation.
 #include <cupy/complex.cuh>
 
