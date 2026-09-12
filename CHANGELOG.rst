@@ -15,15 +15,15 @@ Performance
     (``cherk``/``zherk``, half the FLOPs) with ``cgemm3m`` for general
     products, bound directly from ``libcublas``.
   - Beam interpolation for gridded beams is a single fused bilinear kernel
-    over all (beam, feed, axis) planes instead of one ``map_coordinates``
-    launch per plane.
+    over all (beam, feed, axis) combos instead of one ``map_coordinates``
+    launch per combo.
   - The Z matrix is computed in one fused kernel (previously several
     broadcast passes plus a Python loop over antennas).
   - The GPU loop runs on a single stream with no device synchronization,
     keeping the GPU ~95% utilized.
   - The phase-factor matmul no longer silently runs in complex128 when
     single precision is requested (this also removes a large hidden
-    temporary that could cause out-of-memory errors).
+    temporary array that could cause out-of-memory errors).
 
 Fixed
 -----
@@ -46,8 +46,8 @@ Infrastructure
 - The profiling harness is robust to one-time costs and host noise: an
   untimed warmup simulation runs first (``--no-warmup`` to disable),
   per-integration wall times are recorded individually, CUDA-event stage
-  timings report medians as well as means, and a ``derived`` block in the
-  JSON separates steady-state wall time, GPU-only time, and host overhead
+  timings report medians as well as means and standard deviations, and a ``derived``
+  block in the JSON separates steady-state wall time, GPU-only time, and host overhead
   per integration.
 
 Tests

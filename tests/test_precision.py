@@ -12,9 +12,6 @@ import pytest
 from matvis import HAVE_GPU, simulate_vis
 from matvis._test_utils import get_standard_sim_params
 
-# Runs both use_gpu=True and use_gpu=False cases; whole-file marking keeps
-# both riding along together on the self-hosted GPU CI job, matching prior
-# (filename-based) selection exactly.
 pytestmark = pytest.mark.gpu
 
 
