@@ -1,5 +1,5 @@
 // One fused bilinear-interpolation kernel evaluating every (beam, feed, axis)
-// plane for every source in a single launch. The previous implementation made
+// combination for every source in a single launch. The previous implementation made
 // nbeam*nfeed*nax separate map_coordinates launches per chunk (1400 launches
 // for a 350-antenna array with per-antenna beams), which left the GPU idle
 // most of the time waiting on the host to issue work.
