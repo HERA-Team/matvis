@@ -69,57 +69,43 @@ around 100–200 antennas). The number of *distinct* beams only affects the
 beam-interpolation share, so simulating 350 unique beams costs only ~15%
 more than one shared beam.
 
-Rules of thumb
-==============
+Rules of thumb for the matrix product phase
+===========================================
 
-Measured cost per integration (one time sample, one frequency) at the
-canonical production-slice configuration via ``profiling/run-canonical.sh``:
+The matrix product phase is the dominant phase for interferometers of a realistic size
+(~100 antennas or more). Here we list the measured and theoretical cost of this phase
+per integration (one time sample, one frequency) at the
+canonical production-slice configuration via ``profiling/run-canonical.sh`` for
+some GPUs that were available (if you have your own GPU and check the peformance,
+please report it to us so we can add it here)!
 
-.. list-table::
-   :header-rows: 1
-
-   * - Hardware
-     - GPU time / integration
-     - Wall time / integration
-   * - RTX A2000 laptop (Ampere, 95 W class)
-     - 2.0 s
-     - 2.1 s
-   * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
-     - 1.6 s
-     - 1.7 s
-   * - Quadro RTX 5000 (Turing, 16 GB workstation card)
-     - 1.8 s
-     - 1.8 s
-   * - Tesla V100-SXM2-32GB (Volta, data-centre)
-     - 0.8 s
-     - 0.8 s
-
-**GPU time** (``derived.gpu_time_per_integration``: median per-chunk CUDA
-events × chunk count) measures the time spent computing on the GPU (and transferring
-data to/from the GPU).
-**Wall time** (``derived.steady_wall_per_integration``: median
-per-integration wall time, excluding the first integration) adds host-side
-work — coordinate rotation, Python dispatch — and so also depends on the
-machine's CPU; the difference between the columns is the host overhead on
-the benchmark machine (2% or less on all four machines above).
-
-Scale this linearly in :math:`N_{\rm src}` and quadratically in
-:math:`N_{\rm ant}` (above ~200 antennas). Frequencies are embarrassingly
-parallel and are typically run as separate jobs.
-
-For a GEMM-dominated estimate on other hardware:
+The theoretical minimum here is given by the number of floating point operations required
+divided by the *advertised* performance (TFLOPS) of the card, :math:`P_{\rm theo}`. That is,
 
 .. math::
 
-   t_{\rm gemm} \approx \frac{8 \,(N_{\rm feed} N_{\rm ant})^2 \, N_{\rm ax} N_{\rm src}^{\rm alloc}}{R}
+  t_{\rm min} = \frac{4 \,(N_{\rm feed} N_{\rm ant})^2 \, N_{\rm ax} N_{\rm src}^{\rm alloc}}{P_{\rm theo}} = \frac{3.92}{P_{\rm theo}}.
 
-where :math:`R` is the achieved complex-GEMM rate of your GPU. ``matvis``
-computes :math:`V = ZZ^\dagger` with ``cherk``, which does half the work of a
-general GEMM; the *effective* :math:`R` (fp32) is ~5.2 TFLOPS on the A2000
-and ~10.7 TFLOPS on a Tesla V100. This formula, evaluated with your own
-measured :math:`R`, is the theoretical minimum GPU time for the matprod stage.
-Measure :math:`R` for your own GPU and problem shape with
-``profiling/gemm_experiments.py``.
+In this equation we have set :math:`N_{\rm feed}=N_{\rm ax}=2`, :math:`N_{\rm ant}=350`,
+and :math:`N_{\rm src}^{\rm alloc}=10^6` (i.e. the production slice settings), and the
+factor of four accounts for the data being complex valued.
+Note that this theoretical minimum assumes that the matrix-multiply uses CHERK, with
+half the operations of a standard GEMM, and also assumes single precision is being used.
+
+In practice, the matrix multiply operation on a given card will not achieve the theoretical
+FLOPS of the card. Let the actual throughput of the card for the GEMM operation be
+:math:`R`. Then the time taken for a production slice is
+
+.. math::
+
+   t_{\rm gemm} \approx \frac{8 \,(N_{\rm feed} N_{\rm ant})^2 \, N_{\rm ax} N_{\rm src}^{\rm alloc}}{R}.
+
+In this equation, the potential savings that come from using CHERK insead of the general
+GEMM (theoretically up to a factor of two) are absorbed into the performance, :math:`R`.
+That is, :math:`R` is the *effective* achieved FLOPS for a GEMM operation of this
+shape/scale on a given GPU (and therefore could be higher, up to a factor of two, than
+the advertised FLOPS of the card). You can measure :math:`R` for your own GPU with our
+provided ``profiling/gemm_experiments.py`` script.
 
 .. important::
 
@@ -129,6 +115,73 @@ Measure :math:`R` for your own GPU and problem shape with
    the dominant cost directly. If your sky is roughly uniform (half below the
    horizon at any time), ``source_buffer=0.6`` is nearly a 2x saving over the
    default ``1.0``. These results use the default source buffer.
+
+
+.. list-table::
+   :header-rows: 1
+
+   * - Hardware
+     - GPU time / integration
+     - Wall time / integration
+     - :math:`P_{\rm theo}` (TFLOPS)
+     - :math:`t_{\rm min}`
+     - Efficiency
+   * - RTX A2000 laptop (Ampere, 95 W class)
+     - 2.0 s
+     - 2.1 s
+     - 8
+     - 0.49 s
+     - 25%
+   * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
+     - 1.6 s
+     - 1.7 s
+     - 6.6
+     - 0.59 s
+     - 37%
+   * - Quadro RTX 5000 (Turing, 16 GB workstation card)
+     - 1.8 s
+     - 1.8 s
+     - 11.2
+     - 0.35 s
+     - 19%
+   * - Tesla V100-SXM2-32GB (Volta, data-centre)
+     - 0.8 s
+     - 0.8 s
+     - 15.7
+     - 0.25 s
+     - 31%
+
+**GPU time** (``derived.gpu_time_per_integration``: median per-chunk CUDA
+events × chunk count) measures the time spent computing on the GPU (and transferring
+data to/from the GPU).
+**Wall time** (``derived.steady_wall_per_integration``: median
+per-integration wall time, excluding the first integration) adds host-side
+work — coordinate rotation, Python dispatch — and so also depends on the
+machine's CPU; the difference between the columns is the host overhead on
+the benchmark machine (2% or less on all four machines above).
+**Efficiency**: defined as the theoretical minimum time divided by the measured time,
+as a percentage.
+
+.. note::
+
+   These efficiencies (19-37%) are well below 100%. This does not necessarily
+   reflect that ``matvis`` is ineffeciently calling the matrix multiply routine (CHERK),
+   but is more likely a reflection that CHERK (under the given matrix shape conditions)
+   cannot achieve the theoretical peak performance of the card.
+   For the A2000 row in particular, the ~70% matrix-product share quoted in
+   `Where the time goes`_ was itself measured with ``cherk`` already running
+   at *the library's roofline* [1]_ — cuBLAS could not do any better for this
+   problem shape on that card, so the entire 100%→25% shortfall happens
+   inside cuBLAS, not in the code calling it. Two effects are known to pull
+   achieved throughput for complex GEMM/CHERK below a card's advertised
+   (real, fp32) peak: complex-valued kernels generally reach a lower
+   fraction of peak than a real SGEMM of the same size, and vendor-advertised
+   TFLOPS are boost-clock figures rarely sustained under continuous load
+   (especially on the 95 W laptop A2000). GPU time also includes device
+   data transfer (see above), which further widens the gap from the
+   compute-only theoretical minimum, though we have not separately measured
+   how much of the gap this accounts for.
+
 
 GEMM strategy: hardware dependence
 -----------------------------------
