@@ -146,6 +146,7 @@ class TestUVBeamInterpolator:
             bmfunc(tx, ty, check=True)
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
 class TestGPUBeamInterpolator:
     """Test the GPUBeamInterpolator."""
@@ -199,6 +200,7 @@ class TestGPUBeamInterpolator:
         assert isinstance(interp_beam, cp.ndarray)
 
 
+@pytest.mark.gpu
 def test_gpu_beam_interp_against_cpu(efield_single_freq):
     """Test that GPU beam interpolation matches the CPU interpolation."""
     if not HAVE_GPU:

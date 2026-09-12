@@ -42,6 +42,7 @@ extensions = [
     "numpydoc",
     "nbsphinx",
     "IPython.sphinxext.ipython_console_highlighting",
+    "sphinx_click",
 ]
 
 numpydoc_show_class_members = False

@@ -57,6 +57,12 @@ def test_complex_flux():
     assert coords.sky_model_dtype == coords.ctype == np.complex128
 
 
+_COORD_METHODS = [
+    pytest.param(m, marks=pytest.mark.gpu) if m.requires_gpu else m
+    for m in CoordinateRotation._methods.values()
+]
+
+
 def get_random_coordrot(n, method, gpu, seed, precision=2, setup: bool = True, **kw):
     """Get a random coordinate rotation object."""
     rng = np.random.default_rng(seed)
@@ -80,7 +86,7 @@ def get_random_coordrot(n, method, gpu, seed, precision=2, setup: bool = True, *
     return coords
 
 
-@pytest.mark.parametrize("method", list(CoordinateRotation._methods.values()))
+@pytest.mark.parametrize("method", _COORD_METHODS)
 @pytest.mark.parametrize("gpu", [False, True] if HAVE_GPU else [False])
 def test_repeat_stays_same(method, gpu):
     """This test just checks that repeating the .rotate() method multiple times works."""
@@ -97,7 +103,7 @@ def test_repeat_stays_same(method, gpu):
     assert xp.allclose(xx, coords.all_coords_topo)
 
 
-@pytest.mark.parametrize("method", list(CoordinateRotation._methods.values()))
+@pytest.mark.parametrize("method", _COORD_METHODS)
 @pytest.mark.parametrize("gpu", [False, True] if HAVE_GPU else [False])
 @pytest.mark.parametrize("precision", [1, 2])
 def test_accuracy_against_astropy(method, gpu, precision):

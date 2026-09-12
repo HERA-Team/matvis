@@ -43,7 +43,10 @@ def test_passing_matprod_method_with_prefix():
         pytest.param(
             True,
             id="gpu",
-            marks=pytest.mark.skipif(not HAVE_CUDA, reason="GPU is not available"),
+            marks=[
+                pytest.mark.gpu,
+                pytest.mark.skipif(not HAVE_CUDA, reason="GPU is not available"),
+            ],
         ),
     ],
 )
