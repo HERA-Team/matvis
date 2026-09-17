@@ -84,7 +84,7 @@ divided by the *advertised* performance (TFLOPS) of the card, :math:`P_{\rm theo
 
 .. math::
 
-  t_{\rm min} = \frac{4 \,(N_{\rm feed} N_{\rm ant})^2 \, N_{\rm ax} N_{\rm src}^{\rm alloc}}{P_{\rm theo}} = \frac{3.92}{P_{\rm theo}}.
+  t_{\rm min} ({\rm sec}) = \frac{4 \,(N_{\rm feed} N_{\rm ant})^2 \, N_{\rm ax} N_{\rm src}^{\rm alloc}}{P_{\rm theo}} = \frac{3.92}{P_{\rm theo}}.
 
 In this equation we have set :math:`N_{\rm feed}=N_{\rm ax}=2`, :math:`N_{\rm ant}=350`,
 and :math:`N_{\rm src}^{\rm alloc}=10^6` (i.e. the production slice settings), and the

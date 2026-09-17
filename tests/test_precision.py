@@ -31,7 +31,7 @@ def test_single_vs_double_precision(use_gpu, polarized, use_analytic_beam):
     assert vis_double.dtype == np.complex128
 
     # The error budget is fp32 round-off accumulated over the coherent source
-    # sum: relative to the total flux scale (~|V| at zero spacing), not to each
+    # sum: relative to the total flux scale (the autocorrelation amplitude), not to each
     # individual (possibly near-zero) visibility.
     scale = np.abs(vis_double).max()
     np.testing.assert_allclose(vis_single, vis_double, atol=1e-5 * scale, rtol=0)
