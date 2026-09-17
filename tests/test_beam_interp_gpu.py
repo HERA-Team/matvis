@@ -229,56 +229,38 @@ def test_power_beam_cast_to_complex_of_equivalent_precision(
     assert out.dtype == expected_complex_dtype
 
 
-def test_power_beam_inferred_from_dtype(power_beam_1freq, efield_beam_1freq):
+@pytest.mark.parametrize("efield_or_power", ["efield", "power"])
+def test_power_beam_inferred_from_dtype(
+    efield_or_power, power_beam_1freq, efield_beam_1freq
+):
     """``power_beam=None`` must be inferred from whether the beam array is real or complex.
 
     The result should match the explicit equivalent for each case.
     """
-    d0p, dazp, dzap, azminp, az_p, za_p = _grid(power_beam_1freq)
-    d0e, daze, dzae, azmine, az_e, za_e = _grid(efield_beam_1freq)
+    is_power = efield_or_power == "power"
+    uvb = power_beam_1freq if is_power else efield_beam_1freq
+    d0, daz, dza, azmin, az_nodes, za_nodes = _grid(uvb)
+    AZ, ZA = np.meshgrid(az_nodes[:3], za_nodes[:3], indexing="xy")
 
-    AZp, ZAp = np.meshgrid(az_p[:3], za_p[:3], indexing="xy")
-    AZe, ZAe = np.meshgrid(az_e[:3], za_e[:3], indexing="xy")
-
-    beam_p = cp.asarray(d0p[np.newaxis])
-    out_p_auto = gpu_beam_interpolation(
-        beam_p,
-        [dazp],
-        [dzap],
-        [azminp],
-        cp.asarray(AZp.flatten()),
-        cp.asarray(ZAp.flatten()),
+    beam = cp.asarray(d0[np.newaxis])
+    out_auto = gpu_beam_interpolation(
+        beam,
+        [daz],
+        [dza],
+        [azmin],
+        cp.asarray(AZ.flatten()),
+        cp.asarray(ZA.flatten()),
     ).get()
-    out_p_explicit = gpu_beam_interpolation(
-        beam_p,
-        [dazp],
-        [dzap],
-        [azminp],
-        cp.asarray(AZp.flatten()),
-        cp.asarray(ZAp.flatten()),
-        power_beam=True,
+    out_explicit = gpu_beam_interpolation(
+        beam,
+        [daz],
+        [dza],
+        [azmin],
+        cp.asarray(AZ.flatten()),
+        cp.asarray(ZA.flatten()),
+        power_beam=is_power,
     ).get()
-    np.testing.assert_array_equal(out_p_auto, out_p_explicit)
-
-    beam_e = cp.asarray(d0e[np.newaxis])
-    out_e_auto = gpu_beam_interpolation(
-        beam_e,
-        [daze],
-        [dzae],
-        [azmine],
-        cp.asarray(AZe.flatten()),
-        cp.asarray(ZAe.flatten()),
-    ).get()
-    out_e_explicit = gpu_beam_interpolation(
-        beam_e,
-        [daze],
-        [dzae],
-        [azmine],
-        cp.asarray(AZe.flatten()),
-        cp.asarray(ZAe.flatten()),
-        power_beam=False,
-    ).get()
-    np.testing.assert_array_equal(out_e_auto, out_e_explicit)
+    np.testing.assert_array_equal(out_auto, out_explicit)
 
 
 def test_complex_beam_with_single_efield_axis_raises():
