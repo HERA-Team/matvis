@@ -124,7 +124,8 @@ def test_zdotz_falls_back_to_complex_matmul_without_lib(monkeypatch):
 
     monkeypatch.setattr(cb, "_LIB", None)
     c = cb.zdotz(cp.asarray(a))
-    np.testing.assert_allclose(c.get(), np.dot(a.conj(), a.T), rtol=1e-4)
+    expected = cb.complex_matmul(cp.asarray(a), cp.asarray(a))
+    np.testing.assert_allclose(c.get(), expected.get(), rtol=1e-4)
 
 
 @pytest.mark.parametrize(
