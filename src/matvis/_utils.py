@@ -128,7 +128,7 @@ def get_required_chunks(
     nant: int,
     nsrc: int,
     nbeam: int,
-    nbeampix: int,
+    nbeampix_tot: int,
     precision: int,
     source_buffer: float = 1.0,
     memory_buffer: float = 0.9,
@@ -150,8 +150,8 @@ def get_required_chunks(
         The number of sources.
     nbeam : int
         The number of beams.
-    nbeampix : int
-        The number of beam pixels.
+    nbeampix_tot : int
+        The total number of beam pixels in *all* beams.
     precision : int
         The precision of the data.
     source_buffer : float, optional
@@ -186,7 +186,7 @@ def get_required_chunks(
         gpusize = {
             "antpos": nant * 3 * rsize,
             "flux": nsrc * rsize,
-            "beam": nbeampix * nfeed * nax * csize,
+            "beam": nbeampix_tot * nfeed * nax * csize,
             "crd_eq": 3 * nsrc * rsize,
             "eq2top": 3 * 3 * rsize,
             "crd_top": 3 * nsrc * rsize,

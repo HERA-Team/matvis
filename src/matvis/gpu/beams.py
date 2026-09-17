@@ -1,6 +1,7 @@
 """GPU beam interpolation routines."""
 
 import itertools
+from pathlib import Path
 
 import cupy as cp
 import numpy as np
@@ -11,9 +12,35 @@ from .. import coordinates
 from ..core.beams import BeamInterpolator
 from ..cpu.beams import UVBeamInterpolator
 
+KERNELS_PATH = Path(__file__).parent / "kernels"
 
-def prepare_for_map_coords(uvbeam: UVBeam):
-    """Obtain coordinates for doing map_coordinates interpolation from a UVBeam."""
+# See kernels/bilinear_interp.cu for the kernel source and layout notes.
+_BILINEAR_MODULE = cp.RawModule(code=(KERNELS_PATH / "bilinear_interp.cu").read_text())
+
+_BILINEAR_KERNELS = {
+    np.dtype("complex64"): ("bilinear_c64", np.float32),
+    np.dtype("complex128"): ("bilinear_c128", np.float64),
+    np.dtype("float32"): ("bilinear_f32", np.float32),
+    np.dtype("float64"): ("bilinear_f64", np.float64),
+}
+
+
+def prepare_for_map_coords(uvbeam: UVBeam) -> tuple[np.ndarray, float, float, float]:
+    """Obtain coordinates for doing map_coordinates interpolation from a UVBeam.
+
+    Returns
+    -------
+    array
+        The beam data array in the shape defined by UVBeam, but without a frequency
+        axis. For a power beam, shape (1, Npols, Nza, Naz). For Efield
+        beam (Naxes_vec, Nfeeds, Nza, Naz).
+    float
+        The regular grid spacing in azimuth for the beam data.
+    float
+        The regular grid spacing in zenith angle for the beam data.
+    float
+        The minimum azimuth of the beam data.
+    """
     d0, az, za = uvbeam._prepare_coordinate_data(uvbeam.data_array)
     d0 = d0[:, :, 0]  # only one frequency
     return d0, np.diff(az)[0], np.diff(za)[0], az.min()
@@ -64,14 +91,16 @@ class GPUBeamInterpolator(BeamInterpolator):
                 (self.nbeam,) + d0.shape,
                 dtype=self.complex_dtype if self.polarized else self.real_dtype,
             )
-            self.beam_data[0] = cp.asarray(d0)
+            self.beam_data[0].set(d0.astype(self.beam_data.dtype, copy=False))
 
             if len(self.beam_list) > 1:
                 for i, b in enumerate(self.beam_list[1:]):
                     d, self.daz[i + 1], self.dza[i + 1], self.azmin[i + 1] = (
                         prepare_for_map_coords(b.beam)
                     )
-                    self.beam_data[i + 1].set(d)
+                    self.beam_data[i + 1].set(
+                        d.astype(self.beam_data.dtype, copy=False)
+                    )
         else:
             # If doing simply analytic beams, just use the UVBeamInterpolator
             self._eval = UVBeamInterpolator.interp
@@ -120,6 +149,7 @@ class GPUBeamInterpolator(BeamInterpolator):
             az,
             za,
             beam_at_src=out,
+            power_beam=not self.polarized,
             **self.spline_opts,
         )
 
@@ -133,6 +163,7 @@ def gpu_beam_interpolation(
     za: np.ndarray | cp.ndarray,
     beam_at_src: cp.ndarray | None = None,
     order: int = 1,
+    power_beam: bool | None = None,
 ):
     """
     Interpolate beam values from a regular az/za grid using GPU.
@@ -149,6 +180,13 @@ def gpu_beam_interpolation(
     az, za
         The azimuth and zenith-angle values of the sources to which to interpolate.
         These should be  1D arrays. They are not treated as a "grid".
+    power_beam
+        Whether the provided ``beam`` is in power units or E-field units. If not
+        provided, then it is inferred based on whether the provided ``beam`` is real- or
+        complex-valued. Failing to set ``power_beam=True`` and providing a power beam
+        with cross-polarized components will result in the interpolation routine
+        treating the beam as if it were an E-field beam instead of a power beam (i.e.,
+        no square root will be taken after interpolation).
 
     Returns
     -------
@@ -171,30 +209,81 @@ def gpu_beam_interpolation(
             f"Got {beam.dtype} as the dtype for beam, which is unrecognized"
         )
 
-    complex_beam = beam.dtype.name.startswith("complex")
+    complex_beam = (
+        not power_beam
+        if power_beam is not None
+        else beam.dtype.name.startswith("complex")
+    )
 
-    nbeam, nax, nfeed, *_ = beam.shape
+    nbeam, nax, nfeed, nza, naz = beam.shape
     nsrc = len(az)
+
+    if np.iscomplexobj(beam) and nax == 1:
+        raise ValueError(
+            "The beam is complex valued but has only one Efield axis. Are you sure this isn't a power beam?"
+        )
 
     if beam_at_src is None:
         beam_at_src = cp.zeros((nbeam, nfeed, nax, nsrc), dtype=beam.dtype)
     else:
         assert beam_at_src.shape == (nbeam, nfeed, nax, nsrc)
 
-    for bm in range(nbeam):
-        coords = cp.asarray([za / dza[bm], (az - azmin[bm]) / daz[bm]])
-        for fd, ax in itertools.product(range(nfeed), range(nax)):
-            ndimage.map_coordinates(
-                beam[bm, ax, fd],
-                coords,
-                order=order,
-                output=beam_at_src[bm, fd, ax],
-                #                mode="nearest",  # controls the end-point behavior, no-op
-            )
+    if order == 1:
+        # Use the custom beam interpolation kernel. If provided a power beam
+        # and a complex output buffer, cast interpolated beam to complex on
+        # copy.
+        target = (
+            beam_at_src
+            if beam_at_src.dtype == beam.dtype
+            else cp.empty((nbeam, nfeed, nax, nsrc), dtype=beam.dtype)
+        )
+        kernel_name, rdtype = _BILINEAR_KERNELS[beam.dtype]
+        kern = _BILINEAR_MODULE.get_function(kernel_name)
+        az = cp.ascontiguousarray(az, dtype=rdtype)
+        za = cp.ascontiguousarray(za, dtype=rdtype)
+        daz = cp.asarray(daz, dtype=rdtype)
+        dza = cp.asarray(dza, dtype=rdtype)
+        azmin = cp.asarray(azmin, dtype=rdtype)
+        assert beam._c_contiguous and target._c_contiguous
+        # 128 is a conventional warp-multiple default, not empirically
+        # tuned for this kernel/shape.
+        block = 128
+        grid = ((nsrc + block - 1) // block, nbeam * nfeed * nax)
+        kern(
+            grid,
+            (block,),
+            (
+                beam,
+                az,
+                za,
+                daz,
+                dza,
+                azmin,
+                np.int32(nfeed),
+                np.int32(nax),
+                np.int64(nza),
+                np.int64(naz),
+                np.int64(nsrc),
+                target,
+            ),
+        )
+        if target is not beam_at_src:
+            if not complex_beam:
+                cp.sqrt(target, out=target)
+            beam_at_src[:] = target
+            return beam_at_src
+    else:
+        for bm in range(nbeam):
+            coords = cp.asarray([za / dza[bm], (az - azmin[bm]) / daz[bm]])
+            for fd, ax in itertools.product(range(nfeed), range(nax)):
+                ndimage.map_coordinates(
+                    beam[bm, ax, fd],
+                    coords,
+                    order=order,
+                    output=beam_at_src[bm, fd, ax],
+                )
 
     if not complex_beam:  # power beam
         cp.sqrt(beam_at_src, out=beam_at_src)
         beam_at_src = beam_at_src.astype(ctype)
-
-    cp.cuda.Device().synchronize()
     return beam_at_src

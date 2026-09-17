@@ -24,13 +24,13 @@ things:
     1. It splits up the calculation in a novel way, using an antenna-based approach
        instead of a baseline-based approach. This makes some of its calculations scale
        as :math:`N_{\rm ant}` instead of :math:`N_{\rm ant}^2`. The last step of the
-       algorithm, which is unavoidably :math:`N_{\rm ant}^2`, is a simply matrix product,
+       algorithm, which is unavoidably :math:`N_{\rm ant}^2`, is a simple matrix product,
        which is extremely well-tuned on most modern systems through software like BLAS.
     2. The algorithm lends itself to implementation on GPUs, since the dominant parts
        of the algorithm are bilinear interpolation and a matrix product, both of which
        are fantastically fast on GPUs. Therefore, the ``matvis`` *algorithm* is seen
        as distinct from its *implementation*, and the ``matvis`` package defines *two*
-       implementations: ``matvis_cpu`` and ``matvis_gpu``, which have the same API.
+       implementations: ``matvis.cpu`` and ``matvis.gpu``, which have the same API.
 
 The ``matvis`` Framework
 =========================

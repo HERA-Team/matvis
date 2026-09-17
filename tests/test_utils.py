@@ -1,5 +1,9 @@
 """Test the utils module."""
 
+import logging
+import time
+
+import psutil
 import pytest
 
 from matvis import _utils
@@ -12,7 +16,7 @@ _BASE_KWARGS = {
     "nant": 4,
     "nsrc": 100,
     "nbeam": 2,
-    "nbeampix": 0,
+    "nbeampix_tot": 0,
     "precision": 1,
 }
 
@@ -80,3 +84,34 @@ class TestGetRequiredChunks:
         """memory_buffer = 1.0 is valid (use all free memory)."""
         result = _utils.get_required_chunks(**{**_BASE_KWARGS, "memory_buffer": 1.0})
         assert result >= 1
+
+
+class TestLogProgress:
+    """Tests for log_progress."""
+
+    def test_noop_when_info_disabled(self, caplog):
+        """When INFO is not enabled, inputs are returned unchanged and nothing is logged."""
+        pr = psutil.Process()
+        prev_time = time.time()
+        last_mem = 12345
+
+        with caplog.at_level(logging.WARNING, logger="matvis._utils"):
+            t, mem = _utils.log_progress(prev_time - 5, prev_time, 1, 10, pr, last_mem)
+
+        assert t == prev_time
+        assert mem == last_mem
+        assert caplog.text == ""
+
+    def test_logs_progress_when_info_enabled(self, caplog):
+        """When INFO is enabled, progress is logged and updated time/memory returned."""
+        pr = psutil.Process()
+        start_time = time.time() - 10
+        prev_time = time.time() - 1
+        last_mem = 0
+
+        with caplog.at_level(logging.INFO, logger="matvis._utils"):
+            t, mem = _utils.log_progress(start_time, prev_time, 5, 10, pr, last_mem)
+
+        assert t > prev_time
+        assert mem > 0
+        assert "Progress Info" in caplog.text
