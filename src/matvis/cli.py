@@ -76,7 +76,8 @@ def get_label(**kwargs):
     precision = 2 if kwargs["double_precision"] else 1
     return (
         "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_"
-        "naz{naz}_nza{nza}_g{gpu}_pr{precision}_{matprod_method}_{coord_method}"
+        "naz{naz}_nza{nza}_o{spline_order}_g{gpu}_pr{precision}_{matprod_method}_"
+        "{coord_method}"
     ).format(precision=precision, **kwargs)
 
 
@@ -101,6 +102,7 @@ def run_profile(
     source_buffer=1.0,
     gpu_event_timing=False,
     warmup=True,
+    spline_order=1,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -135,6 +137,7 @@ def run_profile(
     cns.print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
     cns.print(f"  NAZ:              {naz:>7}")
     cns.print(f"  NZA:              {nza:>7}")
+    cns.print(f"  SPLINE ORDER:     {spline_order:>7}")
     cns.print(f"  GPU-EVENT-TIMING: {gpu_event_timing:>7}")
     cns.print(f"  WARMUP:           {warmup:>7}")
     cns.print(Rule())
@@ -163,6 +166,7 @@ def run_profile(
             coord_method=coord_method,
             antpairs=pairs,
             source_buffer=source_buffer,
+            beam_spline_opts={"order": spline_order},
         )
 
     if gpu:
@@ -191,6 +195,7 @@ def run_profile(
         min_chunks=nchunks,
         source_buffer=source_buffer,
         gpu_event_timing=gpu_event_timing,
+        beam_spline_opts={"order": spline_order},
     )
     out_time = time.time()
 
@@ -209,6 +214,7 @@ def run_profile(
         coord_method=coord_method,
         naz=naz,
         nza=nza,
+        spline_order=spline_order,
     )
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
@@ -378,6 +384,12 @@ common_profile_options = [
         default=180,
         type=int,
         help="Number of zenith-angle grid points for gridded beams.",
+    ),
+    click.option(
+        "--spline-order",
+        default=1,
+        type=int,
+        help="Spline order for gridded-beam interpolation (1=bilinear, 3=bicubic).",
     ),
     click.option(
         "--source-buffer",

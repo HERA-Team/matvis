@@ -21,6 +21,14 @@ Simulator implementations
    matvis.cpu.cpu
    matvis.gpu.gpu
 
+GPU Beam Interpolation
+----------------------
+.. autosummary::
+   :template: custom-module.rst
+   :toctree: _autosummary
+
+   matvis.gpu.beams
+
 Other Utilities
 ---------------
 .. autosummary::

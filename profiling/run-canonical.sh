@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Canonical benchmark configs for tracking matvis GPU performance.
 #
-# Usage: profiling/run-canonical.sh [outdir] [dev|prodslice|both]
+# Usage: profiling/run-canonical.sh [outdir] [dev|prodslice|both] [spline-order]
 #
 # Both configs use production settings (polarized, gridded/interpolated
 # beams, one unique beam per antenna, single precision); only prodslice is
@@ -13,10 +13,12 @@ set -euo pipefail
 
 outdir="${1:-profiling/results}"
 which="${2:-both}"
+order="${3:-1}"   # beam interpolation order: 1 (bilinear) or 3 (bicubic)
 mkdir -p "$outdir"
 
 common=(--gpu --interpolated-beam --single-precision --gpu-event-timing
-        --coord-method CoordinateRotationERFA -f 1 -o "$outdir")
+        --coord-method CoordinateRotationERFA -f 1 --spline-order "$order"
+        -o "$outdir")
 
 if [[ "$which" == "dev" || "$which" == "both" ]]; then
     uv run matvis profile -a 64 -b 64 -s 200000 -t 8 "${common[@]}"
