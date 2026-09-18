@@ -14,6 +14,7 @@ reported as an ordinary test failure, with the MPI diagnostic attached, instead
 of killing the pytest session.
 """
 
+import os
 import subprocess
 import sys
 
@@ -107,3 +108,17 @@ def test_pyuvsim_start_mpi_succeeds():
     """
     proc = _run(_PYUVSIM_SCRIPT)
     assert proc.returncode == 0, _explain("pyuvsim MPI start-up", proc)
+
+
+def test_ucx_transports_are_restricted():
+    """``conftest`` must keep UCX away from the host's RDMA devices.
+
+    MPICH is configured ``ch4:ucx``, and UCX probes every network device it can
+    see at MPI_Init. On CI runners exposing an RDMA-capable MANA NIC, opening
+    the verbs transport fails and aborts the interpreter. These tests only run
+    MPI with a single rank, so shared-memory and loopback transports suffice.
+    """
+    assert os.environ.get("UCX_TLS") == "self,sm,tcp", (
+        "tests/conftest.py should set UCX_TLS before MPI can initialise; "
+        "without it, MPI start-up aborts on hosts with an RDMA NIC."
+    )
