@@ -74,10 +74,15 @@ main = click.Group(
 def get_label(**kwargs):
     """Get a label for the output profile files."""
     precision = 2 if kwargs["double_precision"] else 1
-    return (
+    label = (
         "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_"
         "naz{naz}_nza{nza}_g{gpu}_pr{precision}_{matprod_method}_{coord_method}"
     ).format(precision=precision, **kwargs)
+    # Keep MatBlock runs at different block counts in separate files, since
+    # comparing them against each other is the whole point of the option.
+    if kwargs.get("max_blocks") is not None:
+        label += "_mb{}".format(kwargs["max_blocks"])
+    return label
 
 
 def run_profile(
@@ -101,6 +106,7 @@ def run_profile(
     source_buffer=1.0,
     gpu_event_timing=False,
     warmup=True,
+    max_blocks=4,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -121,6 +127,20 @@ def run_profile(
         analytic_beam, nfreq, ntimes, nants, nsource, nbeams, naz=naz, nza=nza
     )
 
+    antenna_blocks = None
+    if matprod_method == "MatBlock":
+        from .redundancy import find_dense_blocks
+
+        blockpairs = (
+            pairs
+            if pairs is not None
+            else np.array([(i, j) for i in range(nants) for j in range(nants)])
+        )
+        t0 = time.time()
+        antenna_blocks = find_dense_blocks(blockpairs, max_blocks=max_blocks)
+        block_setup_time = time.time() - t0
+        block_area = sum(len(r) * len(c) for r, c in antenna_blocks)
+
     cns.print(Rule("Running matvis profile"))
     cns.print(f"  NANTS:            {nants:>7}")
     cns.print(f"  NTIMES:           {ntimes:>7}")
@@ -131,6 +151,11 @@ def run_profile(
     cns.print(f"  DOUBLE-PRECISION: {double_precision:>7}")
     cns.print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
     cns.print(f"  MATPROD METHOD:   {matprod_method:>7}")
+    if antenna_blocks is not None:
+        cns.print(f"  MAX BLOCKS:       {max_blocks:>7}")
+        cns.print(f"  NBLOCKS USED:     {len(antenna_blocks):>7}")
+        cns.print(f"  BLOCK AREA:       {block_area:>7} (of {nants**2} full)")
+        cns.print(f"  BLOCK SETUP:      {block_setup_time:>7.3f} s")
     cns.print(f"  COORDROT METHOD:  {coord_method:>7}")
     cns.print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
     cns.print(f"  NAZ:              {naz:>7}")
@@ -162,6 +187,7 @@ def run_profile(
             matprod_method=f"{'GPU' if gpu else 'CPU'}{matprod_method}",
             coord_method=coord_method,
             antpairs=pairs,
+            antenna_blocks=antenna_blocks,
             source_buffer=source_buffer,
         )
 
@@ -169,6 +195,10 @@ def run_profile(
         profiler.add_function(simgpu)
     else:
         profiler.add_function(simcpu)
+
+    # gpu_event_timing is a GPU-backend-only keyword; the CPU backend's
+    # simulate() doesn't take it.
+    backend_kw = {"gpu_event_timing": gpu_event_timing} if gpu else {}
 
     init_time = time.time()
     profiler.runcall(
@@ -188,9 +218,10 @@ def run_profile(
         matprod_method=f"{'GPU' if gpu else 'CPU'}{matprod_method}",
         coord_method=coord_method,
         antpairs=pairs,
+        antenna_blocks=antenna_blocks,
         min_chunks=nchunks,
         source_buffer=source_buffer,
-        gpu_event_timing=gpu_event_timing,
+        **backend_kw,
     )
     out_time = time.time()
 
@@ -209,6 +240,7 @@ def run_profile(
         coord_method=coord_method,
         naz=naz,
         nza=nza,
+        max_blocks=max_blocks if antenna_blocks is not None else None,
     )
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
@@ -282,6 +314,7 @@ def run_profile(
             "nza": nza,
             "nchunks": nchunks,
             "source_buffer": source_buffer,
+            "npairs": len(pairs) if pairs is not None else nants**2,
         },
         "total_time": out_time - init_time,
         "stages": {
@@ -294,6 +327,16 @@ def run_profile(
             for thing, (hits, _time, time_per_hit, percent, _) in thing_stats.items()
         },
     }
+    if antenna_blocks is not None:
+        summary["config"]["max_blocks"] = max_blocks
+        summary["blocks"] = {
+            "nblocks": len(antenna_blocks),
+            "area": block_area,
+            "full_area": nants**2,
+            "area_ratio": nants**2 / block_area,
+            "setup_time": block_setup_time,
+            "shapes": [[len(r), len(c)] for r, c in antenna_blocks],
+        }
     summary["derived"] = derived
     if gpu:
         summary["run_stats"] = dict(gpu_module.LAST_RUN_STATS)
@@ -330,8 +373,19 @@ common_profile_options = [
     click.option(
         "--matprod-method",
         default="MatMul",
-        type=click.Choice(["MatMul", "VectorDot"]),
-        help="Matrix-product strategy; the CPU/GPU prefix is added automatically.",
+        type=click.Choice(["MatMul", "VectorDot", "MatBlock"]),
+        help="Matrix-product strategy; the CPU/GPU prefix is added automatically. "
+        "MatBlock decomposes the product into rectangular antenna blocks built "
+        "with matvis.redundancy.find_dense_blocks (see --max-blocks); it only "
+        "pays off when the requested antpairs are far fewer than Nant^2, i.e. "
+        "for a redundant array (try `matvis hera-profile`).",
+    ),
+    click.option(
+        "--max-blocks",
+        default=4,
+        type=int,
+        help="Maximum number of antenna blocks for --matprod-method MatBlock "
+        "(ignored otherwise).",
     ),
     click.option(
         "--coord-method",

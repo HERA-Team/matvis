@@ -228,6 +228,237 @@ There is currently no runtime auto-selection between strategies (tracked in
 `issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then, check
 both with ``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal.
 
+Block-decomposed products on redundant arrays
+=============================================
+
+A *redundant* array measures far fewer distinct baselines than it has antenna
+pairs, so the full :math:`N_{\rm ant} \times N_{\rm ant}` product computes many
+visibilities that are, by construction, copies of one another. The
+``MatBlock`` matprod methods compute a handful of rectangular antenna-index
+sub-matrix products instead, gathering just the requested ``antpairs`` out of
+them (see :doc:`understanding_the_algorithm` for the mechanism, and
+:func:`~matvis.redundancy.find_dense_blocks` for building the decomposition).
+
+.. important::
+
+   **This only helps if the array is redundant.** The saving comes entirely
+   from asking for fewer visibilities than :math:`N_{\rm ant}^2`; the
+   decomposition cannot create redundancy that isn't there. In particular, if
+   every antenna has its own beam, no two antenna pairs give the same
+   visibility, every pair is wanted, and the best possible decomposition is
+   the full product itself — with the extra costs measured below on top. The
+   control measurement at the end of this section shows this case running
+   **1.4x slower** than plain ``MatMul``. Use ``MatBlock`` only when
+   ``len(antpairs)`` is a small fraction of :math:`N_{\rm ant}^2`.
+
+Measured speedup
+----------------
+
+Benchmark configuration: ``matvis hera-profile -a 11`` — a HERA-like split-core
+hex layout with **320 antennas**, i.e. 102 400 antenna pairs but only **1 501
+unique baselines** (a redundancy factor of 68) — with 196 608 sources
+(``--nside 128``), 6 source chunks (~32.8k sources per chunk, matching the
+canonical production-slice chunk size), one shared beam, gridded/interpolated,
+polarized, single precision, ``CoordinateRotationERFA``, 6 integrations, on an
+**RTX A2000 laptop GPU**. "Area" is :math:`\sum_b N^b_{\rm row} N^b_{\rm col}`
+summed over blocks, the quantity the FLOP count is proportional to; the full
+product's area is :math:`N_{\rm ant}^2 = 102\,400`. "Matrix product" is the
+``matprod`` CUDA-event median per chunk; "Wall" is
+``derived.steady_wall_per_integration``.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Method
+     - Area (FLOP proxy)
+     - Predicted from area
+     - Matrix product
+     - Wall / integration
+     - Actual speedup
+   * - ``MatMul`` (full product)
+     - 102 400
+     - 1.0x
+     - 39.0 ms
+     - 0.299 s
+     - 1.00x
+   * - ``MatBlock``, ``max_blocks=1``
+     - 33 176
+     - 3.1x
+     - 25.8 ms
+     - 0.218 s
+     - 1.37x
+   * - ``MatBlock``, ``max_blocks=2``
+     - 7 623
+     - 13.4x
+     - 15.0 ms
+     - 0.154 s
+     - 1.94x
+   * - ``MatBlock``, ``max_blocks=3``
+     - 3 527
+     - 29.0x
+     - 12.2 ms
+     - 0.140 s
+     - 2.14x
+   * - ``MatBlock``, ``max_blocks=4``
+     - 2 707
+     - 37.8x
+     - **11.4 ms**
+     - **0.130 s**
+     - **2.31x**
+   * - ``MatBlock``, ``max_blocks=6``
+     - 1 920
+     - 53.3x
+     - 13.5 ms
+     - 0.145 s
+     - 2.06x
+   * - ``MatBlock``, ``max_blocks=8``
+     - 1 714
+     - 59.7x
+     - 13.7 ms
+     - 0.148 s
+     - 2.02x
+   * - ``MatBlock``, ``max_blocks=12``
+     - 1 542
+     - 66.4x
+     - 20.4 ms
+     - 0.186 s
+     - 1.61x
+   * - ``VectorDot`` (one GEMM per baseline)
+     - 1 501
+     - 68.2x
+     - 211.5 ms
+     - 1.343 s
+     - 0.22x (*4.5x slower*)
+
+Building the decomposition is a one-off setup cost of 24 ms (1 block) to 140 ms
+(12 blocks) at this array size — negligible against any real simulation, but it
+is paid per ``simulate_vis`` call, so build it once and reuse it if you are
+calling in a loop.
+
+The headline is that the block decomposition **is** a real win —
+2.3x end-to-end, 3.4x on the matrix product itself — but it realizes only about
+9 per cent of the 37.8x that the FLOP count alone predicts, and the best
+``max_blocks`` is **not** the one that minimizes FLOPs. Cutting past four blocks
+keeps reducing the area and starts making things slower again.
+
+Why the FLOP ratio isn't achievable
+-----------------------------------
+
+The full product is compute-bound; the block products are not. Each block reads
+:math:`(N^b_{\rm row} + N^b_{\rm col})` antennas' worth of the :math:`Z` matrix
+to produce an :math:`N^b_{\rm row} \times N^b_{\rm col}` result, and because
+:math:`N_{\rm src}` is enormous compared to any block edge, these are extremely
+"skinny" GEMMs (at ``max_blocks=4`` the blocks are 3x319, 10x38, 27x46 and
+64x2 antennas, i.e. :math:`M` as small as 6 rows against :math:`K = 65\,536`).
+Their cost is set by streaming :math:`Z`, not by arithmetic — and *more blocks
+stream more of it*, because antennas get re-read by every block they appear in:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``max_blocks``
+     - 1
+     - 2
+     - 3
+     - 4
+     - 6
+     - 8
+     - 12
+   * - Area (arithmetic)
+     - 33 176
+     - 7 623
+     - 3 527
+     - 2 707
+     - 1 920
+     - 1 714
+     - 1 542
+   * - :math:`\sum_b (N^b_{\rm row} + N^b_{\rm col})` (traffic)
+     - 423
+     - 489
+     - 491
+     - 509
+     - 600
+     - 620
+     - 898
+
+(The full product streams 320 — each antenna exactly once.) The two columns
+pull in opposite directions, and the measured optimum sits where they balance.
+This also explains ``VectorDot``: it has the least arithmetic of all, but
+streams :math:`Z` twice per baseline over 1 501 separate tiny GEMMs.
+
+Isolating the pieces with a micro-benchmark at the ``max_blocks=4`` shapes
+(complex64, :math:`K = 65\,536`, A2000) splits the cost almost exactly in half:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Operation
+     - Time
+   * - Full product, ``cherk`` (what ``MatMul`` does)
+     - 40.7 ms
+   * - 4 blocks: gather of :math:`Z` rows/columns only
+     - 6.4 ms
+   * - 4 blocks: ``cgemm3m`` calls only
+     - 6.5 ms
+   * - 4 blocks: gather + GEMM (what ``MatBlock`` does)
+     - 12.5 ms
+
+Two things follow. First, even with the gather removed entirely, the four GEMMs
+would only be 6.3x faster than the full ``cherk``, not 37.8x — the arithmetic
+saving is genuinely not collectible at these shapes. Second, **half of
+``MatBlock``'s time is the gather**, not the matrix product: the blocks need
+contiguous operands, so the relevant rows and columns of :math:`Z` are copied
+before each GEMM. A future optimization could avoid much of this (for example
+by having the :math:`Z` construction write antennas in block order, so the
+larger blocks become slices rather than fancy-index copies).
+
+A third, smaller effect: ``MatMul`` uses the Hermitian rank-k routine
+``cherk``, which halves the work of a general GEMM, while the rectangular
+blocks cannot and use ``cgemm3m``. On this card that alone is worth ~1.3x in
+``MatMul``'s favour (see `GEMM strategy: hardware dependence`_), and it is
+architecture-dependent, so the crossover will differ on other GPUs.
+
+When it's worth it
+------------------
+
+- **Only for redundant arrays.** The speedup is bounded above by
+  :math:`N_{\rm ant}^2 / N_{\rm antpairs}`, and in practice lands far below
+  that bound. If you are simulating per-antenna unique beams, or otherwise
+  want every pair, use the default ``MatMul``.
+- **Benchmark ``max_blocks``; don't minimize area.** 3-4 blocks was best here;
+  the FLOP-minimizing choice (12+) was 1.4x *worse* than the best. The
+  ``matvis hera-profile --matprod-method MatBlock --max-blocks N`` sweep used
+  for the table above takes a few minutes and is the reliable way to pick.
+- **Never use ``VectorDot`` on a GPU for this.** It has the lowest FLOP count
+  of any option and is 4.5x slower than doing nothing special at all.
+- The gain applies to the matrix-product stage only, so the end-to-end benefit
+  is capped by that stage's share of the run (see `Where the time goes`_) —
+  here 81 per cent of GPU time before the change, 59 per cent after it.
+
+Control: what happens without redundancy
+----------------------------------------
+
+Same array, same sky, but requesting *all* 102 400 antenna pairs (the
+non-redundant case — e.g. every antenna having a unique beam). The best
+available decomposition is then a single block spanning the whole array, and
+the result is a straightforward loss:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Method
+     - Matrix product
+     - Wall / integration
+   * - ``MatMul``
+     - 38.9 ms
+     - 0.305 s
+   * - ``MatBlock``, ``max_blocks=4``
+     - 57.4 ms
+     - 0.417 s (**1.37x slower**)
+
+The slowdown is exactly the two costs identified above with none of the
+benefit: the gather of :math:`Z`, and ``cgemm3m`` in place of ``cherk``.
+
 Precision
 =========
 
@@ -317,6 +548,15 @@ Changes that significantly altered performance, newest first:
    * - Version / PR
      - Change
      - Measured impact
+   * - `PR #153 <https://github.com/HERA-Team/matvis/pull/153>`_ (Sept 2026)
+     - Added the block-decomposed matrix product
+       (``matprod_method="CPUMatBlock"/"GPUMatBlock"``) plus
+       :mod:`matvis.redundancy` helpers for building the decomposition.
+       Opt-in; the default ``MatMul`` path is unchanged.
+     - 2.3x steady-state wall time (3.4x on the matrix product itself) on a
+       320-antenna redundant hex layout with 1 501 unique baselines, RTX
+       A2000. **No benefit — a 1.4x slowdown — on non-redundant arrays**; see
+       `Block-decomposed products on redundant arrays`_.
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
      - GPU hot-path overhaul:
 

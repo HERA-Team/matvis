@@ -10,8 +10,10 @@ col_antenna_idx)`` block lists that the block-decomposed matprod classes consume
   reason the block mechanism exists: given the unique-baseline pairs, it permutes
   the antenna axes to concentrate them and cuts the result into a few dense
   sub-matrices, minimizing the total area (and hence FLOPs) of the product. On a
-  331-antenna hex layout, four blocks cut the product to ~1/137th of the full
-  ``Nant**2`` area while still issuing only four GEMMs.
+  320-antenna hex layout, four blocks cut the product to ~1/38th of the full
+  ``Nant**2`` area while still issuing only four GEMMs, which measures as a 2.3x
+  end-to-end speedup (the FLOP saving is not fully collectible -- see the docs
+  Performance page).
 - :func:`blocks_from_groups` turns caller-supplied antenna group labels (e.g. "these
   350 antennas are the compact core, these 8 are outriggers") into the full grid of
   group-by-group blocks, for when you already know a grouping you want to impose
@@ -213,6 +215,16 @@ def find_dense_blocks(
         Blocks suitable as the ``antenna_blocks`` argument to
         :class:`~matvis.cpu.matprod.CPUMatBlock` /
         :class:`~matvis.gpu.matprod.GPUMatBlock`.
+
+    Notes
+    -----
+    This only pays off when ``antpairs`` is much smaller than ``Nant**2``, i.e. on
+    a genuinely redundant array. It cannot create redundancy that isn't there: if
+    every antenna pair is wanted (for example because every antenna has its own
+    beam), the best decomposition is the full product itself, and using it is
+    measurably slower than ``CPUMatMul``/``GPUMatMul``. The realized speedup is
+    also well below the area ratio, and the best ``max_blocks`` is not the one
+    that minimizes the area -- see the docs Performance page for measurements.
     """
     antpairs = np.asarray(antpairs)
     if max_blocks < 1:

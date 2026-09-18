@@ -51,6 +51,40 @@ measurements:
 - **`gemm_experiments.py`** — compares cuBLAS strategies for V = Z Z^H
   (cgemm vs cgemm3m vs cherk) at a given shape.
 
+## Block-decomposed matrix product (`MatBlock`)
+
+`matvis profile`/`hera-profile` take `--matprod-method MatBlock` together with
+`--max-blocks N`. The decomposition is built for you with
+`matvis.redundancy.find_dense_blocks` over whatever antenna pairs the run
+requests, and the resulting block count, total sub-matrix area and setup time
+are printed and recorded under a `blocks` key in the summary JSON. Runs at
+different `--max-blocks` are written to separate files (the label gets an
+`_mbN` suffix), so a sweep doesn't overwrite itself.
+
+`hera-profile` is the one to use here, since it builds a redundant HERA-like
+hex array and deduplicates the baselines — `MatBlock` does nothing for a
+non-redundant set of pairs. It needs `21cmSense` for the antenna layout, which
+isn't a declared dependency; run it as `uv run --with 21cmSense matvis
+hera-profile ...`.
+
+The sweep behind the Performance page's "Block-decomposed products on
+redundant arrays" table:
+
+```bash
+for mb in 1 2 3 4 6 8 12; do
+    uv run --with 21cmSense matvis hera-profile -a 11 -s 128 -b 1 -t 6 -f 1 \
+        --nchunks 6 --gpu --interpolated-beam --single-precision \
+        --gpu-event-timing --coord-method CoordinateRotationERFA \
+        --matprod-method MatBlock --max-blocks $mb -o profiling/results
+done
+```
+
+Compare against `--matprod-method MatMul` and `--matprod-method VectorDot` at
+the same settings. The number to watch is `run_stats.event_timing_ms.matprod`
+(the stage the decomposition actually changes) alongside the usual
+`derived.steady_wall_per_integration`. Note that the best `--max-blocks` is
+*not* the one with the smallest area; see the Performance page for why.
+
 ## nsys
 
 Stages are annotated with NVTX ranges (`rotate`, `select_chunk`, `beam`,

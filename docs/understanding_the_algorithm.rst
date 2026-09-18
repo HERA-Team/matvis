@@ -135,18 +135,28 @@ Exploiting Redundancy: Block-Decomposed Products
 Step 7's matrix product is unavoidably :math:`N_{\rm ant}^2`, and dominates the total
 runtime for interferometers of a realistic size (see :doc:`performance`). A *redundant*
 array, however, has far fewer unique baselines than antenna pairs: a HERA-like
-331-antenna hex layout has 109 561 antenna pairs but only 630 distinct baseline
-vectors. Every extra pair beyond those 630 recomputes a visibility that is, by
-construction, identical to one already computed.
+split-core hex layout with 320 antennas has 102 400 antenna pairs but only 1 501
+distinct baseline vectors. Every extra pair beyond those 1 501 recomputes a visibility
+that is, by construction, identical to one already computed.
+
+.. important::
+
+   Everything in this section is a way of *exploiting* redundancy, not of creating it.
+   If your simulation has no redundancy -- most commonly because every antenna has its
+   own beam, which makes every antenna pair a distinct visibility and the unique-pair
+   count exactly :math:`N_{\rm ant}^2` -- then there is nothing here to win, and the
+   block machinery is measurably *slower* than the default. Use it only when the
+   ``antpairs`` you actually want are a small fraction of :math:`N_{\rm ant}^2`.
 
 There are two existing ways to handle this, and both leave something on the table:
 
 - ``MatMul`` (the default) does a single big :math:`N_{\rm ant} \times N_{\rm ant}`
-  GEMM. BLAS is extremely efficient at this, but for the array above it computes ~174x
+  GEMM. BLAS is extremely efficient at this, but for the array above it computes ~68x
   more of the matrix than is actually needed.
-- ``VectorDot``, given a deduplicated ``antpairs``, computes exactly the 630 wanted
-  visibilities -- the minimum possible FLOP count -- but as 630 separate tiny dot
-  products, so per-call overhead dominates and the hardware is badly underused.
+- ``VectorDot``, given a deduplicated ``antpairs``, computes exactly the 1 501 wanted
+  visibilities -- the minimum possible FLOP count -- but as 1 501 separate tiny dot
+  products, so per-call overhead dominates and the hardware is badly underused. On a
+  GPU this is not merely a wash: it measures 4.5x *slower* than the full ``MatMul``.
 
 ``CPUMatBlock``/``GPUMatBlock`` sit between the two. You supply an ``antenna_blocks``
 argument (a list of ``(row_antenna_idx, col_antenna_idx)`` integer-array tuples), and
@@ -163,40 +173,56 @@ freely, and each pair can be held in either orientation (since
 both: it orders the row antennas by how many pairs they appear in, then cuts that
 ordering into at most ``max_blocks`` contiguous runs, choosing the cuts to minimize the
 total sub-matrix area (the quantity the FLOP count is proportional to). For the
-331-antenna hex array above:
+320-antenna hex array above:
 
 .. list-table::
    :header-rows: 1
 
    * - Method
      - Sub-matrix area
-     - Speedup vs full
+     - Area ratio vs full
      - GEMM calls
+     - Measured speedup [#perf]_
    * - ``MatMul`` (full product)
-     - 109 561
+     - 102 400
      - 1.0x
      - 1
+     - 1.00x
    * - ``MatBlock``, ``max_blocks=2``
-     - 1 200
-     - 91x
+     - 7 623
+     - 13.4x
      - 2
+     - 1.94x
    * - ``MatBlock``, ``max_blocks=4``
-     - 801
-     - 137x
+     - 2 707
+     - 37.8x
      - 4
+     - **2.31x**
    * - ``MatBlock``, ``max_blocks=8``
-     - 658
-     - 167x
+     - 1 714
+     - 59.7x
      - 8
+     - 2.02x
    * - ``VectorDot`` (unique baselines)
-     - 630
-     - 174x
-     - 630
+     - 1 501
+     - 68.2x
+     - 1 501
+     - 0.22x
 
-Four blocks already capture ~79 per cent of the theoretically available FLOP reduction
-while issuing only four GEMMs. Note that these are *FLOP* ratios, not wall-clock ratios:
-the realized speedup depends on how efficiently your hardware runs the resulting
-(smaller) GEMM shapes, so benchmark before committing to a value of ``max_blocks``.
+.. [#perf] Steady-state wall time per integration, RTX A2000, 196 608 sources,
+   one shared beam, polarized, single precision. Full configuration, the
+   per-stage breakdown, and an explanation of the gap between the area ratio and
+   the measured speedup are on the :doc:`performance` page.
+
+"Area ratio" and "measured speedup" are the important comparison, and they do **not**
+track each other. Area is only a FLOP proxy; the resulting sub-matrices are very "skinny" (few
+antennas against a huge source axis), so they run nowhere near the efficiency of the
+one big GEMM they replace, and each one has to gather its own rows and columns of
+:math:`Z` first. The practical consequences: the decomposition is worth roughly a
+factor of two here rather than a factor of 38, and the best ``max_blocks`` is the one
+you measure, *not* the one that minimizes area -- past four blocks the area keeps
+falling while the wall time rises again. :doc:`performance` gives the full sweep and
+the reason for it; benchmark your own configuration before committing to a value.
 
 Importantly, this computes *exactly* the same visibilities as the default ``MatMul``
 method -- it is a rearrangement of the same computation, not an approximation, so there
