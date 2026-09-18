@@ -11,7 +11,7 @@ col_antenna_idx)`` block lists that the block-decomposed matprod classes consume
   the antenna axes to concentrate them and cuts the result into a few dense
   sub-matrices, minimizing the total area (and hence FLOPs) of the product. On a
   320-antenna hex layout, four blocks cut the product to ~1/38th of the full
-  ``Nant**2`` area while still issuing only four GEMMs, which measures as a 2.3x
+  ``Nant**2`` area while still issuing only four GEMMs, which measures as a 2.4x
   end-to-end speedup (the FLOP saving is not fully collectible -- see the docs
   Performance page).
 - :func:`blocks_from_groups` turns caller-supplied antenna group labels (e.g. "these

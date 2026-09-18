@@ -72,15 +72,17 @@ redundant arrays" table:
 
 ```bash
 for mb in 1 2 3 4 6 8 12; do
-    uv run --with 21cmSense matvis hera-profile -a 11 -s 128 -b 1 -t 6 -f 1 \
-        --nchunks 6 --gpu --interpolated-beam --single-precision \
+    uv run --with 21cmSense matvis hera-profile -a 11 -s 288 -b 1 -t 5 -f 1 \
+        --nchunks 30 --gpu --interpolated-beam --single-precision \
         --gpu-event-timing --coord-method CoordinateRotationERFA \
         --matprod-method MatBlock --max-blocks $mb -o profiling/results
 done
 ```
 
-Compare against `--matprod-method MatMul` and `--matprod-method VectorDot` at
-the same settings. The number to watch is `run_stats.event_timing_ms.matprod`
+(`-s 288 --nchunks 30` is ~10^6 sources at ~33k per chunk, i.e. the same scale
+and chunk size as the canonical production slice.) Compare against
+`--matprod-method MatMul` and `--matprod-method VectorDot` at the same
+settings. The number to watch is `run_stats.event_timing_ms.matprod`
 (the stage the decomposition actually changes) alongside the usual
 `derived.steady_wall_per_integration`. Note that the best `--max-blocks` is
 *not* the one with the smallest area; see the Performance page for why.

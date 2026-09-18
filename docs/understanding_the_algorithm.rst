@@ -156,7 +156,7 @@ There are two existing ways to handle this, and both leave something on the tabl
 - ``VectorDot``, given a deduplicated ``antpairs``, computes exactly the 1 501 wanted
   visibilities -- the minimum possible FLOP count -- but as 1 501 separate tiny dot
   products, so per-call overhead dominates and the hardware is badly underused. On a
-  GPU this is not merely a wash: it measures 4.5x *slower* than the full ``MatMul``.
+  GPU this is not merely a wash: it measures 4.6x *slower* than the full ``MatMul``.
 
 ``CPUMatBlock``/``GPUMatBlock`` sit between the two. You supply an ``antenna_blocks``
 argument (a list of ``(row_antenna_idx, col_antenna_idx)`` integer-array tuples), and
@@ -192,25 +192,27 @@ total sub-matrix area (the quantity the FLOP count is proportional to). For the
      - 7 623
      - 13.4x
      - 2
-     - 1.94x
+     - 2.00x
    * - ``MatBlock``, ``max_blocks=4``
      - 2 707
      - 37.8x
      - 4
-     - **2.31x**
+     - **2.39x**
    * - ``MatBlock``, ``max_blocks=8``
      - 1 714
      - 59.7x
      - 8
-     - 2.02x
+     - 2.13x
    * - ``VectorDot`` (unique baselines)
      - 1 501
      - 68.2x
      - 1 501
      - 0.22x
 
-.. [#perf] Steady-state wall time per integration, RTX A2000, 196 608 sources,
-   one shared beam, polarized, single precision. Full configuration, the
+.. [#perf] Steady-state wall time per integration, RTX A2000, 995 328 sources
+   in 30 chunks (production-slice scale), one shared beam, polarized, single
+   precision. The ratios are insensitive to both the chunk size and the total
+   source count -- see :doc:`performance`. Full configuration, the
    per-stage breakdown, and an explanation of the gap between the area ratio and
    the measured speedup are on the :doc:`performance` page.
 
