@@ -9,8 +9,15 @@ changelog of changes that significantly affected performance.
 Unless noted otherwise, all statements refer to the GPU implementation with
 the following settings: **single precision**, polarized (2 feeds
 × 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation, and
-the ERFA coordinate method with a large value set for ``update_bcrs_every`` so
-that it doesn't dominate the runs.
+the ERFA coordinate method.
+
+.. note::
+
+   ``CoordinateRotationERFA`` is the default, and the numbers on this page
+   assume it. The alternative, ``CoordinateRotationAstropy``, costs roughly 25x
+   as much per time step -- 1594 ms against 49 ms at 3.1e6 sources on an
+   RTX A2000, which turns coordinate rotation from ~0.7% of an integration into
+   ~24% of one. The two agree to 10 mas in double precision.
 
 The simulations reported here were run with the ``matvis profile`` script,
 documented at :doc:`cli`. This script outputs a JSON file with profiling

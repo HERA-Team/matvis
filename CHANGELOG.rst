@@ -5,6 +5,21 @@ Changelog
 Dev
 ===
 
+Changed
+-------
+
+- **The default** ``coord_method`` **is now** ``CoordinateRotationERFA``, where it
+  was ``CoordinateRotationAstropy``. Astropy's frame transform costs about 25x
+  what the ERFA path costs: measured on an RTX A2000 at 3.1e6 sources
+  (HEALPix Nside=512), 1594 ms per time step against 49 ms, which is ~24% of a
+  whole integration against ~0.7%. ``tests/test_coordrot.py`` pins the two
+  against each other at 10 mas in double precision, and the end-to-end
+  comparison against ``pyuvsim`` passes unchanged.
+
+  Visibilities computed with the new default therefore differ very slightly
+  from previous releases. Pass ``coord_method="CoordinateRotationAstropy"`` to
+  restore the old behaviour exactly.
+
 Performance
 -----------
 
