@@ -4,27 +4,15 @@ import os
 
 import pytest
 
-# Restrict UCX to shared-memory and loopback transports before anything can
-# initialise MPI.
-#
-# pyuvsim uses mpi4py, and the MPICH builds it binds to are configured
-# ``ch4:ucx``. At MPI_Init, UCX enumerates the host's network devices and tries
-# to open a transport on each one. On the subset of Azure CI runners that expose
-# an RDMA-capable MANA NIC, opening the verbs transport fails outright::
-#
-#     UCX  ERROR uct_iface_open(ud_verbs/mana_0:1) failed: Input/output error
-#     Abort(404899215): Fatal error in internal_Init_thread: Other MPI error
-#
-# That aborts the interpreter from C, so the whole pytest session dies with a
-# bare exit status and no traceback. Since these tests only ever run MPI with a
-# single rank, no network transport is needed at all; allowing just ``self``,
-# ``sm`` and ``tcp`` keeps UCX away from the verbs devices that fail. Set with
-# ``setdefault`` so an explicit UCX_TLS from the environment still wins.
+# Restrict UCX to shared-memory/loopback transports before anything can
+# initialise MPI: on runners exposing an RDMA-capable NIC, UCX fails to open
+# the verbs transport and aborts the interpreter. These tests are single-rank,
+# so no network transport is needed. See PR #159.
 os.environ.setdefault("UCX_TLS", "self,sm,tcp")
 
-from pyuvdata.uvbeam import UVBeam  # noqa: E402
+from pyuvdata.uvbeam import UVBeam
 
-from matvis import DATA_PATH  # noqa: E402
+from matvis import DATA_PATH
 
 
 @pytest.fixture(scope="session")
