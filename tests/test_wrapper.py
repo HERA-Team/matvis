@@ -37,14 +37,10 @@ def test_passing_matprod_method_with_prefix():
 
 
 def test_simulate_vis_with_matblock_matches_default():
-    """CPUMatBlock must be reachable through the public ``simulate_vis`` API.
+    """A full-covering ``tile_antennas`` block set must reproduce the CPUMatMul result.
 
-    Given a full-covering ``tile_antennas`` block set, it must be reachable as an
-    explicit, typed parameter (not only via ``**backend_kwargs``), and reproduce the
-    default CPUMatMul result. Without this, the whole block-dispatch mechanism could
-    ship correct-in-isolation but practically unreachable/dead from a user's
-    perspective (PR#79 wired its equivalent, ``matsets``, into ``cpu.simulate``
-    but exercised it only through ad hoc CLI profiling, not a real test).
+    Run through the public ``simulate_vis`` API, with ``antenna_blocks`` as an
+    explicit, typed parameter.
     """
     from matvis.redundancy import tile_antennas
 

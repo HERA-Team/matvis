@@ -1,27 +1,4 @@
-"""Tests for ``matvis.redundancy``: helpers for building antenna-block lists.
-
-matvis itself stays agnostic about *which* antenna groupings are good (that's a
-domain/array-geometry decision -- see the accuracy/feasibility discussion around
-``matvis#135``). This module only provides small, generic, independently-testable
-building blocks for constructing the ``antenna_blocks`` argument to
-``CPUMatBlock``/``GPUMatBlock``:
-
-- ``antpairs_to_blocks``: the trivial 1-antenna x 1-antenna block per pair, a direct
-  (bugfixed, renamed) replacement for PR#79's ``get_matrix_sets``. Functionally
-  equivalent to ``CPUVectorDot``/``GPUVectorDot``'s existing per-pair loop -- included
-  for API completeness, not as a performance win.
-- ``blocks_from_groups``: turns caller-supplied antenna group labels (domain
-  knowledge matvis doesn't try to derive itself) into the full grid of
-  group-by-group blocks. This is the actual payoff path: grouping antennas by
-  known array structure (e.g. a compact core vs outriggers) into a handful of
-  labels turns most of the ``Nant^2`` product into a few large, dense sub-blocks.
-- ``tile_antennas``: a generic, redundancy-agnostic full-array tiling, useful when a
-  caller wants every pair but with bounded per-block memory.
-- ``find_redundant_antpairs``: refactored out of ``cli.py::get_redundancies`` so it's
-  independently testable and reusable outside the CLI.
-"""
-
-from __future__ import annotations
+"""Tests for ``matvis.redundancy``: helpers for building antenna-block lists."""
 
 import numpy as np
 import pytest
@@ -31,6 +8,7 @@ from matvis.redundancy import (
     antpairs_to_blocks,
     blocks_from_groups,
     find_redundant_antpairs,
+    radial_groups,
     tile_antennas,
 )
 
@@ -150,6 +128,80 @@ class TestBlocksFromGroups:
         blocks = blocks_from_groups(labels)
         antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
         z = _make_z(nant, nfeed, nsrc, precision, seed=1)
+
+        obj = CPUMatBlock(
+            nchunks=1,
+            nfeed=nfeed,
+            nant=nant,
+            antpairs=antpairs,
+            precision=precision,
+            antenna_blocks=blocks,
+        )
+        obj.setup()
+        out = np.zeros((obj.npairs, nfeed, nfeed), dtype=z.dtype)
+        obj(z, chunk=0)
+        obj.sum_chunks(out)
+
+        expected = _reference_vis(z, nant, nfeed, antpairs)
+        np.testing.assert_allclose(out, expected, rtol=1e-4, atol=1e-6)
+
+
+class TestRadialGroups:
+    """Tests for ``radial_groups``."""
+
+    def test_returns_labels_in_range(self):
+        """Every label is a valid group index, and every group index is used."""
+        rng = np.random.default_rng(1)
+        antpos = rng.standard_normal((20, 2))
+        labels = radial_groups(antpos, n_groups=4)
+        assert labels.shape == (20,)
+        assert set(labels) == {0, 1, 2, 3}
+
+    def test_groups_are_roughly_equal_population(self):
+        """Equal-population binning keeps group sizes within one of each other."""
+        rng = np.random.default_rng(2)
+        antpos = rng.standard_normal((23, 2))
+        labels = radial_groups(antpos, n_groups=5)
+        counts = np.bincount(labels)
+        assert counts.max() - counts.min() <= 1
+
+    def test_closest_antennas_get_the_lowest_label(self):
+        """Labels are ordered by distance: 0 is closest to the center, not arbitrary."""
+        # Antennas at increasing distance along a line from the origin.
+        antpos = np.array([[0.0], [1.0], [2.0], [3.0], [10.0], [11.0]])
+        labels = radial_groups(antpos, n_groups=3, center=np.array([0.0]))
+        # Two per group, ordered by distance: (0,1) -> 0, (2,3) -> 1, (10,11) -> 2.
+        np.testing.assert_array_equal(labels, [0, 0, 1, 1, 2, 2])
+
+    def test_default_center_is_centroid(self):
+        """Omitting center uses the antennas' mean position."""
+        antpos = np.array([[-1.0], [0.0], [1.0], [5.0]])
+        default = radial_groups(antpos, n_groups=2)
+        explicit = radial_groups(antpos, n_groups=2, center=antpos.mean(axis=0))
+        np.testing.assert_array_equal(default, explicit)
+
+    def test_invalid_n_groups_raises(self):
+        """n_groups must be positive and no larger than the number of antennas."""
+        antpos = np.zeros((5, 2))
+        with pytest.raises(ValueError):
+            radial_groups(antpos, n_groups=0)
+        with pytest.raises(ValueError):
+            radial_groups(antpos, n_groups=6)
+
+    def test_composes_with_blocks_from_groups_and_matches_full_matmul(self):
+        """radial_groups + blocks_from_groups + CPUMatBlock matches CPUMatMul."""
+        from matvis.cpu.matprod import CPUMatBlock
+
+        nant, nfeed, nsrc, precision = 10, 1, 8, 1
+        rng = np.random.default_rng(4)
+        antpos = rng.standard_normal((nant, 2))
+        # A compact "core" plus two far-away "outriggers", like HERA's layout.
+        antpos[-2:] *= 20
+
+        labels = radial_groups(antpos, n_groups=3)
+        blocks = blocks_from_groups(labels)
+        antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
+        z = _make_z(nant, nfeed, nsrc, precision, seed=6)
 
         obj = CPUMatBlock(
             nchunks=1,
@@ -322,24 +374,6 @@ class TestFindRedundantAntpairs:
         for p in pairs:
             assert isinstance(p, tuple) and len(p) == 2
             assert all(isinstance(x, (int, np.integer)) for x in p)
-
-    def test_matches_cli_get_redundancies(self):
-        """The already-shipped CLI redundancy finder keeps identical output.
-
-        It's unrelated to #79 itself, but must keep producing identical output once
-        refactored to delegate to this function.
-        """
-        from matvis.cli import get_redundancies
-
-        rng = np.random.default_rng(3)
-        nant = 6
-        pos = rng.standard_normal(nant)
-        bl = pos[np.newaxis, :] - pos[:, np.newaxis]
-        bl2 = np.stack([bl, np.zeros_like(bl)], axis=-1)
-
-        old = [tuple(p) for p in get_redundancies(bl2)]
-        new = [tuple(p) for p in find_redundant_antpairs(bl2)]
-        assert old == new
 
     def test_output_is_usable_as_antpairs_for_blocks(self):
         """The representative-pair output feeds directly into antpairs_to_blocks."""

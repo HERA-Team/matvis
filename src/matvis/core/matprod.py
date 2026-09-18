@@ -61,6 +61,15 @@ class MatProd(ABC):
         else:
             self.all_pairs = False
             self.antpairs = antpairs
+            seen = set()
+            for i, j in self.antpairs:
+                pair = (int(i), int(j))
+                if pair in seen:
+                    raise ValueError(
+                        f"antpairs contains duplicate pair {pair}; matvis does not "
+                        "support requesting the same antenna pair more than once."
+                    )
+                seen.add(pair)
 
         if antenna_blocks is not None and not self.supports_blocks:
             raise ValueError(

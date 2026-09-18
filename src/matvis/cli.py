@@ -421,17 +421,6 @@ def profile(**kwargs):
     run_profile(**kwargs)
 
 
-def get_redundancies(bls, ndecimals: int = 2):
-    """Find redundant baselines.
-
-    Thin wrapper around :func:`matvis.redundancy.find_redundant_antpairs`, kept
-    here for backwards compatibility with existing CLI callers.
-    """
-    from .redundancy import find_redundant_antpairs
-
-    return find_redundant_antpairs(bls, ndecimals=ndecimals)
-
-
 @main.command()
 @click.option(
     "-a", "--hex-num", default=11, help="Hex-grid parameter for the HERA-like array."
@@ -464,13 +453,15 @@ def hera_profile(hex_num, nside, keep_ants, outriggers, **kwargs):
     """
     from py21cmsense.antpos import hera
 
+    from .redundancy import find_redundant_antpairs
+
     antpos = hera(hex_num=hex_num, split_core=True, outriggers=2 if outriggers else 0)
     if keep_ants:
         keep_ants = [int(i) for i in keep_ants.split(",")]
         antpos = antpos[keep_ants]
 
     bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
-    pairs = np.array(get_redundancies(bls.value))
+    pairs = np.array(find_redundant_antpairs(bls.value))
 
     run_profile(nsource=12 * nside**2, nants=antpos.shape[0], pairs=pairs, **kwargs)
 

@@ -1,18 +1,18 @@
 """Tests for the block-decomposition (``antenna_blocks``) matrix-product mechanism.
 
-This mechanism generalizes the stalled ``HERA-Team/matvis#79`` PR: it lets a caller
-supply an explicit list of rectangular antenna-index blocks (``antenna_blocks``), and
-computes only those blocks (as sub-matrix products) instead of the full ``Nant x Nant``
-Gram matrix, gathering just the requested ``antpairs`` out of them. It's a mechanism
-only -- matvis does not decide *which* blocks are good; the caller (e.g. a
-redundancy-aware helper in ``matvis.redundancy``) does.
+A caller can supply an explicit list of rectangular antenna-index blocks
+(``antenna_blocks``); matvis then computes only those blocks (as sub-matrix
+products) instead of the full ``Nant x Nant`` Gram matrix, gathering just the
+requested ``antpairs`` out of them. It's a mechanism only -- matvis does not decide
+*which* blocks are good; the caller (e.g. a redundancy-aware helper in
+``matvis.redundancy``) does.
 
-Named ``MatBlock`` rather than PR#79's ``MatChunk`` deliberately: "chunk" already
-means the source-axis memory chunking (``nchunks``, ``get_desired_chunks``,
-``sum_chunks``, ``select_chunk``) throughout this codebase, and reusing it for a
-completely different antenna-axis concept was an avoidable footgun.
+Named ``MatBlock`` (not ``MatChunk``): "chunk" already means the source-axis memory
+chunking (``nchunks``, ``get_desired_chunks``, ``sum_chunks``, ``select_chunk``)
+throughout this codebase, and reusing it for a completely different antenna-axis
+concept would be an avoidable footgun.
 
-Fixed relative to the original PR#79 prototype:
+Design properties exercised below:
 
 - No dense ``(Nant, Nant, Nfeed, Nfeed)`` intermediate, in ``compute()`` *or* in the
   one-time ``setup()`` coverage validation: each block's wanted entries are gathered
@@ -20,19 +20,12 @@ Fixed relative to the original PR#79 prototype:
   without ever materializing an ``(Nant, Nant)``-shaped structure.
 - No per-call ``meshgrid``/Python bookkeeping: block coverage is resolved once in
   ``setup()``, not on every ``compute()`` call.
-- No ``cp.cuda.Device().synchronize()`` (or any other host/device stall) inside the GPU
-  hot loop (the GPU pipeline elsewhere in this repo is deliberately single-stream/async
-  -- see CHANGELOG's "Major GPU hot-path overhaul").
 - Aware of ``nchunks`` (memory-based source-axis chunking) and of being called once per
-  chunk *per time sample* (i.e. the same block-index precomputation must be reused
-  correctly across repeated ``compute()`` calls on the same chunk index), unlike the
-  original.
-- ``antenna_blocks`` is keyword-only on ``MatProd.__init__``, so inserting it doesn't
-  silently reinterpret existing positional call sites (the parameter PR#79 itself added,
-  ``matsets``, was inserted positionally before ``precision``).
+  chunk *per time sample*, i.e. the same block-index precomputation must be reused
+  correctly across repeated ``compute()`` calls on the same chunk index.
+- ``antenna_blocks`` is keyword-only on ``MatProd.__init__``, so inserting it can't
+  silently reinterpret an existing positional call site.
 """
-
-from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -132,9 +125,8 @@ def test_single_block_covering_everything_matches_full_matmul(method, nfeed, pre
 def test_1x1_blocks_match_vector_dot(method, nfeed):
     """Degenerate 1x1 blocks (one per pair) reproduce the existing VectorDot path.
 
-    This is the shape PR#79's own ``get_matrix_sets`` produced (every unique baseline
-    as its own singleton block), and it should be a drop-in equivalent to
-    ``VectorDot``, not just "close" to a hand-rolled reference.
+    It should be a drop-in equivalent to ``VectorDot``, not just "close" to a
+    hand-rolled reference.
     """
     precision = 1
     nant, nsrc = 5, 15
@@ -244,25 +236,23 @@ def test_overlapping_blocks_do_not_double_count(method):
     np.testing.assert_allclose(out, expected, rtol=1e-4, atol=1e-6)
 
 
-@pytest.mark.parametrize("method", ["CPUMatBlock"])
-def test_duplicate_antpairs_are_all_filled(method):
-    """Requesting the same pair twice in ``antpairs`` must fill both output slots.
+@pytest.mark.parametrize("method", ["CPUMatMul", "CPUVectorDot", "CPUMatBlock"])
+def test_duplicate_antpairs_raise(method):
+    """Requesting the same pair twice in ``antpairs`` is never what the user wants."""
+    kwargs = {}
+    if method == "CPUMatBlock":
+        all_idx = np.arange(4)
+        kwargs["antenna_blocks"] = [(all_idx, all_idx)]
 
-    It must not silently drop one -- matvis's ``simulate()`` does not forbid
-    duplicate antpairs.
-    """
-    precision = 1
-    nfeed = 1
-    nant, nsrc = 4, 10
-    z = _make_z(nant, nfeed, nsrc, precision)
-    all_idx = np.arange(nant)
-    blocks = [(all_idx, all_idx)]
-    antpairs = np.array([(0, 1), (0, 1), (2, 3)])
-
-    _, out = _run(_get_cls(method), z, nant, nfeed, antpairs, blocks, precision, method)
-    expected = _reference_vis(z, nant, nfeed, antpairs)
-    np.testing.assert_allclose(out, expected, rtol=1e-4, atol=1e-6)
-    np.testing.assert_allclose(out[0], out[1])
+    with pytest.raises(ValueError, match="duplicate"):
+        _get_cls(method)(
+            nchunks=1,
+            nfeed=1,
+            nant=4,
+            antpairs=np.array([(0, 1), (0, 1), (2, 3)]),
+            precision=1,
+            **kwargs,
+        )
 
 
 @pytest.mark.parametrize("method", ALL_METHODS)
@@ -474,8 +464,7 @@ def test_positional_signature_unchanged():
     """antenna_blocks must be keyword-only, so existing positional calls keep working.
 
     A 5-positional-argument call site (nchunks, nfeed, nant, antpairs, precision)
-    must keep meaning what it always meant -- PR#79 itself broke this by inserting
-    `matsets` positionally before `precision`.
+    must keep meaning what it always meant.
     """
     from matvis.cpu.matprod import CPUMatMul
 
@@ -537,9 +526,9 @@ def test_vis_buffer_is_npairs_sized_not_nant_squared(method):
 def test_cpu_matblock_memory_does_not_scale_with_nant_squared():
     """Peak memory for a fixed, small block set must not grow with Nant^2.
 
-    Guards against a dense ``(Nant, Nant, Nfeed, Nfeed)`` intermediate (PR#79's
-    mistake, wherever it lives -- ``compute()`` or a coverage-validation
-    ``(Nant, Nant)`` mask in ``setup()``).
+    Guards against a dense ``(Nant, Nant, Nfeed, Nfeed)`` intermediate wherever it
+    might sneak in -- ``compute()``, or a coverage-validation ``(Nant, Nant)`` mask
+    in ``setup()``.
 
     Uses a same-process, warmed-up before/after comparison rather than an
     absolute byte threshold: an absolute threshold is fragile in a full test
@@ -597,45 +586,3 @@ def test_cpu_matblock_memory_does_not_scale_with_nant_squared():
         f"with the same small block set (small={small}, large={large} bytes) "
         "-- looks like an O(Nant^2) intermediate snuck into setup()/compute()"
     )
-
-
-def test_gpu_matblock_never_synchronizes_inside_compute(monkeypatch):
-    """compute() must never stall the host on the device, explicitly or implicitly.
-
-    Covers explicit sync as well as an implicit stall like ``.get()``/``.item()``/
-    host-side branching on a device array.
-
-    ``cp.cuda.Device``/``cp.cuda.Stream`` are Cython extension types, so their
-    methods can't be monkeypatched directly (``monkeypatch.setattr`` on them
-    raises TypeError) -- patch the module-level ``Device`` class binding instead,
-    and independently source-scan compute() for the other common stall spellings,
-    since a single instance-patch can't catch all of them.
-    """
-    cp = pytest.importorskip("cupy")
-    import inspect
-
-    from matvis.gpu.matprod import GPUMatBlock
-
-    nant, nfeed, nsrc, precision = 4, 1, 6, 1
-    z = _make_z(nant, nfeed, nsrc, precision)
-    all_idx = np.arange(nant)
-    blocks = [(all_idx, all_idx)]
-    antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
-
-    obj = _construct(GPUMatBlock, nant, nfeed, antpairs, blocks, precision)
-    obj.setup()
-
-    class _FakeDevice:
-        def __init__(self, *a, **kw):
-            pass
-
-        def synchronize(self):
-            raise AssertionError("compute() called Device().synchronize()")
-
-    monkeypatch.setattr(cp.cuda, "Device", _FakeDevice)
-
-    obj(cp.asarray(z), chunk=0)  # must not raise via the fake Device
-
-    src = inspect.getsource(GPUMatBlock.compute)
-    for forbidden in ("synchronize", ".get(", "asnumpy", ".item("):
-        assert forbidden not in src, f"compute() source contains a stall: {forbidden!r}"

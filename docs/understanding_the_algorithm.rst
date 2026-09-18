@@ -128,3 +128,59 @@ Then, for a particular frequency and time, the ``matvis`` algorithm is:
        :math:`Z_{ij, kl} = \sqrt{I}_l A_{ij, kl} \exp(\tau_{jl})`.
     7. Compute the :math:`N_{\rm feed} N_{\rm ant} \times N_{\rm feed} N_{\rm ant}`
        visibility: :math:`V = Z Z^*`.
+
+Reducing the Cost of Step 7: Block-Decomposed Products
+========================================================
+
+Step 7's matrix product is unavoidably :math:`N_{\rm ant}^2`, and dominates the total
+runtime for interferometers of a realistic size (see :doc:`performance`). For arrays
+where the requested baselines (``antpairs``) are concentrated within a modest number of
+antenna groupings -- most commonly a compact, highly-redundant core, or an array with a
+compact core plus a handful of more remote outrigger antennas -- ``matvis`` can compute
+this product as a set of smaller sub-matrix products instead of the full
+:math:`N_{\rm ant} \times N_{\rm ant}` product, via the ``CPUMatBlock``/``GPUMatBlock``
+``matprod_method`` options.
+
+**When to use it.** Pass an ``antenna_blocks`` argument to :func:`~matvis.simulate_vis`
+(a list of ``(row_antenna_idx, col_antenna_idx)`` integer-array tuples) along with
+``matprod_method="CPUMatBlock"`` (or ``"GPUMatBlock"``), and ``matvis`` computes one
+smaller matrix product per block instead of the single full one, gathering just the
+requested ``antpairs`` out of each block. This computes *exactly* the same visibilities
+as the default ``MatMul`` method -- unlike the sky-coarsening approximation discussed for
+some future work, this is not an approximation, just a different way of arranging the
+same exact computation -- so there is no accuracy trade-off to consider, only a
+performance one:
+
+- If your antenna pairs of interest cluster into a handful of spatial groups (e.g. "this
+  set of antennas is the compact core, this smaller set is the outriggers"), using
+  blocks that respect that grouping can substantially reduce the number of FLOPs
+  computed relative to the full product, since pairs *between* distant groups that
+  aren't requested are simply never computed.
+- Even without any grouping structure, tiling the full antenna set into fixed-size
+  blocks bounds the peak memory of a single matrix-product call, which can be useful
+  for very large arrays regardless of any redundancy consideration.
+- If your blocks don't reflect any real structure in the requested ``antpairs``, this
+  mechanism buys you little over the default ``MatMul`` (and adds bookkeeping overhead
+  in ``setup()``), so it isn't a good default choice for every case.
+
+``matvis`` deliberately does not try to work out good blocks for you -- that is a
+judgment call about your specific array's geometry and which baselines you actually
+want, and :mod:`matvis.redundancy` offers a few different starting points depending on
+how much you already know about your array:
+
+- If you already know a sensible grouping of your antennas (e.g. an exact core/outrigger
+  split from your array-layout generator), pass those group labels to
+  :func:`~matvis.redundancy.blocks_from_groups`.
+- If you don't have a grouping in hand but your array has a compact core plus a small
+  number of more remote antennas (as is typical of HERA-like layouts),
+  :func:`~matvis.redundancy.radial_groups` gives a reasonable default: it bins antennas
+  into concentric shells by distance from the array center, which can be fed straight
+  into :func:`~matvis.redundancy.blocks_from_groups`.
+- If you want every antenna pair computed (no dedup at all), but with bounded per-block
+  memory, use :func:`~matvis.redundancy.tile_antennas`.
+- If you specifically want to only compute one representative baseline out of each
+  redundant group, :func:`~matvis.redundancy.find_redundant_antpairs` finds those
+  representative pairs, and :func:`~matvis.redundancy.antpairs_to_blocks` turns them
+  into singleton blocks (though for that particular case, the existing ``VectorDot``
+  method, run directly against the deduplicated ``antpairs``, does the same job just as
+  well).
