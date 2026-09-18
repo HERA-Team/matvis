@@ -390,8 +390,9 @@ def test_antpairs_none_with_blocks_requires_full_coverage(method):
         (np.array([0, -1]), np.array([0])),  # negative index
         (np.array([], dtype=int), np.array([0])),  # empty row block
         (np.array([[0, 1]]), np.array([0])),  # 2D index array
+        (np.array([0.0, 1.0]), np.array([0])),  # float dtype
     ],
-    ids=["out_of_range", "negative", "empty_block", "not_1d"],
+    ids=["out_of_range", "negative", "empty_block", "not_1d", "non_integer_dtype"],
 )
 def test_invalid_block_indices_raise(bad_block):
     """Malformed antenna_blocks entries must raise at setup(), not deep in compute()."""
