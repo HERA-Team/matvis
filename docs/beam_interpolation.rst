@@ -99,9 +99,15 @@ Cost
 
 Cubic interpolation is roughly **1.8x** the GPU time of linear for the
 interpolation stage itself, which takes the stage from ~12% to ~19% of total
-GPU time at the production-slice configuration, for a ~10% increase in overall
+GPU time at the production-slice configuration, for a ~9% increase in overall
 runtime. See :ref:`interpolation-order` on the Performance page for the
 measured numbers and the configurations they were taken at.
+
+That ratio depends on how the sources in a chunk are distributed: the 4 × 4
+neighbourhoods of nearby sources overlap in cache, so a chunk covering a small
+patch of sky costs relatively less than one scattered over the whole sky. A
+synthetic worst case — every source at an independent uniformly random
+position — costs 2.6x rather than 1.8x.
 
 The one-off costs at setup are small: the prefilter (below) takes ~0.4 s for
 350 unique beams on a 180 × 360 grid — about a fifth of one integration — and

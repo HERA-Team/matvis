@@ -250,7 +250,7 @@ interpolation. Bicubic interpolation (``beam_spline_opts={"order": 3}``, see
      - 8.2 ms/chunk
      - 14.8 ms/chunk (1.8x)
      - 12% → 19%
-     - +10%
+     - +9%
    * - dev (64 ants/beams, :math:`2\times10^5` sources)
      - 6.8 ms/chunk
      - 11.5 ms/chunk (1.7x)
@@ -258,13 +258,24 @@ interpolation. Bicubic interpolation (``beam_spline_opts={"order": 3}``, see
      - +14%
 
 Measured on an RTX A2000 laptop GPU with ``--gpu-event-timing``, polarized,
-single precision, 180 × 360 beam grid; medians of four runs for the production
-slice. The beam-stage timings are stable to ~2% run-to-run; the total is quoted
-as the beam-stage *delta* over the linear chunk total (+6.6 ms on ~68 ms),
-because the matrix product's own run-to-run jitter (~10%) is larger than the
-effect being measured and swamps a direct before/after comparison of totals.
-The other stages (``tau``, ``z``, ``matprod``) are unchanged by the
-interpolation order, as expected. Reproduce with::
+single precision, 180 × 360 beam grid; medians of four runs per order for the
+production slice. The total is quoted as the beam-stage *delta* over the linear
+chunk total (+6.6 ms on ~68 ms), because the matrix product's own run-to-run
+jitter is larger than the effect being measured and swamps a direct
+before/after comparison of totals.
+
+.. note::
+
+   Per-chunk stage timings are only comparable between runs at the same chunk
+   size, and absolute values drift with the GPU's clock and thermal state — on
+   a laptop card they moved by up to 20% between sessions. Use the ``tau`` and
+   ``z`` stages as a control: they are unaffected by the interpolation order,
+   so a pair of runs whose ``tau``/``z`` agree is a valid comparison. On that
+   basis the 1.8x stage cost and the 12% → 19% share reproduced across two
+   independent sessions (1.80x and 1.75x) even as the absolute milliseconds
+   moved.
+
+Reproduce with::
 
     matvis profile -a 350 -b 350 -s 1000000 -t 4 --nchunks 30 --gpu \
         --interpolated-beam --single-precision --gpu-event-timing \
@@ -386,7 +397,7 @@ Changes that significantly altered performance, newest first:
        per-(beam, feed, axis) ``map_coordinates`` loop. Opt-in; the default is
        unchanged.
      - Beam-interpolation stage 1.8x slower than linear (12% → 19% of GPU
-       time), ~+10% total runtime at the production slice — versus hundreds of
+       time), ~+9% total runtime at the production slice — versus hundreds of
        kernel launches per chunk on the old fallback path. ~6x lower RMS
        interpolation error at 4° beam sampling.
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
