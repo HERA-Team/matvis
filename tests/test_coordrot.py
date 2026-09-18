@@ -210,3 +210,94 @@ def test_polarized_flux(first_source_antizenith):
         np.testing.assert_allclose(
             uvsim_coherency_matrix.value, flux[:n_above_horizon].T, rtol=1e-8, atol=1e-8
         )
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("precision", [1, 2])
+@pytest.mark.parametrize(
+    ("nsrc", "chunk_size", "source_buffer"),
+    [
+        (20000, None, 1.0),
+        (20000, 5000, 1.0),
+        (20000, 5000, 0.7),
+        (10003, 3334, 0.7),  # ragged last chunk
+        (500, None, 1.0),  # fewer sources than one kernel block
+        (7, None, 1.0),
+    ],
+)
+def test_gpu_compaction_matches_where(precision, nsrc, chunk_size, source_buffer):
+    """The device horizon cut must reproduce the cp.where one exactly."""
+    coords = get_random_coordrot(
+        nsrc,
+        CoordinateRotationERFA,
+        gpu=True,
+        seed=7,
+        precision=precision,
+        chunk_size=chunk_size,
+        source_buffer=source_buffer,
+    )
+    assert coords._use_gpu_compaction
+
+    coords.rotate(0)
+    # Reference: the numpy horizon cut applied to the same rotated coordinates.
+    topo = cp.asnumpy(coords.all_coords_topo)
+    flux = cp.asnumpy(coords.flux)
+
+    for c in range(coords.nchunks):
+        crd, flx, n = coords.select_chunk(c, 0)
+        crd, flx = cp.asnumpy(crd), cp.asnumpy(flx)
+
+        slc = slice(c * coords.chunk_size, (c + 1) * coords.chunk_size)
+        keep = np.nonzero(topo[2, slc] > 0)[0]
+
+        assert n == len(keep)
+        # Same sources, in the same order, bit for bit.
+        np.testing.assert_array_equal(crd[:, :n], topo[:, slc][:, keep])
+        np.testing.assert_array_equal(flx[:n], flux[slc][keep])
+        # The padded tail carries zero flux at the zenith.
+        np.testing.assert_array_equal(flx[n:], 0)
+        np.testing.assert_array_equal(crd[:2, n:], 0)
+        np.testing.assert_array_equal(crd[2, n:], 1)
+
+
+@pytest.mark.gpu
+def test_gpu_compaction_overflow():
+    """Too small a source_buffer must still raise, not silently drop sources."""
+    coords = get_random_coordrot(
+        20000,
+        CoordinateRotationERFA,
+        gpu=True,
+        seed=7,
+        precision=1,
+        chunk_size=5000,
+        source_buffer=0.2,
+    )
+    coords.rotate(0)
+    with pytest.raises(ValueError, match="is too small for the number of sources"):
+        coords.select_chunk(0, 0)
+
+
+@pytest.mark.gpu
+def test_gpu_compaction_empty_chunk():
+    """A chunk with nothing above the horizon reports zero sources."""
+    location = Telescope.from_known_telescopes("hera").location
+    # All sources at the north celestial pole: never up from HERA.
+    n = 16
+    skycoords = SkyCoord(
+        ra=np.zeros(n) * un.rad,
+        dec=np.full(n, np.pi / 2 - 1e-6) * un.rad,
+        frame="icrs",
+    )
+    coords = CoordinateRotationERFA(
+        flux=np.ones(n),
+        times=Time(np.array([2459863.0]), format="jd", scale="utc"),
+        telescope_loc=location,
+        skycoords=skycoords,
+        gpu=True,
+        precision=1,
+    )
+    coords.setup()
+    coords.rotate(0)
+    _, flux, nsrcs_up = coords.select_chunk(0, 0)
+    assert nsrcs_up == 0
+    assert cp.all(flux == 0)
