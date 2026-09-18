@@ -27,7 +27,7 @@ _KERNEL_DTYPES = {
 }
 
 # Interpolation orders served by a dedicated fused kernel, rather than by the
-# generic per-plane map_coordinates fallback.
+# generic per-(beam, feed, axis) map_coordinates fallback.
 _KERNEL_ORDERS = {1: "bilinear", 3: "bicubic"}
 
 # Coefficient nodes the cubic stencil reaches beyond each edge of the grid.
@@ -69,14 +69,6 @@ def prepare_for_map_coords(uvbeam: UVBeam) -> tuple[np.ndarray, float, float, fl
 @dataclass(frozen=True)
 class BeamCoefficients:
     """B-spline coefficients for a beam, as returned by :func:`prefilter_beam`.
-
-    Wrapping the array rather than returning it bare makes "have these values
-    been prefiltered?" a fact about the *type* instead of something the caller
-    has to track and assert correctly. Both ways of getting it wrong --
-    prefiltering twice, or forgetting to prefilter at all -- would otherwise
-    produce a plausible-looking but subtly over-smoothed beam rather than an
-    error, since a coefficient array is not distinguishable from a beam grid by
-    inspection.
 
     Attributes
     ----------
@@ -212,28 +204,41 @@ class GPUBeamInterpolator(BeamInterpolator):
                 self.beam_list[0].beam
             )
 
+            dtype = self.complex_dtype if self.polarized else self.real_dtype
+            cubic = self.spline_order == 3
+
+            # Cubic interpolation consumes B-spline coefficients, which depend
+            # only on the beam, so they are computed here rather than once per
+            # source chunk in the time/frequency loop. The store is sized for
+            # them directly and each beam is prefiltered as it lands on the
+            # device, so the raw grids are never all resident alongside the
+            # coefficients that replace them.
+            halo = 2 * _CUBIC_HALO if cubic else 0
+            nza, naz = d0.shape[-2:]
             self.beam_data = cp.zeros(
-                (self.nbeam,) + d0.shape,
-                dtype=self.complex_dtype if self.polarized else self.real_dtype,
+                (self.nbeam,) + d0.shape[:-2] + (nza + halo, naz + halo), dtype=dtype
             )
-            self.beam_data[0].set(d0.astype(self.beam_data.dtype, copy=False))
+            staging = cp.empty(d0.shape, dtype=dtype) if cubic else None
 
-            if len(self.beam_list) > 1:
-                for i, b in enumerate(self.beam_list[1:]):
-                    d, self.daz[i + 1], self.dza[i + 1], self.azmin[i + 1] = (
-                        prepare_for_map_coords(b.beam)
+            for i, b in enumerate(self.beam_list):
+                if i:  # beam 0's grid was read above, to size the store
+                    d, self.daz[i], self.dza[i], self.azmin[i] = prepare_for_map_coords(
+                        b.beam
                     )
-                    self.beam_data[i + 1].set(
-                        d.astype(self.beam_data.dtype, copy=False)
-                    )
+                else:
+                    d = d0
+                d = d.astype(dtype, copy=False)
 
-            if self.spline_order == 3:
-                # Cubic interpolation consumes B-spline coefficients, which
-                # depend only on the beam. Pay for them once, here, rather than
-                # once per source chunk in the time/frequency loop. From here on
-                # beam_data is a BeamCoefficients, which gpu_beam_interpolation
-                # accepts in place of a raw grid.
-                self.beam_data = prefilter_beam(self.beam_data)
+                if cubic:
+                    staging.set(d)
+                    self.beam_data[i] = prefilter_beam(staging[None]).coeffs[0]
+                else:
+                    self.beam_data[i].set(d)
+
+            if cubic:
+                # From here on beam_data is a BeamCoefficients, which
+                # gpu_beam_interpolation accepts in place of a raw grid.
+                self.beam_data = BeamCoefficients(self.beam_data)
         else:
             # If doing simply analytic beams, just use the UVBeamInterpolator
             self._eval = UVBeamInterpolator.interp
@@ -320,7 +325,8 @@ def gpu_beam_interpolation(
         Spline order to interpolate with. Orders 1 (bilinear) and 3 (bicubic)
         are served by dedicated fused CUDA kernels, which clamp out-of-range
         coordinates to the edge of the beam grid. Any other order falls back to
-        a per-plane :func:`cupyx.scipy.ndimage.map_coordinates` loop, which is
+        a per-(beam, feed, axis) :func:`cupyx.scipy.ndimage.map_coordinates`
+        loop, which is
         substantially slower and uses map_coordinates' own boundary handling.
     power_beam
         Whether the provided ``beam`` is in power units or E-field units. If not

@@ -286,7 +286,9 @@ Two one-off setup costs come with ``order=3``, both small:
 - The coefficient array carries a one-node halo on each grid axis, making it
   1.7% larger than the beam grid it replaces (692 → 704 MiB at 350 beams).
   Negligible against the per-chunk terms discussed under `Memory and
-  chunking`_.
+  chunking`_. Beams are prefiltered one at a time as they reach the device, so
+  setup never holds the raw grids and the coefficients simultaneously (peak
+  720 MiB rather than 1408 MiB at 350 beams).
 
 Precision
 =========
@@ -381,7 +383,8 @@ Changes that significantly altered performance, newest first:
      - Added a fused bicubic-B-spline CUDA kernel for gridded beams
        (``beam_spline_opts={"order": 3}``), alongside a one-off spline
        prefilter at setup. Previously, any order other than 1 fell back to a
-       per-plane ``map_coordinates`` loop. Opt-in; the default is unchanged.
+       per-(beam, feed, axis) ``map_coordinates`` loop. Opt-in; the default is
+       unchanged.
      - Beam-interpolation stage 1.8x slower than linear (12% → 19% of GPU
        time), ~+10% total runtime at the production slice — versus hundreds of
        kernel launches per chunk on the old fallback path. ~6x lower RMS
