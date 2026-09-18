@@ -87,6 +87,7 @@ def simulate(  # noqa: C901
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
     polarized: bool = False,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    antenna_blocks: list[tuple[np.ndarray, np.ndarray]] | None = None,
     beam_idx: np.ndarray | None = None,
     max_memory: int = np.inf,
     min_chunks: int = 1,
@@ -97,7 +98,7 @@ def simulate(  # noqa: C901
         "CoordinateRotationERFA",
         "GPUCoordinateRotationERFA",
     ] = "CoordinateRotationAstropy",
-    matprod_method: Literal["GPUMatMul", "GPUVectorDot"] = "GPUMatMul",
+    matprod_method: Literal["GPUMatMul", "GPUVectorDot", "GPUMatBlock"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     memory_buffer: float = 0.9,
@@ -181,7 +182,14 @@ def simulate(  # noqa: C901
     )
 
     mpcls = getattr(mp, matprod_method)
-    matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+    matprod = mpcls(
+        nchunks,
+        nfeed,
+        nant,
+        antpairs,
+        precision=precision,
+        antenna_blocks=antenna_blocks,
+    )
     debug_enabled = logger.isEnabledFor(logging.DEBUG)
 
     logger.debug("Starting GPU allocations...")

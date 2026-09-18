@@ -36,6 +36,36 @@ def test_passing_matprod_method_with_prefix():
     )  # check that the output is complex, as expected for CPUMatMul
 
 
+def test_simulate_vis_with_matblock_matches_default():
+    """CPUMatBlock must be reachable through the public ``simulate_vis`` API.
+
+    Given a full-covering ``tile_antennas`` block set, it must be reachable as an
+    explicit, typed parameter (not only via ``**backend_kwargs``), and reproduce the
+    default CPUMatMul result. Without this, the whole block-dispatch mechanism could
+    ship correct-in-isolation but practically unreachable/dead from a user's
+    perspective (PR#79 wired its equivalent, ``matsets``, into ``cpu.simulate``
+    but exercised it only through ad hoc CLI profiling, not a real test).
+    """
+    from matvis.redundancy import tile_antennas
+
+    kw, *_ = get_standard_sim_params(
+        use_analytic_beam=True, polarized=False, nsource=15
+    )
+    nant = len(kw["ants"])
+
+    vis_default = simulate_vis(
+        precision=1, matprod_method="CPUMatMul", use_gpu=False, **kw
+    )
+    vis_block = simulate_vis(
+        precision=1,
+        matprod_method="CPUMatBlock",
+        antenna_blocks=tile_antennas(nant, chunk_size=2),
+        use_gpu=False,
+        **kw,
+    )
+    np.testing.assert_allclose(vis_block, vis_default, rtol=1e-4, atol=1e-6)
+
+
 @pytest.mark.parametrize(
     "use_gpu",
     [

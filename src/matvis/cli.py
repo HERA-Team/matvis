@@ -422,23 +422,14 @@ def profile(**kwargs):
 
 
 def get_redundancies(bls, ndecimals: int = 2):
-    """Find redundant baselines."""
-    uvbins = set()
-    pairs = []
+    """Find redundant baselines.
 
-    # Everything here is in wavelengths
-    bls = np.round(bls, decimals=ndecimals)
-    nant = bls.shape[0]
+    Thin wrapper around :func:`matvis.redundancy.find_redundant_antpairs`, kept
+    here for backwards compatibility with existing CLI callers.
+    """
+    from .redundancy import find_redundant_antpairs
 
-    # group redundant baselines
-    for i in range(nant):
-        for j in range(i + 1, nant):
-            u, v = bls[i, j]
-            if (u, v) not in uvbins and (-u, -v) not in uvbins:
-                uvbins.add((u, v))
-                pairs.append([i, j])
-
-    return pairs
+    return find_redundant_antpairs(bls, ndecimals=ndecimals)
 
 
 @main.command()

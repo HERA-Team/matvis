@@ -28,3 +28,4 @@ Other Utilities
    :toctree: _autosummary
 
    matvis.coordinates
+   matvis.redundancy

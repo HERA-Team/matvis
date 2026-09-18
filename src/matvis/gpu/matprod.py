@@ -90,3 +90,68 @@ class GPUVectorDot(MatProd):
                 self.vis[0] += self.vis[i]
 
         out[:] = self.vis[0].transpose((2, 1, 0)).get()
+
+
+class GPUMatBlock(MatProd):
+    """Compute a set of rectangular antenna-block sub-matrix products on the GPU.
+
+    GPU counterpart of :class:`~matvis.cpu.matprod.CPUMatBlock`; see its
+    docstring for the rationale. Uses :func:`~matvis.gpu._cublas.complex_matmul`
+    (which supports rectangular, non-square blocks) per block, and never calls
+    any host/device synchronization inside :meth:`compute` -- all gather/scatter
+    is done with device-side fancy indexing, keeping the per-chunk loop async
+    like the rest of this repo's GPU pipeline (see ``gpu.py``'s single-stream
+    design).
+    """
+
+    supports_blocks = True
+
+    def setup(self):
+        """Set up memory and upload the block-dispatch plan to the device once."""
+        super().setup()
+        self._gpu_block_plan = [
+            (
+                cp.asarray(rows),
+                cp.asarray(cols),
+                cp.asarray(lr),
+                cp.asarray(lc),
+                cp.asarray(slots),
+            )
+            for rows, cols, lr, lc, slots in self._block_plan
+        ]
+
+    def allocate_vis(self):
+        """Allocate memory for the visibilities, shaped (nchunks, npairs, nfeed, nfeed)."""
+        self.vis = cp.full(
+            (self.nchunks, self.npairs, self.nfeed, self.nfeed),
+            self.ctype(0.0),
+            dtype=self.ctype,
+        )
+
+    def compute(self, z: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
+        """Perform the source-summing operation for a single time and chunk."""
+        z = z.reshape((self.nant, self.nfeed, -1))
+
+        for rows, cols, local_rows, local_cols, slots in self._gpu_block_plan:
+            zr = cp.ascontiguousarray(z[rows]).reshape(len(rows) * self.nfeed, -1)
+            zc = cp.ascontiguousarray(z[cols]).reshape(len(cols) * self.nfeed, -1)
+
+            # complex_matmul's output is F-contiguous, but its *values* at
+            # flat index (local_row*nfeed + feed) match the row-major
+            # convention zr/zc were built with -- so reshape with the default
+            # (C) order semantics, same as the CPU path, not the array's own
+            # (F) memory layout. cupy (like numpy) copies as needed here.
+            block = complex_matmul(zr, zc)
+            block = block.reshape((len(rows), self.nfeed, len(cols), self.nfeed))
+            block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
+
+            out[slots] = block[local_rows, local_cols]
+
+        return out
+
+    def sum_chunks(self, out: np.ndarray):
+        """Sum the chunks into the output array."""
+        if self.nchunks == 1:
+            out[:] = self.vis[0].get()
+        else:
+            out[:] = self.vis.sum(axis=0).get()
