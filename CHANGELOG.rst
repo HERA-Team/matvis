@@ -8,6 +8,20 @@ Dev
 Performance
 -----------
 
+- GPU source chunks now accumulate straight into a single device visibility
+  buffer (via ``beta=1`` in ``cherk``) instead of each chunk filling its own
+  buffer that is summed at the end of the integration. The Hermitian mirror
+  kernel runs once per integration rather than per chunk, the transpose into
+  output ordering happens on the device, and the result is staged through a
+  pinned host buffer. ``sum_chunks`` drops from 13.9 ms to 1.0 ms per
+  integration at 350 antennas / 30 chunks / single precision; the ``beta=1``
+  accumulation costs the matrix product ~0.15 ms per chunk, so the net saving
+  is ~8 ms per integration (~0.4% of wall time on an RTX A2000). Device
+  memory held for visibility buffers no longer scales with the chunk count
+  (118 MB → 8 MB in that configuration); this only occasionally changes the
+  auto-chunking decision at 350 antennas (e.g. 24 → 22 chunks with 2 GB
+  free), but the buffers previously grew with the very chunk count they
+  helped determine, and that term dominates for larger arrays.
 - Major GPU hot-path overhaul (~7.7x faster per chunk at 350 antennas / 350
   beams / polarized / single precision; see the new "Performance" docs page):
 
@@ -28,6 +42,10 @@ Performance
 Fixed
 -----
 
+- GPU: a source chunk skipped because it had no sources above the horizon no
+  longer contributes the *previous* integration's visibilities. Previously
+  each chunk kept its own buffer which was only overwritten when the chunk
+  was actually computed, but was summed unconditionally.
 - Better handling of errors when GPUs are present but currently unavailable for some
   reason.
 - Single-precision GPU simulations with gridded (``UVBeam``) beams no longer
@@ -43,6 +61,16 @@ Infrastructure
   (including per-stage CUDA-event timings with ``--gpu-event-timing``), and
   the GPU loop is annotated with NVTX ranges for ``nsys``. Canonical
   benchmark configs and roofline micro-benchmarks live in ``profiling/``.
+- ``matvis profile`` reports ``sum_chunks`` as its own stage, both in the
+  line-profiler table and as ``derived.sum_chunks_per_integration``, which is
+  measured after an explicit stream drain so it excludes time spent waiting
+  on the queued chunk pipeline.
+- ``matvis profile`` frees the warmup simulation's device memory before the
+  timed run, and warns when auto-chunking used more chunks than ``--nchunks``
+  requested (recorded as ``nchunks_used`` in the JSON). Previously the warmup's
+  retained buffers could make the timed run see only a fraction of the card
+  free and silently pick a much larger chunk count, changing the workload
+  being measured.
 - The profiling harness is robust to one-time costs and host noise: an
   untimed warmup simulation runs first (``--no-warmup`` to disable),
   per-integration wall times are recorded individually, CUDA-event stage
