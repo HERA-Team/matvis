@@ -8,7 +8,8 @@ changelog of changes that significantly affected performance.
 
 Unless noted otherwise, all statements refer to the GPU implementation with
 the following settings: **single precision**, polarized (2 feeds
-× 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation, and
+× 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation
+(see `Beam interpolation order`_ for the cubic alternative), and
 the ERFA coordinate method with a large value set for ``update_bcrs_every`` so
 that it doesn't dominate the runs.
 
@@ -228,6 +229,65 @@ There is currently no runtime auto-selection between strategies (tracked in
 `issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then, check
 both with ``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal.
 
+.. _interpolation-order:
+
+Beam interpolation order
+========================
+
+The numbers everywhere else on this page use linear (``order=1``) beam
+interpolation. Bicubic interpolation (``beam_spline_opts={"order": 3}``, see
+:doc:`beam_interpolation`) reads 16 grid points per source instead of 4:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Configuration
+     - Beam stage (linear)
+     - Beam stage (cubic)
+     - Beam share of GPU time
+     - Total GPU time
+   * - production-slice (350 ants/beams, :math:`10^6` sources, 30 chunks)
+     - 8.2 ms/chunk
+     - 14.8 ms/chunk (1.8x)
+     - 12% → 19%
+     - +10%
+   * - dev (64 ants/beams, :math:`2\times10^5` sources)
+     - 6.8 ms/chunk
+     - 11.5 ms/chunk (1.7x)
+     - 12% → 17%
+     - +14%
+
+Measured on an RTX A2000 laptop GPU with ``--gpu-event-timing``, polarized,
+single precision, 180 × 360 beam grid; medians of four runs for the production
+slice. The beam-stage timings are stable to ~2% run-to-run; the total is quoted
+as the beam-stage *delta* over the linear chunk total (+6.6 ms on ~68 ms),
+because the matrix product's own run-to-run jitter (~10%) is larger than the
+effect being measured and swamps a direct before/after comparison of totals.
+The other stages (``tau``, ``z``, ``matprod``) are unchanged by the
+interpolation order, as expected. Reproduce with::
+
+    matvis profile -a 350 -b 350 -s 1000000 -t 4 --nchunks 30 --gpu \
+        --interpolated-beam --single-precision --gpu-event-timing \
+        --coord-method CoordinateRotationERFA -f 1 --spline-order 3 \
+        -o profiling/results
+
+The 1.8x on the stage is much less than the 4x increase in grid points read,
+because the stage is bound by the coefficient loads, and the 4 × 4
+neighbourhoods of neighbouring sources overlap heavily in cache. The total-run
+penalty is smaller again (~9%), because the matrix product still dominates —
+so the *relative* cost of cubic falls as the array grows, and rises as the
+source count per antenna falls.
+
+Two one-off setup costs come with ``order=3``, both small:
+
+- The spline **prefilter** (see :doc:`beam_interpolation`) takes ~0.4 s for 350
+  unique beams on a 180 × 360 grid — under a fifth of a single integration,
+  and it does not scale with the number of times, frequencies or sources.
+- The coefficient array carries a one-node halo on each grid axis, making it
+  1.7% larger than the beam grid it replaces (692 → 704 MiB at 350 beams).
+  Negligible against the per-chunk terms discussed under `Memory and
+  chunking`_.
+
 Precision
 =========
 
@@ -317,6 +377,15 @@ Changes that significantly altered performance, newest first:
    * - Version / PR
      - Change
      - Measured impact
+   * - Bicubic beam interpolation (Sept 2026)
+     - Added a fused bicubic-B-spline CUDA kernel for gridded beams
+       (``beam_spline_opts={"order": 3}``), alongside a one-off spline
+       prefilter at setup. Previously, any order other than 1 fell back to a
+       per-plane ``map_coordinates`` loop. Opt-in; the default is unchanged.
+     - Beam-interpolation stage 1.8x slower than linear (12% → 19% of GPU
+       time), ~+10% total runtime at the production slice — versus hundreds of
+       kernel launches per chunk on the old fallback path. ~6x lower RMS
+       interpolation error at 4° beam sampling.
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
      - GPU hot-path overhaul:
 
