@@ -153,8 +153,12 @@ provided ``profiling/gemm_experiments.py`` script.
 
 **GPU time** (``derived.gpu_time_per_integration``: per-integration sum of
 per-chunk CUDA event totals, median over integrations excluding the first)
-measures the time spent computing on the GPU (and transferring data to/from
-the GPU).
+measures the time spanned by the chunk pipeline *on the CUDA stream*. Note
+that this is an upper bound on device compute: CUDA events bracket a region
+of the stream, so any time the device sat idle inside a chunk waiting for the
+host to enqueue more work is counted here too. To separate real device work
+from pipeline stalls, use ``profiling/gpu_idle.py``, which takes the union of
+kernel and memcpy intervals from an ``nsys`` trace.
 **Wall time** (``derived.steady_wall_per_integration``: median
 per-integration wall time, excluding the first integration) adds host-side
 work — coordinate rotation, Python dispatch — and so also depends on the
@@ -291,18 +295,27 @@ ones to quote and compare — they are what the Rules of Thumb table reports.
 
 The ``profiling/`` directory in the repository contains canonical benchmark
 configurations, GEMM/interpolation roofline micro-benchmarks (i.e. measures
-of performance compared to the theoretical maximum), and an
-``nsys`` recipe (the GPU loop is annotated with NVTX ranges). See
-``profiling/README.md``.
+of performance compared to the theoretical maximum), an ``nsys`` recipe (the
+GPU loop is annotated with NVTX ranges), and ``gpu_idle.py``, which reports
+how much of a run the device spends idle and which stage the host was in at
+the time. See ``profiling/README.md``.
+
+.. tip::
+
+   Idle time is the headroom available to changes that only make the *host*
+   faster — deeper queueing, fewer kernel launches, removing a
+   synchronization. It does not shrink when you move to a faster GPU, so on
+   a faster card it is a larger fraction of the run. That makes
+   ``gpu_idle.py`` the right tool for judging a host-side optimization on
+   modest hardware: measure the idle it removes, and scale only the *busy*
+   part by the ratio between your card and the target card.
 
 .. warning::
 
    The ``stages`` table in the JSON output comes from ``line_profiler``
    timing individual Python lines, but the GPU loop is asynchronous: a line
    can appear expensive simply because it's where the host next blocks on
-   already-queued GPU work (especially "Coordinate Rotation", which shares
-   its bucket with the horizon-cut's blocking sync — see
-   `issue #133 <https://github.com/HERA-Team/matvis/issues/133>`_). Use it
+   already-queued GPU work. Use it
    only as a rough indicator for the CPU backend; for the GPU backend use
    the ``derived`` and ``run_stats.event_timing_ms`` values.
 
@@ -317,6 +330,26 @@ Changes that significantly altered performance, newest first:
    * - Version / PR
      - Change
      - Measured impact
+   * - `issue #133 <https://github.com/HERA-Team/matvis/issues/133>`_
+       (Sept 2026)
+     - Removed the three remaining per-chunk host synchronizations from the
+       GPU loop:
+
+       - The horizon cut is now a device-side order-preserving compaction
+         (``kernels/horizon_compact.cu``); the per-chunk counts needed to
+         skip empty chunks are gathered for the whole integration in one
+         batched pass, so the ``cp.where`` result size is no longer read
+         back once per chunk.
+       - The beam grid geometry (``daz``/``dza``/``azmin``) is uploaded once
+         at setup instead of being copied from pageable host memory on every
+         chunk.
+       - ``enu_to_az_za`` clamps instead of using boolean-mask indexing,
+         whose result size is only known on the host.
+     - GPU idle time per integration 49.7 → 14.5 ms at 350 antennas / 1M
+       sources / fp32 / ``source_buffer=1.0`` (RTX A2000, ``gpu_idle.py``);
+       27.2 → 8.9 ms at ``source_buffer=0.55``. Device *busy* time is
+       unchanged, so the wall-time gain scales with how fast the card is:
+       ~1-2% on an A2000, ~4% projected for a V100.
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
      - GPU hot-path overhaul:
 
