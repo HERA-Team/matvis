@@ -6,16 +6,16 @@ this library tries to derive automatically. This module only provides small, gen
 independently-testable building blocks for constructing the ``(row_antenna_idx,
 col_antenna_idx)`` block lists that the block-decomposed matprod classes consume:
 
+- :func:`find_dense_blocks` is the one to reach for on a redundant array, and the
+  reason the block mechanism exists: given the unique-baseline pairs, it permutes
+  the antenna axes to concentrate them and cuts the result into a few dense
+  sub-matrices, minimizing the total area (and hence FLOPs) of the product. On a
+  331-antenna hex layout, four blocks cut the product to ~1/137th of the full
+  ``Nant**2`` area while still issuing only four GEMMs.
 - :func:`blocks_from_groups` turns caller-supplied antenna group labels (e.g. "these
   350 antennas are the compact core, these 8 are outriggers") into the full grid of
-  group-by-group blocks. This is the actual performance-relevant path: grouping
-  antennas by known array structure into a handful of labels turns most of the
-  ``Nant**2`` product into a few large, dense sub-blocks.
-- :func:`radial_groups` is a ready-to-use way to get those labels without any
-  array-specific knowledge: it bins antennas into concentric shells by distance
-  from the array center, which works reasonably well for arrays with a compact
-  core plus a small number of more remote antennas (e.g. HERA's own
-  core-plus-outriggers layout).
+  group-by-group blocks, for when you already know a grouping you want to impose
+  rather than having one found for you.
 - :func:`tile_antennas` is a generic, redundancy-agnostic full-array tiling, useful
   when a caller wants every pair computed but with bounded per-block memory.
 - :func:`antpairs_to_blocks` is the trivial 1-antenna x 1-antenna block per requested
@@ -29,6 +29,7 @@ col_antenna_idx)`` block lists that the block-decomposed matprod classes consume
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 
 import numpy as np
@@ -92,60 +93,150 @@ def blocks_from_groups(
     return blocks
 
 
-def radial_groups(
-    antpos: np.ndarray, n_groups: int, center: np.ndarray | None = None
-) -> np.ndarray:
-    """Group antennas into concentric shells by distance from a center point.
+def _partition_rows(
+    antpairs: np.ndarray, max_blocks: int
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Partition the row antennas into runs, minimizing total sub-matrix area.
 
-    A simple, geometry-aware default for arrays with a compact core plus a small
-    number of more remote antennas (e.g. HERA's own core-plus-outriggers layout):
-    antennas at similar distance from the array center land in the same group, so
-    feeding the result to :func:`blocks_from_groups` makes most of the short,
-    within-core baselines share one (or a few) group-diagonal blocks, while
-    antennas that are genuinely far from the core end up in smaller, more
-    numerous groups of their own.
+    Rows are first sorted by degree (how many requested pairs each row antenna
+    appears in), which tends to put rows with similar, large partner sets next to
+    each other so that a contiguous run of them has a small column union. The
+    partition of that ordering into at most ``max_blocks`` contiguous runs is then
+    chosen *optimally* by dynamic programming over the exact cost
+    ``sum(len(rows) * len(cols))``, rather than by a density-threshold heuristic.
+    """
+    partners: dict[int, set[int]] = defaultdict(set)
+    for i, j in antpairs:
+        partners[int(i)].add(int(j))
 
-    This is a reasonable default, not a guarantee of optimality for any
-    particular array -- a caller with more specific domain knowledge (e.g. an
-    exact core/outrigger split from their array-layout generator) should prefer
-    that instead.
+    rows_sorted = sorted(partners, key=lambda a: (-len(partners[a]), a))
+    n = len(rows_sorted)
+
+    # Column sets as integer bitmasks, so unions are single integer ORs and
+    # sizes are popcounts -- this keeps the O(n^2) union scan cheap.
+    all_cols = sorted({c for s in partners.values() for c in s})
+    col_bit = {c: k for k, c in enumerate(all_cols)}
+    masks = [sum(1 << col_bit[c] for c in partners[a]) for a in rows_sorted]
+
+    inf = float("inf")
+    nblocks = min(max_blocks, n)
+    # dp[j][i]: least area covering the first i rows with at most j blocks.
+    dp = [[inf] * (n + 1) for _ in range(nblocks + 1)]
+    choice = [[0] * (n + 1) for _ in range(nblocks + 1)]
+    dp[0][0] = 0
+
+    for i in range(1, n + 1):
+        # areas[m] = cost of a single block spanning rows_sorted[m:i]
+        areas = [0] * i
+        union = 0
+        for m in range(i - 1, -1, -1):
+            union |= masks[m]
+            areas[m] = (i - m) * union.bit_count()
+
+        for j in range(1, nblocks + 1):
+            best, arg = inf, 0
+            for m in range(i):
+                prev = dp[j - 1][m]
+                if prev == inf:
+                    continue
+                cand = prev + areas[m]
+                if cand < best:
+                    best, arg = cand, m
+            dp[j][i] = best
+            choice[j][i] = arg
+
+    # Fewest blocks that achieve the best area (extra blocks cost extra GEMM
+    # calls, so don't take one that doesn't pay for itself).
+    best_j = min(range(1, nblocks + 1), key=lambda j: (dp[j][n], j))
+
+    blocks = []
+    i, j = n, best_j
+    while i > 0:
+        m = choice[j][i]
+        rows = rows_sorted[m:i]
+        cols = set().union(*(partners[a] for a in rows))
+        blocks.append(
+            (np.array(sorted(rows), dtype=int), np.array(sorted(cols), dtype=int))
+        )
+        i, j = m, j - 1
+    return blocks[::-1]
+
+
+def find_dense_blocks(
+    antpairs: np.ndarray | Sequence[tuple[int, int]],
+    max_blocks: int = 4,
+    allow_conjugates: bool = True,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Decompose a set of antenna pairs into a few dense rectangular blocks.
+
+    This is the helper that makes the block-decomposed matprod pay off for a
+    redundant array. Given the *unique-baseline* antenna pairs of such an array
+    (see :func:`find_redundant_antpairs`), the wanted pairs occupy a small,
+    scattered fraction of the full ``Nant x Nant`` grid. Permuting the antenna
+    axes concentrates them, and this function then cuts the permuted grid into at
+    most ``max_blocks`` rectangular sub-matrices chosen to minimize the total
+    sub-matrix area ``sum(len(rows) * len(cols))`` -- the quantity the matrix
+    product's FLOP count is proportional to.
+
+    The result sits between the two existing extremes: far fewer FLOPs than the
+    full ``Nant x Nant`` product (``CPUMatMul``/``GPUMatMul``), but a handful of
+    large GEMMs rather than one tiny GEMM per baseline
+    (``CPUVectorDot``/``GPUVectorDot``).
+
+    Two heuristics are used, matching the approach described in Appendix A of the
+    ``matvis`` paper: rows are ordered by how many pairs they appear in, and cuts
+    are only made along the row axis. Given that ordering, the partition itself is
+    optimal (dynamic programming over the exact area). Finding the globally best
+    antenna permutation is a much harder combinatorial problem and is not
+    attempted; nor is choosing a different representative pair out of each
+    redundant group, which would give further freedom.
 
     Parameters
     ----------
-    antpos
-        Antenna positions, shape ``(Nant, Ndim)``. Only relative distances
-        matter, so any consistent units/dimensionality work.
-    n_groups
-        Number of radial groups to form. Antennas are split into equal-population
-        (not equal-width) bins by distance, so each group contains roughly
-        ``Nant / n_groups`` antennas.
-    center
-        Reference point to measure distance from, shape ``(Ndim,)``. Defaults to
-        the antennas' centroid.
+    antpairs
+        The antenna pairs to cover, shape ``(Npairs, 2)``. For a redundant array
+        this should be the deduplicated set (one pair per redundant group).
+    max_blocks
+        Maximum number of sub-matrices. More blocks means fewer wasted FLOPs but
+        more (smaller) GEMM calls, so the best value is hardware- and
+        array-dependent; 3-4 is a reasonable starting point.
+    allow_conjugates
+        If True (default), also consider orientations in which some or all pairs
+        are represented reversed, which often packs the pairs more tightly.
+        ``V_ij`` is the Hermitian conjugate of ``V_ji``, so the block-decomposed
+        matprod classes compute a reversed pair exactly; set this to False only
+        if you need every block to hold pairs in the exact orientation requested.
 
     Returns
     -------
-    np.ndarray
-        Length-``Nant`` integer array of group labels in ``range(n_groups)``,
-        ordered from closest to the center (label 0) to farthest
-        (label ``n_groups - 1``), suitable as the ``labels`` argument to
-        :func:`blocks_from_groups`.
+    list[tuple[np.ndarray, np.ndarray]]
+        Blocks suitable as the ``antenna_blocks`` argument to
+        :class:`~matvis.cpu.matprod.CPUMatBlock` /
+        :class:`~matvis.gpu.matprod.GPUMatBlock`.
     """
-    antpos = np.asarray(antpos)
-    nant = antpos.shape[0]
-    if not 0 < n_groups <= nant:
-        raise ValueError(
-            f"n_groups must satisfy 0 < n_groups <= nant ({nant}), got {n_groups}"
-        )
+    antpairs = np.asarray(antpairs)
+    if max_blocks < 1:
+        raise ValueError(f"max_blocks must be at least 1, got {max_blocks}")
+    if antpairs.size == 0:
+        return []
 
-    center = antpos.mean(axis=0) if center is None else np.asarray(center)
-    radius = np.linalg.norm(antpos - center, axis=-1)
+    orientations = [antpairs]
+    if allow_conjugates:
+        lo = np.minimum(antpairs[:, 0], antpairs[:, 1])
+        hi = np.maximum(antpairs[:, 0], antpairs[:, 1])
+        orientations += [
+            antpairs[:, ::-1],
+            np.stack([lo, hi], axis=1),
+            np.stack([hi, lo], axis=1),
+        ]
 
-    order = np.argsort(radius)
-    labels = np.empty(nant, dtype=int)
-    for label, idx in enumerate(np.array_split(order, n_groups)):
-        labels[idx] = label
-    return labels
+    best, best_area = None, float("inf")
+    for pairs in orientations:
+        blocks = _partition_rows(pairs, max_blocks)
+        area = sum(len(rows) * len(cols) for rows, cols in blocks)
+        if area < best_area:
+            best, best_area = blocks, area
+    return best
 
 
 def tile_antennas(nant: int, chunk_size: int) -> list[tuple[np.ndarray, np.ndarray]]:

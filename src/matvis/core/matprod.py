@@ -108,20 +108,23 @@ class MatProd(ABC):
     def _prepare_antenna_blocks(self):
         """Validate ``antenna_blocks`` and precompute the block dispatch plan.
 
-        Builds ``self._block_plan``: a list of ``(rows, cols, local_rows,
-        local_cols, slots)`` tuples, one per block that contributes at least one
-        requested pair, where ``local_rows``/``local_cols`` index into that
-        block's own ``(len(rows), len(cols))`` sub-matrix and ``slots`` are the
-        corresponding positions in ``self.antpairs``/``self.vis``. Deliberately
-        avoids ever materializing an ``(Nant, Nant)``-shaped structure: coverage
-        is tracked with a dict keyed by ``(i, j)``, sized by the number of
-        *requested* pairs, not by ``Nant**2``.
+        Builds ``self._block_plan``: one entry per block that contributes at
+        least one requested pair, holding the block's row/column antenna indices
+        plus two sets of gather indices -- one for pairs the block holds in the
+        requested orientation, and one for pairs it holds *reversed*. A reversed
+        pair is still exact, since ``V_ij`` is the Hermitian conjugate (in feed
+        space) of ``V_ji``; supporting it is what lets a decomposition permute
+        and flip the antenna axes freely when hunting for dense sub-matrices.
+
+        Deliberately avoids ever materializing an ``(Nant, Nant)``-shaped
+        structure: coverage is tracked with a dict keyed by ``(i, j)``, sized by
+        the number of *requested* pairs, not by ``Nant**2``.
 
         Raises
         ------
         ValueError
             If any block's index arrays are malformed, or if any requested
-            antpair is not covered by any block.
+            antpair is not covered by any block in either orientation.
         """
         normalized = []
         for b, (rows, cols) in enumerate(self.antenna_blocks):
@@ -164,22 +167,36 @@ class MatProd(ABC):
 
         block_plan = []
         for rows, cols in normalized:
-            local_rows, local_cols, slots = [], [], []
-            for lr, i in enumerate(rows):
-                for lc, j in enumerate(cols):
-                    claimed = pair_to_slots.pop((int(i), int(j)), None)
-                    if claimed:
-                        local_rows.extend([lr] * len(claimed))
-                        local_cols.extend([lc] * len(claimed))
-                        slots.extend(claimed)
-            if slots:
+            row_pos = {int(a): lr for lr, a in enumerate(rows)}
+            col_pos = {int(a): lc for lc, a in enumerate(cols)}
+
+            direct: tuple[list, list, list] = ([], [], [])
+            reversed_: tuple[list, list, list] = ([], [], [])
+
+            # Two passes over the *remaining* pairs (not over the block's full
+            # row x col grid, which would scale with the block area): claim
+            # everything the block holds directly first, so the cheaper path is
+            # always preferred, then mop up whatever it holds reversed.
+            for target, (get_row, get_col) in (
+                (direct, (lambda i, j: i, lambda i, j: j)),
+                (reversed_, (lambda i, j: j, lambda i, j: i)),
+            ):
+                for (i, j), slots in list(pair_to_slots.items()):
+                    ra, ca = get_row(i, j), get_col(i, j)
+                    if ra in row_pos and ca in col_pos:
+                        lr, lc = row_pos[ra], col_pos[ca]
+                        target[0].extend([lr] * len(slots))
+                        target[1].extend([lc] * len(slots))
+                        target[2].extend(slots)
+                        del pair_to_slots[(i, j)]
+
+            if direct[2] or reversed_[2]:
                 block_plan.append(
                     (
                         rows,
                         cols,
-                        np.array(local_rows, dtype=np.intp),
-                        np.array(local_cols, dtype=np.intp),
-                        np.array(slots, dtype=np.intp),
+                        *(np.array(a, dtype=np.intp) for a in direct),
+                        *(np.array(a, dtype=np.intp) for a in reversed_),
                     )
                 )
 
@@ -187,7 +204,8 @@ class MatProd(ABC):
             missing = list(pair_to_slots.keys())
             raise ValueError(
                 f"{len(missing)} requested antpairs are not covered by any "
-                f"antenna_blocks entry, e.g. {missing[:10]}"
+                f"antenna_blocks entry (in either orientation), "
+                f"e.g. {missing[:10]}"
             )
 
         self._block_plan = block_plan

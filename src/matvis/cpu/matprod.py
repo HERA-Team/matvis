@@ -84,7 +84,7 @@ class CPUMatBlock(MatProd):
         """
         z = z.reshape((self.nant, self.nfeed, -1))
 
-        for rows, cols, local_rows, local_cols, slots in self._block_plan:
+        for rows, cols, lr, lc, slots, rlr, rlc, rslots in self._block_plan:
             zr = z[rows].reshape(len(rows) * self.nfeed, -1)
             zc = z[cols].reshape(len(cols) * self.nfeed, -1)
 
@@ -92,6 +92,11 @@ class CPUMatBlock(MatProd):
             block.shape = (len(rows), self.nfeed, len(cols), self.nfeed)
             block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
 
-            out[slots] = block[local_rows, local_cols]
+            if slots.size:
+                out[slots] = block[lr, lc]
+            if rslots.size:
+                # This block holds the reversed pair; V_ij is the Hermitian
+                # conjugate of V_ji over the two feed axes.
+                out[rslots] = block[rlr, rlc].conj().transpose((0, 2, 1))
 
         return out

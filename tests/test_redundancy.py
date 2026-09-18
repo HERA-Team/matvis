@@ -7,10 +7,45 @@ from matvis._utils import get_dtypes
 from matvis.redundancy import (
     antpairs_to_blocks,
     blocks_from_groups,
+    find_dense_blocks,
     find_redundant_antpairs,
-    radial_groups,
     tile_antennas,
 )
+
+
+def _block_area(blocks):
+    """Total sub-matrix area, the FLOP proxy a decomposition tries to minimize."""
+    return sum(len(rows) * len(cols) for rows, cols in blocks)
+
+
+def _covers(blocks, antpairs, allow_conjugates=True):
+    """Whether every requested pair is inside some block (optionally reversed)."""
+    covered = _covered_pairs(blocks)
+    for i, j in antpairs:
+        if (int(i), int(j)) in covered:
+            continue
+        if allow_conjugates and (int(j), int(i)) in covered:
+            continue
+        return False
+    return True
+
+
+def _hex_antpos(hex_num=4):
+    """A HERA-like hex-packed layout (the canonical highly-redundant array)."""
+    pos = []
+    for row in range(-hex_num + 1, hex_num):
+        n_in_row = 2 * hex_num - 1 - abs(row)
+        for col in range(n_in_row):
+            x = ((-n_in_row + 1) / 2 + col) * 14.6
+            y = row * 14.6 * np.sqrt(3) / 2
+            pos.append((x, y))
+    return np.array(pos)
+
+
+def _unique_baseline_antpairs(antpos):
+    """The deduplicated (one per redundant group) antpairs for a layout."""
+    bl = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
+    return np.array(find_redundant_antpairs(bl))
 
 
 def _assert_valid_blocks(blocks, nant):
@@ -146,62 +181,123 @@ class TestBlocksFromGroups:
         np.testing.assert_allclose(out, expected, rtol=1e-4, atol=1e-6)
 
 
-class TestRadialGroups:
-    """Tests for ``radial_groups``."""
+class TestFindDenseBlocks:
+    """Tests for ``find_dense_blocks``, the redundancy-aware decomposition.
 
-    def test_returns_labels_in_range(self):
-        """Every label is a valid group index, and every group index is used."""
-        rng = np.random.default_rng(1)
-        antpos = rng.standard_normal((20, 2))
-        labels = radial_groups(antpos, n_groups=4)
-        assert labels.shape == (20,)
-        assert set(labels) == {0, 1, 2, 3}
+    This is the helper that makes the block mechanism actually pay off: given the
+    (deduplicated) unique-baseline antpairs of a redundant array, it permutes the
+    antenna axes and partitions them into a handful of sub-matrices chosen to be
+    as *dense* in wanted pairs as possible, so the total sub-matrix area (the FLOP
+    proxy) is far below Nant^2 while still being a few big GEMMs rather than one
+    tiny GEMM per pair.
+    """
 
-    def test_groups_are_roughly_equal_population(self):
-        """Equal-population binning keeps group sizes within one of each other."""
-        rng = np.random.default_rng(2)
-        antpos = rng.standard_normal((23, 2))
-        labels = radial_groups(antpos, n_groups=5)
-        counts = np.bincount(labels)
-        assert counts.max() - counts.min() <= 1
+    def test_covers_every_requested_pair(self):
+        """The decomposition must cover every requested pair (possibly reversed)."""
+        antpairs = _unique_baseline_antpairs(_hex_antpos(3))
+        blocks = find_dense_blocks(antpairs, max_blocks=4)
+        _assert_valid_blocks(blocks, nant=len(_hex_antpos(3)))
+        assert _covers(blocks, antpairs)
 
-    def test_closest_antennas_get_the_lowest_label(self):
-        """Labels are ordered by distance: 0 is closest to the center, not arbitrary."""
-        # Antennas at increasing distance along a line from the origin.
-        antpos = np.array([[0.0], [1.0], [2.0], [3.0], [10.0], [11.0]])
-        labels = radial_groups(antpos, n_groups=3, center=np.array([0.0]))
-        # Two per group, ordered by distance: (0,1) -> 0, (2,3) -> 1, (10,11) -> 2.
-        np.testing.assert_array_equal(labels, [0, 0, 1, 1, 2, 2])
+    def test_beats_the_full_matrix_on_a_redundant_array(self):
+        """On a hex array the decomposition must be far cheaper than the full product.
 
-    def test_default_center_is_centroid(self):
-        """Omitting center uses the antennas' mean position."""
-        antpos = np.array([[-1.0], [0.0], [1.0], [5.0]])
-        default = radial_groups(antpos, n_groups=2)
-        explicit = radial_groups(antpos, n_groups=2, center=antpos.mean(axis=0))
-        np.testing.assert_array_equal(default, explicit)
+        This is the whole point of the feature: a highly redundant array has far
+        fewer unique baselines than antenna pairs, and those unique pairs can be
+        packed into a few dense sub-matrices.
+        """
+        antpos = _hex_antpos(4)
+        nant = len(antpos)
+        antpairs = _unique_baseline_antpairs(antpos)
 
-    def test_invalid_n_groups_raises(self):
-        """n_groups must be positive and no larger than the number of antennas."""
-        antpos = np.zeros((5, 2))
+        blocks = find_dense_blocks(antpairs, max_blocks=4)
+        assert _covers(blocks, antpairs)
+
+        full_area = nant * nant
+        assert _block_area(blocks) < 0.5 * full_area, (
+            f"decomposition area {_block_area(blocks)} is not much better than the "
+            f"full product ({full_area}) for a {nant}-antenna hex array"
+        )
+
+    def test_more_blocks_never_increases_area(self):
+        """Allowing more sub-matrices can only reduce (or tie) the total area."""
+        antpairs = _unique_baseline_antpairs(_hex_antpos(3))
+        areas = [
+            _block_area(find_dense_blocks(antpairs, max_blocks=k)) for k in range(1, 5)
+        ]
+        assert areas == sorted(areas, reverse=True) or all(
+            b <= a for a, b in zip(areas, areas[1:], strict=True)
+        )
+
+    def test_never_returns_more_blocks_than_allowed(self):
+        """max_blocks is a hard cap on the number of sub-matrices."""
+        antpairs = _unique_baseline_antpairs(_hex_antpos(3))
+        for k in range(1, 6):
+            assert len(find_dense_blocks(antpairs, max_blocks=k)) <= k
+
+    def test_single_block_is_the_bounding_box(self):
+        """With max_blocks=1 the answer is just the bounding box of the pairs."""
+        antpairs = np.array([(0, 3), (1, 4), (2, 5)])
+        blocks = find_dense_blocks(antpairs, max_blocks=1, allow_conjugates=False)
+        assert len(blocks) == 1
+        rows, cols = blocks[0]
+        assert sorted(rows) == [0, 1, 2]
+        assert sorted(cols) == [3, 4, 5]
+
+    def test_finds_the_exact_block_diagonal_structure(self):
+        """Two disjoint antenna clusters must come out as two separate blocks.
+
+        A decomposition that missed this would return one big block covering both
+        clusters plus all the (never-requested) cross-cluster pairs.
+        """
+        antpairs = np.array(
+            [(i, j) for i in (0, 1, 2) for j in (0, 1, 2)]
+            + [(i, j) for i in (3, 4, 5) for j in (3, 4, 5)]
+        )
+        blocks = find_dense_blocks(antpairs, max_blocks=2, allow_conjugates=False)
+        assert len(blocks) == 2
+        assert _block_area(blocks) == 18  # 3x3 + 3x3, i.e. zero waste
+        assert _covers(blocks, antpairs, allow_conjugates=False)
+
+    def test_allow_conjugates_can_only_help(self):
+        """Permitting reversed pairs must never produce a worse decomposition."""
+        antpairs = _unique_baseline_antpairs(_hex_antpos(3))
+        with_conj = _block_area(find_dense_blocks(antpairs, max_blocks=3))
+        without = _block_area(
+            find_dense_blocks(antpairs, max_blocks=3, allow_conjugates=False)
+        )
+        assert with_conj <= without
+
+    def test_empty_antpairs_gives_no_blocks(self):
+        """No requested pairs means nothing to compute."""
+        assert find_dense_blocks(np.zeros((0, 2), dtype=int)) == []
+
+    def test_invalid_max_blocks_raises(self):
+        """max_blocks must be a positive number of sub-matrices."""
+        antpairs = np.array([(0, 1)])
         with pytest.raises(ValueError):
-            radial_groups(antpos, n_groups=0)
-        with pytest.raises(ValueError):
-            radial_groups(antpos, n_groups=6)
+            find_dense_blocks(antpairs, max_blocks=0)
 
-    def test_composes_with_blocks_from_groups_and_matches_full_matmul(self):
-        """radial_groups + blocks_from_groups + CPUMatBlock matches CPUMatMul."""
+    @pytest.mark.parametrize("allow_conjugates", [True, False])
+    @pytest.mark.parametrize("max_blocks", [1, 2, 3])
+    def test_composes_with_matblock_on_a_redundant_array(
+        self, allow_conjugates, max_blocks
+    ):
+        """End-to-end: the decomposition must give exactly the right visibilities.
+
+        Covers the conjugate path too -- with ``allow_conjugates=True`` some pairs
+        may only be present in their reversed orientation, so this also checks
+        ``CPUMatBlock``'s Hermitian handling against a brute-force reference.
+        """
         from matvis.cpu.matprod import CPUMatBlock
 
-        nant, nfeed, nsrc, precision = 10, 1, 8, 1
-        rng = np.random.default_rng(4)
-        antpos = rng.standard_normal((nant, 2))
-        # A compact "core" plus two far-away "outriggers", like HERA's layout.
-        antpos[-2:] *= 20
-
-        labels = radial_groups(antpos, n_groups=3)
-        blocks = blocks_from_groups(labels)
-        antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
-        z = _make_z(nant, nfeed, nsrc, precision, seed=6)
+        antpos = _hex_antpos(3)
+        nant, nfeed, nsrc, precision = len(antpos), 2, 14, 2
+        antpairs = _unique_baseline_antpairs(antpos)
+        blocks = find_dense_blocks(
+            antpairs, max_blocks=max_blocks, allow_conjugates=allow_conjugates
+        )
+        z = _make_z(nant, nfeed, nsrc, precision, seed=8)
 
         obj = CPUMatBlock(
             nchunks=1,
@@ -217,7 +313,7 @@ class TestRadialGroups:
         obj.sum_chunks(out)
 
         expected = _reference_vis(z, nant, nfeed, antpairs)
-        np.testing.assert_allclose(out, expected, rtol=1e-4, atol=1e-6)
+        np.testing.assert_allclose(out, expected, rtol=1e-10, atol=1e-12)
 
 
 class TestTileAntennas:

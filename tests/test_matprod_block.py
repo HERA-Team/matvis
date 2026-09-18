@@ -236,6 +236,63 @@ def test_overlapping_blocks_do_not_double_count(method):
     np.testing.assert_allclose(out, expected, rtol=1e-4, atol=1e-6)
 
 
+@pytest.mark.parametrize("method", ALL_METHODS)
+@pytest.mark.parametrize("nfeed", [1, 2])
+def test_pairs_covered_only_in_reversed_orientation(method, nfeed):
+    """A requested pair (i, j) may be covered by a block holding (j, i) instead.
+
+    V_ij is the Hermitian conjugate of V_ji (in feed space), so a block that
+    contains the reversed pair supplies the requested one exactly. This is what
+    lets a decomposition permute/flip the antenna axes freely when hunting for
+    dense sub-matrices; at nfeed=2 it also pins the feed-axis transpose, which
+    is invisible at nfeed=1.
+    """
+    precision = 2
+    nant, nsrc = 6, 20
+    z = _make_z(nant, nfeed, nsrc, precision, seed=31)
+
+    rows = np.array([0, 1, 2])
+    cols = np.array([3, 4, 5])
+    blocks = [(rows, cols)]
+    # Request the *reverse* of everything the block actually contains.
+    antpairs = np.array([(j, i) for i in rows for j in cols])
+
+    _, out = _run(_get_cls(method), z, nant, nfeed, antpairs, blocks, precision, method)
+    expected = _reference_vis(z, nant, nfeed, antpairs)
+    np.testing.assert_allclose(out, expected, rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize("method", ALL_METHODS)
+def test_mixed_direct_and_reversed_coverage_in_one_block(method):
+    """Direct and reversed coverage can be mixed, and direct is preferred."""
+    precision = 2
+    nfeed = 2
+    nant, nsrc = 5, 18
+    z = _make_z(nant, nfeed, nsrc, precision, seed=32)
+
+    rows = np.array([0, 1])
+    cols = np.array([2, 3])
+    blocks = [(rows, cols)]
+    # (0, 2) and (1, 3) are held directly; (2, 1) and (3, 0) only reversed.
+    antpairs = np.array([(0, 2), (2, 1), (1, 3), (3, 0)])
+
+    _, out = _run(_get_cls(method), z, nant, nfeed, antpairs, blocks, precision, method)
+    expected = _reference_vis(z, nant, nfeed, antpairs)
+    np.testing.assert_allclose(out, expected, rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize("method", ["CPUMatBlock"])
+def test_reversed_coverage_still_requires_full_coverage(method):
+    """Conjugate coverage widens what counts as covered, it doesn't remove the check."""
+    nant, nfeed, precision = 6, 1, 1
+    antpairs = np.array([(0, 1), (4, 5)])
+    blocks = [(np.array([1]), np.array([0]))]  # covers (0, 1) reversed, not (4, 5)
+
+    obj = _construct(_get_cls(method), nant, nfeed, antpairs, blocks, precision)
+    with pytest.raises(ValueError, match="not covered"):
+        obj.setup()
+
+
 @pytest.mark.parametrize("method", ["CPUMatMul", "CPUVectorDot", "CPUMatBlock"])
 def test_duplicate_antpairs_raise(method):
     """Requesting the same pair twice in ``antpairs`` is never what the user wants."""

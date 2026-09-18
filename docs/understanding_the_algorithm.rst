@@ -129,58 +129,109 @@ Then, for a particular frequency and time, the ``matvis`` algorithm is:
     7. Compute the :math:`N_{\rm feed} N_{\rm ant} \times N_{\rm feed} N_{\rm ant}`
        visibility: :math:`V = Z Z^*`.
 
-Reducing the Cost of Step 7: Block-Decomposed Products
-========================================================
+Exploiting Redundancy: Block-Decomposed Products
+=================================================
 
 Step 7's matrix product is unavoidably :math:`N_{\rm ant}^2`, and dominates the total
-runtime for interferometers of a realistic size (see :doc:`performance`). For arrays
-where the requested baselines (``antpairs``) are concentrated within a modest number of
-antenna groupings -- most commonly a compact, highly-redundant core, or an array with a
-compact core plus a handful of more remote outrigger antennas -- ``matvis`` can compute
-this product as a set of smaller sub-matrix products instead of the full
-:math:`N_{\rm ant} \times N_{\rm ant}` product, via the ``CPUMatBlock``/``GPUMatBlock``
-``matprod_method`` options.
+runtime for interferometers of a realistic size (see :doc:`performance`). A *redundant*
+array, however, has far fewer unique baselines than antenna pairs: a HERA-like
+331-antenna hex layout has 109 561 antenna pairs but only 630 distinct baseline
+vectors. Every extra pair beyond those 630 recomputes a visibility that is, by
+construction, identical to one already computed.
 
-**When to use it.** Pass an ``antenna_blocks`` argument to :func:`~matvis.simulate_vis`
-(a list of ``(row_antenna_idx, col_antenna_idx)`` integer-array tuples) along with
-``matprod_method="CPUMatBlock"`` (or ``"GPUMatBlock"``), and ``matvis`` computes one
-smaller matrix product per block instead of the single full one, gathering just the
-requested ``antpairs`` out of each block. This computes *exactly* the same visibilities
-as the default ``MatMul`` method -- unlike the sky-coarsening approximation discussed for
-some future work, this is not an approximation, just a different way of arranging the
-same exact computation -- so there is no accuracy trade-off to consider, only a
-performance one:
+There are two existing ways to handle this, and both leave something on the table:
 
-- If your antenna pairs of interest cluster into a handful of spatial groups (e.g. "this
-  set of antennas is the compact core, this smaller set is the outriggers"), using
-  blocks that respect that grouping can substantially reduce the number of FLOPs
-  computed relative to the full product, since pairs *between* distant groups that
-  aren't requested are simply never computed.
-- Even without any grouping structure, tiling the full antenna set into fixed-size
-  blocks bounds the peak memory of a single matrix-product call, which can be useful
-  for very large arrays regardless of any redundancy consideration.
-- If your blocks don't reflect any real structure in the requested ``antpairs``, this
-  mechanism buys you little over the default ``MatMul`` (and adds bookkeeping overhead
-  in ``setup()``), so it isn't a good default choice for every case.
+- ``MatMul`` (the default) does a single big :math:`N_{\rm ant} \times N_{\rm ant}`
+  GEMM. BLAS is extremely efficient at this, but for the array above it computes ~174x
+  more of the matrix than is actually needed.
+- ``VectorDot``, given a deduplicated ``antpairs``, computes exactly the 630 wanted
+  visibilities -- the minimum possible FLOP count -- but as 630 separate tiny dot
+  products, so per-call overhead dominates and the hardware is badly underused.
 
-``matvis`` deliberately does not try to work out good blocks for you -- that is a
-judgment call about your specific array's geometry and which baselines you actually
-want, and :mod:`matvis.redundancy` offers a few different starting points depending on
-how much you already know about your array:
+``CPUMatBlock``/``GPUMatBlock`` sit between the two. You supply an ``antenna_blocks``
+argument (a list of ``(row_antenna_idx, col_antenna_idx)`` integer-array tuples), and
+``matvis`` computes one rectangular sub-matrix product per block, gathering just the
+requested ``antpairs`` out of each. If the wanted pairs can be packed into a few
+*dense* sub-matrices, you get close to ``VectorDot``'s FLOP count with a handful of
+``MatMul``-sized GEMMs. This is the approach sketched in Appendix A of the ``matvis``
+paper.
 
-- If you already know a sensible grouping of your antennas (e.g. an exact core/outrigger
-  split from your array-layout generator), pass those group labels to
-  :func:`~matvis.redundancy.blocks_from_groups`.
-- If you don't have a grouping in hand but your array has a compact core plus a small
-  number of more remote antennas (as is typical of HERA-like layouts),
-  :func:`~matvis.redundancy.radial_groups` gives a reasonable default: it bins antennas
-  into concentric shells by distance from the array center, which can be fed straight
-  into :func:`~matvis.redundancy.blocks_from_groups`.
-- If you want every antenna pair computed (no dedup at all), but with bounded per-block
-  memory, use :func:`~matvis.redundancy.tile_antennas`.
-- If you specifically want to only compute one representative baseline out of each
-  redundant group, :func:`~matvis.redundancy.find_redundant_antpairs` finds those
-  representative pairs, and :func:`~matvis.redundancy.antpairs_to_blocks` turns them
-  into singleton blocks (though for that particular case, the existing ``VectorDot``
-  method, run directly against the deduplicated ``antpairs``, does the same job just as
-  well).
+The packing is what makes it work. The wanted pairs form a sparse pattern in the
+:math:`N_{\rm ant} \times N_{\rm ant}` grid, but the antenna axes can be permuted
+freely, and each pair can be held in either orientation (since
+:math:`V_{ij} = V_{ji}^\dagger`). :func:`~matvis.redundancy.find_dense_blocks` exploits
+both: it orders the row antennas by how many pairs they appear in, then cuts that
+ordering into at most ``max_blocks`` contiguous runs, choosing the cuts to minimize the
+total sub-matrix area (the quantity the FLOP count is proportional to). For the
+331-antenna hex array above:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Method
+     - Sub-matrix area
+     - Speedup vs full
+     - GEMM calls
+   * - ``MatMul`` (full product)
+     - 109 561
+     - 1.0x
+     - 1
+   * - ``MatBlock``, ``max_blocks=2``
+     - 1 200
+     - 91x
+     - 2
+   * - ``MatBlock``, ``max_blocks=4``
+     - 801
+     - 137x
+     - 4
+   * - ``MatBlock``, ``max_blocks=8``
+     - 658
+     - 167x
+     - 8
+   * - ``VectorDot`` (unique baselines)
+     - 630
+     - 174x
+     - 630
+
+Four blocks already capture ~79 per cent of the theoretically available FLOP reduction
+while issuing only four GEMMs. Note that these are *FLOP* ratios, not wall-clock ratios:
+the realized speedup depends on how efficiently your hardware runs the resulting
+(smaller) GEMM shapes, so benchmark before committing to a value of ``max_blocks``.
+
+Importantly, this computes *exactly* the same visibilities as the default ``MatMul``
+method -- it is a rearrangement of the same computation, not an approximation, so there
+is no accuracy trade-off to weigh.
+
+A typical use looks like:
+
+.. code-block:: python
+
+    import numpy as np
+    from matvis import simulate_vis
+    from matvis.redundancy import find_dense_blocks, find_redundant_antpairs
+
+    # One representative antenna pair per redundant baseline group.
+    bls = antpos[np.newaxis, :, :2] - antpos[:, np.newaxis, :2]
+    antpairs = np.array(find_redundant_antpairs(bls))
+
+    vis = simulate_vis(
+        ...,
+        antpairs=antpairs,
+        matprod_method="GPUMatBlock",
+        antenna_blocks=find_dense_blocks(antpairs, max_blocks=4),
+    )
+
+The caller remains in charge of which blocks to use -- ``matvis`` never silently decides
+the decomposition for you. Besides :func:`~matvis.redundancy.find_dense_blocks`,
+:mod:`matvis.redundancy` also offers
+:func:`~matvis.redundancy.blocks_from_groups` (if you already know a sensible antenna
+grouping, e.g. an exact core/outrigger split) and
+:func:`~matvis.redundancy.tile_antennas` (a redundancy-agnostic tiling of the full
+antenna set, which bounds the peak memory of any one matrix-product call).
+
+Two limitations are worth knowing about. Only the row axis is cut, so the decomposition
+is not symmetric in rows and columns; ``find_dense_blocks`` compensates partially by
+trying several global orientations and keeping the best. And the representative pair
+chosen out of each redundant group is taken as given -- allowing that choice to vary
+would give further freedom to pack the pairs more tightly, and is not currently
+attempted.
