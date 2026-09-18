@@ -19,6 +19,7 @@ from pyuvdata.beam_interface import BeamInterface
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
+from ..core import beams as _core_beams
 from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
@@ -30,6 +31,18 @@ importlib.import_module(
 )  # need to import this to register the coordinate rotation methods
 
 logger = logging.getLogger(__name__)
+
+# Wall-clock timings of the most recent simulate() call, and one entry per call
+# in call order, mirroring the GPU backend's dicts of the same names. Used by
+# the profiling harness; not part of the public API.
+LAST_RUN_STATS: dict = {}
+ALL_RUN_STATS: list[dict] = []
+
+
+def reset_run_stats():
+    """Discard the stats of all previous simulate() calls."""
+    LAST_RUN_STATS.clear()
+    ALL_RUN_STATS.clear()
 
 
 def simulate(
@@ -155,6 +168,18 @@ def simulate(
 
     init_time = time.time()
 
+    # Host-side breakdown of setup, so the profiling harness can separate the
+    # part of it that a multi-frequency restructure could hoist out of the
+    # per-frequency loop from the part that is irreducibly per-frequency.
+    setup_breakdown: dict[str, float] = {}
+    _phase_t = init_time
+
+    def _mark(name: str):
+        nonlocal _phase_t
+        now = time.time()
+        setup_breakdown[name] = now - _phase_t
+        _phase_t = now
+
     if not tm.is_tracing():
         tm.start()
 
@@ -165,6 +190,7 @@ def simulate(
     )
 
     rtype, ctype = get_dtypes(precision)
+    _mark("validate")
 
     current_memory = tm.get_traced_memory()[0]
 
@@ -180,6 +206,7 @@ def simulate(
         source_buffer=source_buffer,
         memory_buffer=memory_buffer,
     )
+    _mark("chunk_planning")
 
     coord_method = CoordinateRotation._methods[coord_method]
 
@@ -196,6 +223,8 @@ def simulate(
     )
 
     nsrc_alloc = coords.nsrc_alloc
+    _mark("coord_construct")
+
     bmfunc = UVBeamInterpolator(
         beam_list=beam_list,
         beam_idx=beam_idx,
@@ -205,6 +234,14 @@ def simulate(
         spline_opts=beam_spline_opts,
         precision=precision,
         nsrc=nsrc_alloc,
+    )
+    _mark("beam_construct")
+    # Inside beam_construct, how much was the per-frequency UVBeam.interp.
+    setup_breakdown["beam_wrangle_freq_independent"] = (
+        _core_beams.LAST_WRANGLE_TIMES.get("freq_independent", 0.0)
+    )
+    setup_breakdown["beam_wrangle_freq_dependent"] = _core_beams.LAST_WRANGLE_TIMES.get(
+        "freq_dependent", 0.0
     )
 
     taucalc = TauCalculator(
@@ -222,12 +259,18 @@ def simulate(
     )
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
+    _mark("vis_alloc")
 
     bmfunc.setup()
+    _mark("beam_setup")
     coords.setup()
+    _mark("coord_setup")
     matprod.setup()
+    _mark("matprod_setup")
     zcalc.setup()
+    _mark("z_setup")
     taucalc.setup()
+    _mark("tau_setup")
 
     logger.info(f"Visibility Array takes {vis.nbytes / 1024**2:.1f} MB")
 
@@ -243,35 +286,100 @@ def simulate(
 
     logger.info(f"Setup Time: {setup_time - init_time:1.3e}")
 
+    # Per-stage host timings. The CPU backend is synchronous, so unlike the GPU
+    # backend's event timings these attribute work to the stage that does it
+    # with no pipeline-stall ambiguity. `rotate` and `select_chunk` are the
+    # frequency-independent stages.
+    integration_times = []
+    stage_samples = {
+        "rotate": [],
+        "select_chunk": [],
+        "beam": [],
+        "tau": [],
+        "z": [],
+        "matprod": [],
+        "sum_chunks": [],
+    }
+
     # Loop over time samples
     for t in range(ntimes):
+        t_int_start = time.perf_counter()
+
+        _t = time.perf_counter()
         coords.rotate(t)
+        stage_samples["rotate"].append(time.perf_counter() - _t)
 
         for c in range(nchunks):
+            _t = time.perf_counter()
             crd_top, flux_sqrt, nn = coords.select_chunk(c, t)
+            stage_samples["select_chunk"].append(time.perf_counter() - _t)
             logdebug("crdtop", crd_top[:, :nn])
             logdebug("Isqrt", flux_sqrt[:nn])
 
+            _t = time.perf_counter()
             A = bmfunc(crd_top[0], crd_top[1], check=t == 0)
+            stage_samples["beam"].append(time.perf_counter() - _t)
             logdebug("beam", bmfunc.interpolated_beam[..., :nn])
 
             # Calculate delays, where tau = 2pi*nu*(b * s) / c
+            _t = time.perf_counter()
             exptau = taucalc(crd_top)
+            stage_samples["tau"].append(time.perf_counter() - _t)
             logdebug("exptau", exptau[:, :nn])
 
+            _t = time.perf_counter()
             z = zcalc(flux_sqrt, A, exptau, bmfunc.beam_idx)
+            stage_samples["z"].append(time.perf_counter() - _t)
             logdebug("Z", z[..., :nn])
 
+            _t = time.perf_counter()
             matprod(z, c)
+            stage_samples["matprod"].append(time.perf_counter() - _t)
 
             if not t % report_chunk and t != ntimes - 1 and c == nchunks - 1:
                 plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
                 highest_peak = memtrace(highest_peak)
 
+        _t = time.perf_counter()
         matprod.sum_chunks(vis[t])
+        stage_samples["sum_chunks"].append(time.perf_counter() - _t)
         logdebug("vis", vis[t])
+        integration_times.append(time.perf_counter() - t_int_start)
 
     final_time = time.time()
     logger.info(f"Loop Time: {final_time - setup_time:1.3e}")
+
+    # The first integration carries one-time costs (ERFA/IERS cache loads, BLAS
+    # workspace allocation, first-touch page faults), so the steady-state
+    # throughput is the median of the remaining ones.
+    steady = integration_times[1:] if len(integration_times) > 1 else integration_times
+
+    stats = {
+        "freq": float(freq),
+        "setup_time": setup_time - init_time,
+        "loop_time": final_time - setup_time,
+        "ntimes": ntimes,
+        "nchunks": nchunks,
+        "time_per_integration": (final_time - setup_time) / ntimes,
+        "integration_times": integration_times,
+        "steady_time_per_integration": float(np.median(steady)),
+        "setup_breakdown": setup_breakdown,
+        # Per-stage totals for the whole run, in seconds. Divide by ntimes for a
+        # per-integration figure; `rotate` and `select_chunk` are the stages a
+        # multi-frequency restructure could share across frequencies.
+        "stage_totals": {k: float(np.sum(v)) for k, v in stage_samples.items()},
+        "stage_median_ms": {
+            k: float(np.median(v)) * 1e3 if v else 0.0 for k, v in stage_samples.items()
+        },
+    }
+
+    logger.info(
+        "CPU stage totals (s): %s",
+        " ".join(f"{k}={v:.3e}" for k, v in stats["stage_totals"].items()),
+    )
+
+    LAST_RUN_STATS.clear()
+    LAST_RUN_STATS.update(stats)
+    ALL_RUN_STATS.append(stats)
 
     return vis if polarized else vis[:, :, 0, 0]
