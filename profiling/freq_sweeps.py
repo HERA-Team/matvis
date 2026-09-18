@@ -22,9 +22,31 @@ import argparse
 import json
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 DEFAULT_OUTDIR = Path(__file__).parent / "results"
+
+
+@lru_cache(maxsize=1)
+def _cli_options() -> str:
+    """The installed `matvis profile` help text, for feature detection."""
+    return subprocess.run(
+        ["matvis", "profile", "--help"], capture_output=True, text=True
+    ).stdout
+
+
+def spline_order(order: int) -> list[str]:
+    """``--spline-order`` if this build has it, nothing if it does not.
+
+    Cubic gridded-beam interpolation is a newer option; without it there is one
+    interpolation order and the sweep collapses to a single row rather than
+    failing.
+    """
+    if "--spline-order" not in _cli_options():
+        return []
+    return ["--spline-order", str(order)]
+
 
 GPU = [
     "--gpu",
@@ -98,8 +120,9 @@ def sweep_amortisation(outdir):
 def sweep_beams(outdir):
     """Nbeams x spline order x beam channel count: where setup actually goes."""
     out = []
+    orders = (1, 3) if "--spline-order" in _cli_options() else (1,)
     for nbeams in (1, 16, 64):
-        for order in (1, 3):
+        for order in orders:
             for beam_nfreq in (0, 16):
                 r = run_one(
                     outdir,
@@ -112,8 +135,7 @@ def sweep_beams(outdir):
                         "200000",
                         "-b",
                         str(nbeams),
-                        "--spline-order",
-                        str(order),
+                        *spline_order(order),
                         "--beam-nfreq",
                         str(beam_nfreq),
                         "-f",
@@ -167,16 +189,16 @@ def sweep_bcrs(outdir):
 def sweep_prod(outdir):
     """The production slice, at both spline orders and nfreq in {1, 2}."""
     out = []
+    orders = (1, 3) if "--spline-order" in _cli_options() else (1,)
     for nfreq in (1, 2):
-        for order in (1, 3):
+        for order in orders:
             r = run_one(
                 outdir,
                 f"prod_nf{nfreq}_o{order}",
                 [
                     *GPU,
                     *PROD,
-                    "--spline-order",
-                    str(order),
+                    *spline_order(order),
                     "-f",
                     str(nfreq),
                     "-t",

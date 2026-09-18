@@ -29,6 +29,16 @@ Added
 - NVTX sub-ranges ``beam_azza``/``beam_gather`` and ``tau_dot``/``tau_exp``,
   separating the geometry-only part of each stage (shareable across
   frequencies) from the per-frequency part.
+- ``matvis profile --beam-nfreq`` sets the number of frequency channels in the
+  gridded test beam independently of ``--nfreq``. The default of 0 keeps the
+  old behaviour, in which the beam carries exactly the simulated channels --
+  the one configuration where matvis's per-channel beam interpolation has
+  almost nothing to do, and so the one that hides its cost.
+- ``profiling/beam_freq_cost.py`` measures what putting a beam on the simulated
+  frequency costs, both when batched across channels and when the beam is
+  already on the requested one.
+- ``profiling/freq_sweeps.py`` runs and tabulates the sweeps bearing on
+  `#134 <https://github.com/HERA-Team/matvis/issues/134>`_.
 
 Fixed
 -----
