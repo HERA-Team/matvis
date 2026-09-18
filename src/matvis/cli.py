@@ -216,6 +216,7 @@ def run_profile(
     warmup=True,
     update_bcrs_every=0.0,
     repeat=1,
+    beam_nfreq=0,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -245,13 +246,22 @@ def run_profile(
         cpu_beams,
         beam_idx,
     ) = get_standard_sim_params(
-        analytic_beam, nfreq, ntimes, nants, nsource, nbeams, naz=naz, nza=nza
+        analytic_beam,
+        nfreq,
+        ntimes,
+        nants,
+        nsource,
+        nbeams,
+        naz=naz,
+        nza=nza,
+        beam_nfreq=beam_nfreq,
     )
 
     cns.print(Rule("Running matvis profile"))
     cns.print(f"  NANTS:            {nants:>7}")
     cns.print(f"  NTIMES:           {ntimes:>7}")
     cns.print(f"  NFREQ:            {nfreq:>7}")
+    cns.print(f"  BEAM NFREQ:       {beam_nfreq or nfreq:>7}")
     cns.print(f"  NBEAMS:           {nbeams:>7}")
     cns.print(f"  NSOURCE:          {nsource:>7}")
     cns.print(f"  GPU:              {gpu:>7}")
@@ -471,6 +481,7 @@ def run_profile(
             "source_buffer": source_buffer,
             "update_bcrs_every": coord_method_params.get("update_bcrs_every"),
             "repeat": repeat,
+            "beam_nfreq": beam_nfreq or nfreq,
         },
         "total_time": out_time - init_time,
         "stages": {
@@ -542,6 +553,17 @@ common_profile_options = [
             "(ERFA coordinate methods only). The default of 0 recomputes them "
             "at every integration, which is the exact but slowest setting; "
             "~180 keeps errors below ~10 mas for far less work."
+        ),
+    ),
+    click.option(
+        "--beam-nfreq",
+        default=0,
+        type=int,
+        help=(
+            "Number of frequency channels in the gridded test beam. The default "
+            "of 0 gives it exactly the simulated channels, which makes matvis's "
+            "per-channel beam interpolation nearly free and is not "
+            "representative; a real beam covers the whole band."
         ),
     ),
     click.option(
@@ -773,6 +795,7 @@ def get_standard_sim_params(
     nza=180,
     freq_min=100e6,
     freq_max=200e6,
+    beam_nfreq=0,
 ):
     """Create some standard random simulation parameters for use in profiling.
 
@@ -788,8 +811,17 @@ def get_standard_sim_params(
     beam = GaussianBeam(diameter=14.0)
 
     if not use_analytic_beam:
+        # The beam's own channels, which are NOT the channels being simulated.
+        # Real runs read a beam covering the whole band and matvis interpolates
+        # it onto each simulated channel, so a beam that happens to carry
+        # exactly the simulated channels (beam_nfreq=0, the historical default)
+        # makes that interpolation almost free and hides its cost entirely.
+        if beam_nfreq:
+            beam_freqs = np.linspace(freq_min - 10e6, freq_max + 10e6, beam_nfreq)
+        else:
+            beam_freqs = freqs
         beam = beam.to_uvbeam(
-            freq_array=freqs,
+            freq_array=beam_freqs,
             axis1_array=np.linspace(0, 2 * np.pi, naz + 1)[:-1],
             axis2_array=np.linspace(0, np.pi, nza + 1),
         )
