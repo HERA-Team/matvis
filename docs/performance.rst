@@ -9,8 +9,20 @@ changelog of changes that significantly affected performance.
 Unless noted otherwise, all statements refer to the GPU implementation with
 the following settings: **single precision**, polarized (2 feeds
 × 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation, and
-the ERFA coordinate method with a large value set for ``update_bcrs_every`` so
-that it doesn't dominate the runs.
+the ERFA coordinate method at its default ``update_bcrs_every = 0``.
+
+.. note::
+
+   That default is the *exact*, most expensive setting: the light-deflection
+   and aberration corrections, which are ~90% of the cost of a coordinate
+   rotation, are recomputed at every integration. Earlier versions of this page
+   claimed the benchmarks used a large ``update_bcrs_every`` instead; they never
+   did, because ``matvis profile`` had no way to set it. It does now
+   (``--update-bcrs-every``), but the numbers below are all at the exact
+   setting. Loosening it to ~180 s is therefore a speed-up relative to what is
+   reported here, not the other way around -- and at production scale on a GPU
+   it is worth well under 1% of an integration, because coordinate rotation is
+   not where the time goes (see the table below).
 
 The simulations reported here were run with the ``matvis profile`` script,
 documented at :doc:`cli`. This script outputs a JSON file with profiling

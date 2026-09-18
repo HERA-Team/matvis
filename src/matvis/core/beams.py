@@ -1,5 +1,6 @@
 """Functions for working with beams."""
 
+import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -10,6 +11,12 @@ from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.utils.pol import polstr2num
+
+# Host-side timings of the most recent _wrangle_beams() call, split into the work
+# that depends on the requested frequency and the work that does not. Used by the
+# profiling harness to bound what a multi-frequency restructure could amortize.
+# Not part of the public API.
+LAST_WRANGLE_TIMES: dict = {}
 
 
 def prepare_beam_unpolarized(
@@ -59,6 +66,7 @@ def _wrangle_beams(
         Frequency to interpolate beam to.
     """
     # Get the number of unique beams
+    _t0 = time.perf_counter()
     nbeam = len(beam_list)
     beam_list = [BeamInterface(beam) for beam in beam_list]
 
@@ -78,7 +86,10 @@ def _wrangle_beams(
                 "beam_idx contains indices greater than the number of beams"
             )
 
+    _t_indep = time.perf_counter() - _t0
+
     # make sure we interpolate to the right frequency first.
+    _t0 = time.perf_counter()
     beam_list = [
         (
             bm.clone(
@@ -91,6 +102,19 @@ def _wrangle_beams(
         )
         for bm in beam_list
     ]
+
+    LAST_WRANGLE_TIMES.clear()
+    LAST_WRANGLE_TIMES.update(
+        {
+            # BeamInterface wrapping, power conversion and beam_idx validation:
+            # identical for every frequency.
+            "freq_independent": _t_indep,
+            # UVBeam.interp onto the single requested channel: genuinely
+            # per-frequency, but a multi-frequency call could do all channels
+            # in one vectorized pass instead of nfreq separate ones.
+            "freq_dependent": time.perf_counter() - _t0,
+        }
+    )
 
     if polarized:
         if any(b.beam_type != "efield" for b in beam_list):

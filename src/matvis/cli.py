@@ -42,6 +42,8 @@ if HAVE_GPU:
     from matvis import gpu
     from matvis.gpu import gpu as gpu_module
 
+from matvis.cpu import cpu as cpu_module  # noqa: E402
+
 simcpu = cpu.simulate
 
 if HAVE_GPU:
@@ -53,6 +55,117 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("matvis")
 
 cns = Console()
+
+# Which setup phases a multi-frequency restructure could hoist out of the
+# per-frequency loop, and which are irreducibly per-frequency. `beam_construct`
+# is deliberately absent: it is the sum of its two `beam_wrangle_*` sub-phases
+# plus a small remainder, which is accounted for separately.
+SETUP_FREQ_INDEPENDENT = (
+    "validate",
+    "chunk_planning",
+    "coord_construct",
+    "coord_setup",
+    "beam_wrangle_freq_independent",
+    "z_setup",
+    "matprod_setup",
+    "vis_alloc",
+)
+# tau: antpos is pre-scaled by 2*pi*nu/c. beam_setup: uploads/prefilters this
+# frequency's beam grid. beam_wrangle_freq_dependent: UVBeam.interp onto it.
+SETUP_FREQ_DEPENDENT = (
+    "tau_setup",
+    "beam_setup",
+    "beam_wrangle_freq_dependent",
+)
+
+
+def classify_setup(breakdown: dict) -> dict:
+    """Split one call's setup breakdown into hoistable and per-frequency work."""
+    indep = sum(breakdown.get(k, 0.0) for k in SETUP_FREQ_INDEPENDENT)
+    dep = sum(breakdown.get(k, 0.0) for k in SETUP_FREQ_DEPENDENT)
+    # Whatever `beam_construct` cost beyond its two measured sub-phases is
+    # BeamInterface bookkeeping, which does not depend on frequency.
+    indep += max(
+        breakdown.get("beam_construct", 0.0)
+        - breakdown.get("beam_wrangle_freq_independent", 0.0)
+        - breakdown.get("beam_wrangle_freq_dependent", 0.0),
+        0.0,
+    )
+    return {"freq_independent": indep, "freq_dependent": dep}
+
+
+def summarize_run(all_stats: list[dict]) -> dict:
+    """Aggregate the per-frequency backend stats of one simulate_vis call.
+
+    simulate_vis calls the backend once per frequency, so `all_stats` has one
+    entry per channel. Medians are taken across channels; setup, which is paid
+    per channel, is summed.
+    """
+    if not all_stats:
+        return {}
+
+    nfreq = len(all_stats)
+    ntimes = all_stats[0]["ntimes"]
+    setup_total = sum(st["setup_time"] for st in all_stats)
+    splits = [classify_setup(st.get("setup_breakdown", {})) for st in all_stats]
+
+    out = {
+        "nfreq_calls": nfreq,
+        "setup_time_total": setup_total,
+        "setup_time_per_freq": setup_total / nfreq,
+        "setup_freq_independent_per_freq": float(
+            np.mean([sp["freq_independent"] for sp in splits])
+        ),
+        "setup_freq_dependent_per_freq": float(
+            np.mean([sp["freq_dependent"] for sp in splits])
+        ),
+        "steady_wall_per_integration": float(
+            np.median([st["steady_time_per_integration"] for st in all_stats])
+        ),
+    }
+
+    loop = out["steady_wall_per_integration"]
+    total = nfreq * (out["setup_time_per_freq"] + ntimes * loop)
+    # Issue #134: hoisting the frequency-independent setup out of the loop saves
+    # it (nfreq - 1) times. This is the ceiling for that part of the work; it
+    # says nothing about the in-loop stages.
+    out["projected_setup_hoist_saving"] = (
+        (nfreq - 1) * out["setup_freq_independent_per_freq"] / total if total else 0.0
+    )
+
+    gpu_times = [
+        st["steady_gpu_time_per_integration"]
+        for st in all_stats
+        if "steady_gpu_time_per_integration" in st
+    ]
+    if gpu_times:
+        out["gpu_time_per_integration"] = float(np.median(gpu_times))
+        # The host timer and the per-chunk GPU events bound different,
+        # overlapping windows, so clamp at zero rather than report a negative.
+        out["host_overhead_per_integration"] = max(
+            out["steady_wall_per_integration"] - out["gpu_time_per_integration"], 0.0
+        )
+
+    events = [st["event_timing_ms"] for st in all_stats if "event_timing_ms" in st]
+    if events:
+        out["event_timing_ms"] = {
+            stage: float(np.median([ev[stage]["median"] for ev in events]))
+            for stage in events[0]
+        }
+
+    peaks = [st["peak_device_bytes"] for st in all_stats if "peak_device_bytes" in st]
+    if peaks:
+        out["peak_device_bytes"] = int(max(peaks))
+
+    totals = [st["stage_totals"] for st in all_stats if "stage_totals" in st]
+    if totals:
+        out["stage_seconds_per_integration"] = {
+            stage: float(np.median([tt[stage] for tt in totals])) / ntimes
+            for stage in totals[0]
+        }
+
+    return out
+
 
 # These specify which line(s) in the code correspond to which algorithmic step.
 STEPS = {
@@ -101,12 +214,26 @@ def run_profile(
     source_buffer=1.0,
     gpu_event_timing=False,
     warmup=True,
+    update_bcrs_every=0.0,
+    repeat=1,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
         raise RuntimeError("Cannot run GPU version without GPU dependencies installed!")
 
     logger.setLevel(log_level.upper())
+
+    # update_bcrs_every only exists on the ERFA rotators. Passing it to a method
+    # that does not accept it would be a silent no-op at best, so check.
+    coord_method_params = {}
+    coord_cls = CoordinateRotation._methods[coord_method]
+    if "update_bcrs_every" in inspect.signature(coord_cls.__init__).parameters:
+        coord_method_params["update_bcrs_every"] = update_bcrs_every
+    elif update_bcrs_every:
+        raise click.UsageError(
+            f"--update-bcrs-every is not accepted by {coord_method}; it only "
+            "applies to the ERFA coordinate methods."
+        )
 
     (
         ants,
@@ -148,7 +275,9 @@ def run_profile(
         logger.info(f"Running warmup simulation ({nwarm} sources, 1 time)...")
         simulate_vis(
             ants=ants,
-            fluxes=flux[:nwarm],
+            # flux is (nsource, nfreq); the warmup runs one channel, so the
+            # frequency axis has to be sliced too or simulate_vis rejects it.
+            fluxes=flux[:nwarm, :1],
             ra=ra[:nwarm],
             dec=dec[:nwarm],
             freqs=freqs[:1],
@@ -170,28 +299,39 @@ def run_profile(
     else:
         profiler.add_function(simcpu)
 
+    backend_module = gpu_module if gpu else cpu_module
+
+    backend_kwargs = {"gpu_event_timing": gpu_event_timing} if gpu else {}
+
+    per_repeat = []
     init_time = time.time()
-    profiler.runcall(
-        simulate_vis,
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        times=times,
-        beams=cpu_beams,
-        polarized=True,
-        precision=2 if double_precision else 1,
-        telescope_loc=known_telescope_location("hera"),
-        use_gpu=gpu,
-        beam_idx=beam_idx,
-        matprod_method=f"{'GPU' if gpu else 'CPU'}{matprod_method}",
-        coord_method=coord_method,
-        antpairs=pairs,
-        min_chunks=nchunks,
-        source_buffer=source_buffer,
-        gpu_event_timing=gpu_event_timing,
-    )
+    for _ in range(repeat):
+        # Each repeat is a fresh measurement; the line profiler accumulates
+        # across them by design, but the backend stats must not.
+        backend_module.reset_run_stats()
+        profiler.runcall(
+            simulate_vis,
+            ants=ants,
+            fluxes=flux,
+            ra=ra,
+            dec=dec,
+            freqs=freqs,
+            times=times,
+            beams=cpu_beams,
+            polarized=True,
+            precision=2 if double_precision else 1,
+            telescope_loc=known_telescope_location("hera"),
+            use_gpu=gpu,
+            beam_idx=beam_idx,
+            matprod_method=f"{'GPU' if gpu else 'CPU'}{matprod_method}",
+            coord_method=coord_method,
+            coord_method_params=coord_method_params,
+            antpairs=pairs,
+            min_chunks=nchunks,
+            source_buffer=source_buffer,
+            **backend_kwargs,
+        )
+        per_repeat.append(summarize_run(backend_module.ALL_RUN_STATS))
     out_time = time.time()
 
     outdir = Path(outdir).expanduser().absolute()
@@ -220,23 +360,30 @@ def run_profile(
     line_stats = get_line_based_stats(profiler.get_stats())
     thing_stats = get_summary_stats(line_stats, STEPS)
 
-    # Initialize a dictionary to track timing summary statistics
+    # Median across repeats of every scalar, so one slow repeat cannot move the
+    # headline. The spread is reported alongside: an effect smaller than it is
+    # not measurable with this many repeats.
     derived = {}
-    if gpu:
-        run_stats = gpu_module.LAST_RUN_STATS
-        derived["steady_wall_per_integration"] = run_stats[
-            "steady_time_per_integration"
-        ]
-        if "event_timing_ms" in run_stats:
-            gpu_time = run_stats["steady_gpu_time_per_integration"]
-            derived["gpu_time_per_integration"] = gpu_time
-            # Guard against measurement noise: the host timer and the
-            # per-chunk GPU events bound different, overlapping windows
-            # (e.g. GPU work queued during one integration can still be
-            # executing when the next integration's host timer starts)
-            derived["host_overhead_per_integration"] = max(
-                derived["steady_wall_per_integration"] - gpu_time, 0.0
-            )
+    scalar_keys = {
+        k for rp in per_repeat for k, v in rp.items() if isinstance(v, (int, float))
+    }
+    for key in sorted(scalar_keys):
+        vals = [rp[key] for rp in per_repeat if key in rp]
+        derived[key] = float(np.median(vals))
+    for key in ("event_timing_ms", "stage_seconds_per_integration"):
+        if per_repeat and key in per_repeat[0]:
+            derived[key] = {
+                stage: float(
+                    np.median([rp[key][stage] for rp in per_repeat if key in rp])
+                )
+                for stage in per_repeat[0][key]
+            }
+    if repeat > 1:
+        walls = [rp["steady_wall_per_integration"] for rp in per_repeat]
+        derived["repeat_wall_times"] = walls
+        derived["repeat_wall_spread_frac"] = float(
+            (max(walls) - min(walls)) / np.median(walls)
+        )
 
     cns.print()
     cns.print(Rule("Summary of timings"))
@@ -255,6 +402,46 @@ def run_profile(
             f"  Host overhead per integration:          "
             f"{derived['host_overhead_per_integration']:.3e} seconds"
         )
+    if "repeat_wall_spread_frac" in derived:
+        cns.print(
+            f"  Spread over {repeat} repeats (max-min)/median: "
+            f"{derived['repeat_wall_spread_frac']:.1%}"
+        )
+    if "peak_device_bytes" in derived:
+        cns.print(
+            f"  Peak device memory:                     "
+            f"{derived['peak_device_bytes'] / 1024**3:.2f} GB"
+        )
+
+    if "setup_time_per_freq" in derived:
+        cns.print()
+        cns.print(Rule("Setup, per frequency"))
+        cns.print(
+            f"  Total setup per frequency:              "
+            f"{derived['setup_time_per_freq']:.3e} seconds"
+        )
+        cns.print(
+            f"    frequency-independent (hoistable):    "
+            f"{derived['setup_freq_independent_per_freq']:.3e} seconds"
+        )
+        cns.print(
+            f"    frequency-dependent:                  "
+            f"{derived['setup_freq_dependent_per_freq']:.3e} seconds"
+        )
+        cns.print(
+            f"  Projected saving from hoisting setup:   "
+            f"{derived['projected_setup_hoist_saving']:.2%} of this run"
+        )
+
+    if "stage_seconds_per_integration" in derived:
+        cns.print()
+        cns.print(Rule("Host-timed stages, per integration (CPU backend)"))
+        stages = derived["stage_seconds_per_integration"]
+        total = sum(stages.values())
+        for stage, val in stages.items():
+            frac = val / total if total else 0.0
+            cns.print(f"  {stage:>14}: {val:.3e} seconds  ({frac:5.1%})")
+
     cns.print()
     for thing, (hits, _time, time_per_hit, percent, nlines) in thing_stats.items():
         cns.print(
@@ -282,6 +469,8 @@ def run_profile(
             "nza": nza,
             "nchunks": nchunks,
             "source_buffer": source_buffer,
+            "update_bcrs_every": coord_method_params.get("update_bcrs_every"),
+            "repeat": repeat,
         },
         "total_time": out_time - init_time,
         "stages": {
@@ -295,8 +484,13 @@ def run_profile(
         },
     }
     summary["derived"] = derived
-    if gpu:
-        summary["run_stats"] = dict(gpu_module.LAST_RUN_STATS)
+    # Back-compat: the last frequency's stats, as a bare dict. The per-frequency
+    # detail of the final repeat lives alongside it -- simulate_vis calls the
+    # backend once per channel, so at nfreq > 1 the bare dict is only one of
+    # them.
+    if backend_module.LAST_RUN_STATS:
+        summary["run_stats"] = dict(backend_module.LAST_RUN_STATS)
+    summary["run_stats_per_freq"] = [dict(st) for st in backend_module.ALL_RUN_STATS]
     with open(f"{outdir}/summary-stats-{str_id}.json", "w") as fl:
         json.dump(summary, fl, indent=2)
 
@@ -338,6 +532,26 @@ common_profile_options = [
         default="CoordinateRotationAstropy",
         type=click.Choice(list(CoordinateRotation._methods.keys())),
         help="Coordinate rotation method.",
+    ),
+    click.option(
+        "--update-bcrs-every",
+        default=0.0,
+        type=float,
+        help=(
+            "Seconds between full recomputations of the BCRS source vectors "
+            "(ERFA coordinate methods only). The default of 0 recomputes them "
+            "at every integration, which is the exact but slowest setting; "
+            "~180 keeps errors below ~10 mas for far less work."
+        ),
+    ),
+    click.option(
+        "--repeat",
+        default=1,
+        type=int,
+        help=(
+            "Run the whole simulation this many times and report the median "
+            "and the spread, so an effect can be told from run-to-run noise."
+        ),
     ),
     click.option(
         "-v/-V", "--verbose/--not-verbose", default=False, help="Print verbose output"

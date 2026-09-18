@@ -9,6 +9,7 @@ from cupyx.scipy import ndimage
 from pyuvdata import UVBeam
 
 from .. import coordinates
+from .._nvtx import nvtx_range
 from ..core.beams import BeamInterpolator
 from ..cpu.beams import UVBeamInterpolator
 
@@ -136,22 +137,28 @@ class GPUBeamInterpolator(BeamInterpolator):
         out: cp.ndarray,
     ):
         """Perform the beam interpolation, choosing between CPU and GPU as necessary."""
-        az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+        # Split into two NVTX ranges: the az/za transform depends only on the
+        # source positions, so it is identical for every frequency and could be
+        # shared by a multi-frequency loop; the gather reads per-frequency beam
+        # data and could not. See issue #134.
+        with nvtx_range("beam_azza"):
+            az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
-        # Set all the elements
-        self.interpolated_beam[..., len(az) :] = 0.0
+            # Set all the elements
+            self.interpolated_beam[..., len(az) :] = 0.0
 
-        gpu_beam_interpolation(
-            self.beam_data,
-            self.daz,
-            self.dza,
-            self.azmin,
-            az,
-            za,
-            beam_at_src=out,
-            power_beam=not self.polarized,
-            **self.spline_opts,
-        )
+        with nvtx_range("beam_gather"):
+            gpu_beam_interpolation(
+                self.beam_data,
+                self.daz,
+                self.dza,
+                self.azmin,
+                az,
+                za,
+                beam_at_src=out,
+                power_beam=not self.polarized,
+                **self.spline_opts,
+            )
 
 
 def gpu_beam_interpolation(

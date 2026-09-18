@@ -5,6 +5,41 @@ Changelog
 Dev
 ===
 
+Added
+-----
+
+- Profiling: per-frequency accounting. ``simulate_vis`` calls the backend once
+  per channel, so both backends now append one entry per call to
+  ``ALL_RUN_STATS`` (with ``reset_run_stats()`` to clear it), and the harness
+  reports the whole multi-frequency run instead of only its last channel.
+  ``LAST_RUN_STATS`` is unchanged and still holds the most recent call.
+- Profiling: ``run_stats.setup_breakdown``, a host-timed breakdown of each
+  named setup phase, split by ``matvis.cli.classify_setup`` into the work that
+  depends on the requested frequency and the work that does not
+  (`#134 <https://github.com/HERA-Team/matvis/issues/134>`_).
+- Profiling: the CPU backend now populates ``LAST_RUN_STATS``/``ALL_RUN_STATS``
+  too, including host-timed per-stage costs. The CPU path is synchronous, so
+  unlike the GPU backend's CUDA events these attribute work unambiguously.
+- Profiling: ``run_stats.peak_device_bytes`` (GPU).
+- ``matvis profile --update-bcrs-every`` plumbs ``coord_method_params`` through
+  to the ERFA coordinate rotators. Until now nothing in the CLI could set it,
+  so every published benchmark ran at the exact (and slowest) default of 0.
+- ``matvis profile --repeat N`` runs the whole simulation N times and reports
+  the median of every derived quantity plus the spread across repeats.
+- NVTX sub-ranges ``beam_azza``/``beam_gather`` and ``tau_dot``/``tau_exp``,
+  separating the geometry-only part of each stage (shareable across
+  frequencies) from the per-frequency part.
+
+Fixed
+-----
+
+- ``matvis profile --gpu`` with ``--nfreq > 1`` crashed in the warmup
+  simulation, which sliced the frequency axis of ``freqs`` but not of
+  ``fluxes``.
+- ``docs/performance.rst`` stated that the published numbers used a large
+  ``update_bcrs_every``. They did not, and could not: the CLI had no way to
+  set it.
+
 Performance
 -----------
 
