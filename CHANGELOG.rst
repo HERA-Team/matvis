@@ -8,6 +8,16 @@ Dev
 Performance
 -----------
 
+- Beams are no longer re-interpolated onto a frequency they already sit on.
+  ``_wrangle_beams`` runs once per frequency channel and called
+  ``UVBeam.interp(freq_array=[freq], new_object=True)`` unconditionally, which
+  rebuilds the ``UVBeam`` even when it is already a single channel at exactly
+  that frequency -- the normal case for callers that interpolate their beams
+  before handing them over. Beams passed as the same object more than once
+  (``[beam] * nant``) are also interpolated once between them rather than once
+  each. At 350 such beams this takes ``_wrangle_beams`` from 0.56 s to 0.005 s,
+  which at the production slice is 70% of what setup costs per channel.
+
 - Major GPU hot-path overhaul (~7.7x faster per chunk at 350 antennas / 350
   beams / polarized / single precision; see the new "Performance" docs page):
 
