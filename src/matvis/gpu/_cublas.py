@@ -2,6 +2,7 @@
 
 import ctypes
 import logging
+from math import isqrt
 from pathlib import Path
 
 import cupy as cp
@@ -94,7 +95,28 @@ def _sync_handle_stream(handle):
     cublas.setStream(handle, cp.cuda.get_current_stream().ptr)
 
 
-def zdotz(a, out=None, alpha=1.0, beta=0.0):
+def finalize_zdotz(out):
+    """Complete a chain of ``zdotz(..., mirror=False)`` calls on ``out``.
+
+    ``zdotz`` normally mirrors the herk-computed lower triangle into the upper
+    one on every call. When several calls accumulate into the same buffer
+    (``beta=1``) only the final result needs mirroring, so they pass
+    ``mirror=False`` and call this once at the end. It is a no-op on the
+    :func:`complex_matmul` fallback path, which writes the full matrix.
+
+    ``out`` may have any shape; its buffer must hold ``n*n`` contiguous
+    elements in column-major order.
+    """
+    if _LIB is None:  # pragma: no cover
+        return out
+    n = isqrt(out.size)
+    if n * n != out.size:
+        raise ValueError(f"out must hold a square matrix, got {out.size} elements")
+    _mirror_hermitian(out, n)
+    return out
+
+
+def zdotz(a, out=None, alpha=1.0, beta=0.0, mirror=True):
     """Compute the Hermitian Gram product ``a.conj() @ a.T``.
 
     Note that this is the convention used throughout matvis, rather than
@@ -102,6 +124,15 @@ def zdotz(a, out=None, alpha=1.0, beta=0.0):
     of the visibility matrix, then fills in the other half with a small mirroring kernel.
     Falls back to :func:`complex_matmul` if the
     cuBLAS shared library cannot be loaded directly (see ``_load_cublas_ext``).
+
+    Parameters
+    ----------
+    mirror
+        If False, skip the mirroring kernel and leave the upper triangle of
+        ``out`` undefined. Use this when accumulating several products into one
+        buffer with ``beta=1``, and call :func:`finalize_zdotz` on the result.
+        Note that ``beta`` likewise only applies to the lower triangle on the
+        herk path, so an un-mirrored buffer must not be read before then.
     """
     m, k = a.shape
     if not a._c_contiguous:
@@ -155,7 +186,8 @@ def zdotz(a, out=None, alpha=1.0, beta=0.0):
     if status != 0:
         raise RuntimeError(f"cublas herk failed with status {status}")
 
-    _mirror_hermitian(out, m)
+    if mirror:
+        _mirror_hermitian(out, m)
     return out
 
 

@@ -186,3 +186,36 @@ def test_load_cublas_ext_returns_none_if_all_sonames_fail(monkeypatch):
 
     monkeypatch.setattr(cb, "ctypes", FakeCtypes())
     assert cb._load_cublas_ext() is None
+
+
+@pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
+def test_zdotz_deferred_mirror_accumulates(dtype):
+    """zdotz(mirror=False) + beta=1 + finalize_zdotz == the summed full products.
+
+    This is the accumulation path used by GPUMatMul: several chunks add into
+    one buffer with only the lower triangle valid, and the upper triangle is
+    filled in once at the end.
+    """
+    rng = np.random.default_rng(7)
+    shape = (16, 257)
+    chunks = [
+        (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)).astype(dtype)
+        for _ in range(3)
+    ]
+
+    out = cp.zeros((shape[0], shape[0]), dtype=dtype, order="F")
+    for a in chunks:
+        cb.zdotz(cp.asarray(a), out=out, beta=1.0, mirror=False)
+    cb.finalize_zdotz(out)
+
+    expected = sum(np.dot(a.conj(), a.T) for a in chunks)
+    np.testing.assert_allclose(
+        out.get(), expected, rtol=1e-4 if dtype == np.complex64 else 1e-10
+    )
+
+
+def test_finalize_zdotz_raises_on_non_square():
+    """finalize_zdotz needs a buffer holding a square matrix."""
+    out = cp.zeros(7, dtype=np.complex64)
+    with pytest.raises(ValueError, match="square matrix"):
+        cb.finalize_zdotz(out)
