@@ -90,3 +90,89 @@ class GPUVectorDot(MatProd):
                 self.vis[0] += self.vis[i]
 
         out[:] = self.vis[0].transpose((2, 1, 0)).get()
+
+
+class GPUMatBlock(MatProd):
+    """Compute a set of rectangular antenna-block sub-matrix products on the GPU.
+
+    GPU counterpart of :class:`~matvis.cpu.matprod.CPUMatBlock`; see its
+    docstring for the rationale. Uses :func:`~matvis.gpu._cublas.complex_matmul`
+    (which supports rectangular, non-square blocks) per block, and never calls
+    any host/device synchronization inside :meth:`compute` -- all gather/scatter
+    is done with device-side fancy indexing, keeping the per-chunk loop async
+    like the rest of this repo's GPU pipeline (see ``gpu.py``'s single-stream
+    design).
+    """
+
+    supports_blocks = True
+
+    def setup(self):
+        """Set up memory and upload the block-dispatch plan to the device once."""
+        super().setup()
+        # Slice selectors stay host-side slices (they index z without a copy);
+        # everything else is an index array that must live on the device.
+        self._gpu_block_plan = [
+            entry._replace(
+                **{
+                    f: cp.asarray(v)
+                    for f, v in zip(entry._fields, entry, strict=True)
+                    if isinstance(v, np.ndarray)
+                }
+            )
+            for entry in self._block_plan
+        ]
+
+    def allocate_vis(self):
+        """Allocate memory for the visibilities, shaped (nchunks, npairs, nfeed, nfeed)."""
+        self.vis = cp.full(
+            (self.nchunks, self.npairs, self.nfeed, self.nfeed),
+            self.ctype(0.0),
+            dtype=self.ctype,
+        )
+
+    def compute(self, z: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
+        """Perform the source-summing operation for a single time and chunk."""
+        z = z.reshape((self.nant, self.nfeed, -1))
+
+        for blk in self._gpu_block_plan:
+            # Only genuinely scattered antenna sets pay for a staging copy;
+            # consecutive ones are read straight out of z. That staging used to
+            # be about half of this class's runtime (issue #161), which is why
+            # the drivers order z's antenna axis to avoid it.
+            zr = self._operand(z, blk.rows, blk.nrow)
+            zc = self._operand(z, blk.cols, blk.ncol)
+
+            # complex_matmul's output is F-contiguous, but its *values* at
+            # flat index (local_row*nfeed + feed) match the row-major
+            # convention zr/zc were built with -- so reshape with the default
+            # (C) order semantics, same as the CPU path, not the array's own
+            # (F) memory layout. cupy (like numpy) copies as needed here.
+            block = complex_matmul(zr, zc)
+            block = block.reshape((blk.nrow, self.nfeed, blk.ncol, self.nfeed))
+            block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
+
+            if blk.slots.size:
+                out[blk.slots] = block[blk.lr, blk.lc]
+            if blk.rslots.size:
+                # This block holds the reversed pair; V_ij is the Hermitian
+                # conjugate of V_ji over the two feed axes.
+                out[blk.rslots] = block[blk.rlr, blk.rlc].conj().transpose((0, 2, 1))
+
+        return out
+
+    def _operand(self, z: cp.ndarray, sel, nant: int) -> cp.ndarray:
+        """Stage one side of a block product as a C-contiguous cuBLAS operand.
+
+        ``sel`` is a ``slice`` when the block's antennas are consecutive, and
+        then ``z[sel]`` is already a contiguous view that cuBLAS can read in
+        place; ``ascontiguousarray`` passes it through untouched. Otherwise the
+        fancy index gathers the rows into a staging copy.
+        """
+        return cp.ascontiguousarray(z[sel]).reshape(nant * self.nfeed, -1)
+
+    def sum_chunks(self, out: np.ndarray):
+        """Sum the chunks into the output array."""
+        if self.nchunks == 1:
+            out[:] = self.vis[0].get()
+        else:
+            out[:] = self.vis.sum(axis=0).get()
