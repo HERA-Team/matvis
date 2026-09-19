@@ -87,6 +87,27 @@ settings. The number to watch is `run_stats.event_timing_ms.matprod`
 `derived.steady_wall_per_integration`. Note that the best `--max-blocks` is
 *not* the one with the smallest area; see the Performance page for why.
 
+`MatBlock` reorders the antenna axis of `Z` so that most blocks become slices
+of it rather than staged copies (`matvis.redundancy.contiguity_order`). To see
+how much of each block still has to be copied for a given decomposition —
+the quantity that ordering exists to minimize — count the plan entries whose
+selector is not a `slice`:
+
+```python
+blocks = find_dense_blocks(pairs, max_blocks=4)
+order = contiguity_order(blocks, nant)
+obj = GPUMatBlock(1, nfeed, nant, pairs, antenna_blocks=blocks, antenna_order=order)
+obj.setup()
+copied = sum(
+    (0 if isinstance(b.rows, slice) else b.nrow)
+    + (0 if isinstance(b.cols, slice) else b.ncol)
+    for b in obj._block_plan
+)
+```
+
+Passing `antenna_order=None` gives the same count without the reordering, for
+comparison.
+
 ## nsys
 
 Stages are annotated with NVTX ranges (`rotate`, `select_chunk`, `beam`,

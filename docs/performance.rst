@@ -247,7 +247,7 @@ them (see :doc:`understanding_the_algorithm` for the mechanism, and
    every antenna has its own beam, no two antenna pairs give the same
    visibility, every pair is wanted, and there is nothing to exploit. The
    control measurement at the end of this section shows that case running
-   **1.4x slower** than plain ``MatMul``. Use ``MatBlock`` only when
+   **slower** than plain ``MatMul``, not faster. Use ``MatBlock`` only when
    ``len(antpairs)`` is a small fraction of :math:`N_{\rm ant}^2`.
 
 Measured speedup
@@ -286,33 +286,33 @@ wall time in every row, so these are GPU-bound measurements.
    * - ``MatBlock``, ``max_blocks=2``
      - 7 623
      - 13.4x
-     - 16.2 ms
-     - 0.763 s
-     - 2.00x
+     - 9.6 ms
+     - 0.553 s
+     - 2.76x
    * - ``MatBlock``, ``max_blocks=3``
      - 3 527
      - 29.0x
-     - 13.1 ms
-     - 0.673 s
-     - 2.26x
+     - 7.1 ms
+     - 0.491 s
+     - 3.11x
    * - ``MatBlock``, ``max_blocks=4``
      - 2 707
      - 37.8x
-     - **12.1 ms**
-     - **0.637 s**
-     - **2.39x**
+     - **5.7 ms**
+     - **0.440 s**
+     - **3.47x**
    * - ``MatBlock``, ``max_blocks=6``
      - 1 920
      - 53.3x
-     - 14.2 ms
-     - 0.706 s
-     - 2.16x
+     - 7.1 ms
+     - 0.513 s
+     - 2.98x
    * - ``MatBlock``, ``max_blocks=8``
      - 1 714
      - 59.7x
-     - 14.5 ms
-     - 0.716 s
-     - 2.13x
+     - 7.6 ms
+     - 0.501 s
+     - 3.05x
    * - ``VectorDot`` (one GEMM per baseline)
      - 1 501
      - 68.2x
@@ -326,8 +326,8 @@ simulation, but it is paid per ``simulate_vis`` call, so build it once and
 reuse it if you are calling in a loop.
 
 The headline is that the block decomposition **is** a real win —
-2.4x end-to-end, 3.3x on the matrix product itself — but it realizes only about
-9 per cent of the 37.8x that the FLOP count alone predicts, and the best
+3.5x end-to-end, 7.1x on the matrix product itself — but it realizes only about
+19 per cent of the 37.8x that the FLOP count alone predicts, and the best
 ``max_blocks`` is **not** the one that minimizes FLOPs. Cutting past four blocks
 keeps reducing the area and starts making things slower again.
 
@@ -378,8 +378,7 @@ This also explains ``VectorDot``: it has the least arithmetic of all, but
 streams :math:`Z` twice per baseline over 1 501 separate tiny GEMMs.
 
 Isolating the pieces with a micro-benchmark at the ``max_blocks=4`` shapes
-(complex64, :math:`K = 65\,536`, i.e. one production-sized chunk, A2000)
-splits the cost almost exactly in half:
+(complex64, :math:`K = 65\,536`, i.e. one production-sized chunk, A2000):
 
 .. list-table::
    :header-rows: 1
@@ -387,22 +386,78 @@ splits the cost almost exactly in half:
    * - Operation
      - Time
    * - Full product, ``cherk`` (what ``MatMul`` does)
-     - 40.7 ms
-   * - 4 blocks: gather of :math:`Z` rows/columns only
-     - 6.4 ms
+     - 39.4 ms
    * - 4 blocks: ``cgemm3m`` calls only
-     - 6.5 ms
-   * - 4 blocks: gather + GEMM (what ``MatBlock`` does)
-     - 12.5 ms
+     - 6.4 ms
+   * - 4 blocks: staging copies only, natural antenna order
+     - 6.4 ms
+   * - 4 blocks: staging copies only, reordered antenna axis
+     - 0.4 ms
+   * - 4 blocks: copies + GEMM, natural antenna order
+     - 12.3 ms
+   * - 4 blocks: copies + GEMM, reordered antenna axis (what ``MatBlock`` does)
+     - **6.7 ms**
 
-Two things follow. First, even with the gather removed entirely, the four GEMMs
-would only be 6.3x faster than the full ``cherk``, not 37.8x — the arithmetic
-saving is genuinely not collectible at these shapes. Second, **half of
-``MatBlock``'s time is the gather**, not the matrix product: the blocks need
-contiguous operands, so the relevant rows and columns of :math:`Z` are copied
-before each GEMM. A future optimization could avoid much of this (for example
-by having the :math:`Z` construction write antennas in block order, so the
-larger blocks become slices rather than fancy-index copies).
+Two things follow. First, even with the staging removed entirely, the four
+GEMMs are only 6.2x faster than the full ``cherk``, not 37.8x — the arithmetic
+saving is genuinely not collectible at these shapes, and that is the binding
+limit today. Second, the staging *was* half of ``MatBlock``'s time, and is now
+almost none of it — see the next section.
+
+.. _Ordering the antenna axis:
+
+Ordering the antenna axis to avoid the staging copies
+-----------------------------------------------------
+
+cuBLAS needs each operand contiguous, so a block whose antennas are scattered
+over the antenna axis has to be copied into a staging buffer before its GEMM —
+:math:`(N^b_{\rm row} + N^b_{\rm col}) \times N_{\rm feed} \times K` complex
+values per block, read and written, every chunk of every integration. That was
+originally about half of ``MatBlock``'s runtime.
+
+A block whose antennas happen to be *consecutive* needs no copy at all: the
+operand is a plain slice of :math:`Z`. Which antennas are consecutive is just a
+labelling choice, and relabelling costs nothing, because the :math:`Z`
+construction can write its rows in any order it likes for free (the fused
+kernel just reads a different row of ``exptau`` and a different beam). So
+``matvis`` chooses the labelling to suit the decomposition:
+:func:`~matvis.redundancy.contiguity_order` picks an antenna order that makes
+as many block antenna sets as possible contiguous, and the drivers hand that
+same order to both the :math:`Z` construction and the matprod, which then
+resolves everything back to the requested ``antpairs``. The visibilities are
+unchanged; only the internal row order of :math:`Z` moves.
+
+Blocks overlap, so not every set can be made contiguous at once (deciding the
+maximum achievable subset is the NP-hard weighted consecutive-ones problem);
+the greedy in ``contiguity_order`` takes the largest sets first, which is where
+the traffic is. On this array it removes most of the copying:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``max_blocks``
+     - 2
+     - 3
+     - 4
+     - 6
+     - 8
+   * - Antenna-rows copied, natural order
+     - 170
+     - 172
+     - 180
+     - 270
+     - 290
+   * - Antenna-rows copied, reordered
+     - 3
+     - 40
+     - 30
+     - 87
+     - 107
+
+(Compare the traffic row above: at ``max_blocks=4`` the GEMMs stream 509
+antenna-rows of :math:`Z` either way, but only 30 of them now need to be
+copied first, instead of 180.) End-to-end this took ``MatBlock`` from 2.4x to
+3.5x at ``max_blocks=4``, and the matrix product itself from 12.1 ms to 5.7 ms.
 
 A third, smaller effect: ``MatMul`` uses the Hermitian rank-k routine
 ``cherk``, which halves the work of a general GEMM, while the rectangular
@@ -416,11 +471,10 @@ architecture-dependent, so the crossover will differ on other GPUs.
    chunked, what the GEMMs actually see is the chunk size, not the total source
    count, and both the full product and the blocks are linear in it. Repeating
    the ``max_blocks=4`` micro-benchmark across a 16x range of chunk size gives
-   a flat ratio — 3.42x, 3.94x, 3.09x, 3.17x, 3.47x at 4k, 8k, 16k, 33k and 66k
+   a flat ratio — 5.4x, 5.5x, 7.0x, 5.7x, 5.4x at 4k, 8k, 16k, 33k and 66k
    sources per chunk respectively — with no trend. Increasing the *total*
    source count at fixed chunk size simply adds chunks, and if anything helps
-   ``MatBlock`` slightly by amortizing the per-integration host work: the same
-   sweep at 197k sources gave 2.31x end-to-end where 995k gives 2.39x. The
+   ``MatBlock`` slightly by amortizing the per-integration host work. The
    measured limit is set by the block *shapes*, which depend on the array and
    the redundancy pattern — not on how big the sky model is.
 
@@ -431,15 +485,17 @@ When it's worth it
   :math:`N_{\rm ant}^2 / N_{\rm antpairs}`, and in practice lands far below
   that bound. If you are simulating per-antenna unique beams, or otherwise
   want every pair, use the default ``MatMul``.
-- **Benchmark ``max_blocks``; don't minimize area.** 3-4 blocks was best here;
-  the FLOP-minimizing choice (12+) was 1.4x *worse* than the best. The
+- **Benchmark ``max_blocks``; don't minimize area.** 4 blocks was best here;
+  the FLOP-minimizing choice (12+) was substantially *worse* than the best. The
   ``matvis hera-profile --matprod-method MatBlock --max-blocks N`` sweep used
   for the table above takes a few minutes and is the reliable way to pick.
 - **Never use ``VectorDot`` on a GPU for this.** It has the lowest FLOP count
   of any option and is 4.6x slower than doing nothing special at all.
 - The gain applies to the matrix-product stage only, so the end-to-end benefit
   is capped by that stage's share of the run (see `Where the time goes`_) —
-  here 81 per cent of GPU time before the change, 60 per cent after it.
+  here 82 per cent of GPU time with ``MatMul``, and 41 per cent once the
+  decomposition has done its work, at which point beam interpolation, the
+  phase factor and :math:`Z` dominate instead.
 
 Control: what happens without redundancy
 ----------------------------------------
@@ -456,20 +512,22 @@ non-redundant case — e.g. every antenna having a unique beam):
      - Wall / integration
    * - ``MatMul``
      - 102 400
-     - 41.8 ms
-     - 1.548 s
+     - 40.4 ms
+     - 1.534 s
    * - ``MatBlock``, ``max_blocks=4``
      - 64 000
-     - 61.9 ms
-     - 2.155 s (**1.39x slower**)
+     - 44.3 ms
+     - 1.630 s (**1.06x slower**)
 
 Note that ``find_dense_blocks`` is not helpless here: because
 :math:`V_{ij} = V_{ji}^\dagger` it covers all the pairs with a staircase of
 four 80-row blocks spanning 320, 240, 160 and 80 columns, for an area of
-64 000 rather than 102 400. It is *still* 1.4x slower, because that 1.6x
-notional saving is smaller than the two costs identified above — the gather of
-:math:`Z`, and ``cgemm3m`` in place of ``cherk``, the latter of which exploits
-exactly the same Hermitian symmetry with none of the overhead.
+64 000 rather than 102 400. It is *still* slower, because that 1.6x notional
+saving is cancelled by ``cgemm3m`` standing in for ``cherk``, which exploits
+exactly the same Hermitian symmetry with none of the overhead. (Before the
+antenna axis was reordered — see `Ordering the antenna axis`_ — the staging
+copies made this case 1.4x slower rather than 1.06x. Reordering helps here
+too; it just has nothing to win on top of it.)
 
 Precision
 =========
@@ -563,13 +621,16 @@ Changes that significantly altered performance, newest first:
    * - `PR #153 <https://github.com/HERA-Team/matvis/pull/153>`_ (Sept 2026)
      - Added the block-decomposed matrix product
        (``matprod_method="CPUMatBlock"/"GPUMatBlock"``) plus
-       :mod:`matvis.redundancy` helpers for building the decomposition.
+       :mod:`matvis.redundancy` helpers for building the decomposition, with
+       the antenna axis of :math:`Z` ordered to suit the blocks so that most
+       of them are handed to BLAS as slices of :math:`Z` rather than staged
+       into a copy first (:func:`~matvis.redundancy.contiguity_order`).
        Opt-in; the default ``MatMul`` path is unchanged.
-     - 2.4x steady-state wall time (3.3x on the matrix product itself) at
+     - 3.5x steady-state wall time (7.1x on the matrix product itself) at
        production slice scale on a 320-antenna redundant hex layout with 1 501
-       unique baselines, RTX A2000. **No benefit — a 1.4x slowdown — on
-       non-redundant arrays**; see
-       `Block-decomposed products on redundant arrays`_.
+       unique baselines, RTX A2000. Without the antenna reordering it would be
+       2.4x; see `Ordering the antenna axis`_. **No benefit on non-redundant
+       arrays**; see `Block-decomposed products on redundant arrays`_.
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
      - GPU hot-path overhaul:
 

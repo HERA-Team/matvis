@@ -192,17 +192,17 @@ total sub-matrix area (the quantity the FLOP count is proportional to). For the
      - 7 623
      - 13.4x
      - 2
-     - 2.00x
+     - 2.76x
    * - ``MatBlock``, ``max_blocks=4``
      - 2 707
      - 37.8x
      - 4
-     - **2.39x**
+     - **3.47x**
    * - ``MatBlock``, ``max_blocks=8``
      - 1 714
      - 59.7x
      - 8
-     - 2.13x
+     - 3.05x
    * - ``VectorDot`` (unique baselines)
      - 1 501
      - 68.2x
@@ -219,12 +219,16 @@ total sub-matrix area (the quantity the FLOP count is proportional to). For the
 "Area ratio" and "measured speedup" are the important comparison, and they do **not**
 track each other. Area is only a FLOP proxy; the resulting sub-matrices are very "skinny" (few
 antennas against a huge source axis), so they run nowhere near the efficiency of the
-one big GEMM they replace, and each one has to gather its own rows and columns of
-:math:`Z` first. The practical consequences: the decomposition is worth roughly a
-factor of two here rather than a factor of 38, and the best ``max_blocks`` is the one
-you measure, *not* the one that minimizes area -- past four blocks the area keeps
-falling while the wall time rises again. :doc:`performance` gives the full sweep and
-the reason for it; benchmark your own configuration before committing to a value.
+one big GEMM they replace. The practical consequences: the decomposition is worth
+roughly a factor of 3.5 here rather than a factor of 38, and the best ``max_blocks``
+is the one you measure, *not* the one that minimizes area -- past four blocks the area
+keeps falling while the wall time rises again. :doc:`performance` gives the full sweep
+and the reason for it; benchmark your own configuration before committing to a value.
+
+Each block also needs its rows and columns of :math:`Z` as one contiguous operand for
+BLAS. ``matvis`` avoids copying them out by building :math:`Z` with its antenna axis
+ordered to suit the decomposition, so that most blocks are plain slices; this is
+automatic, and invisible except in the timings (see :doc:`performance`).
 
 Importantly, this computes *exactly* the same visibilities as the default ``MatMul``
 method -- it is a rearrangement of the same computation, not an approximation, so there

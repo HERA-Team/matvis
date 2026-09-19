@@ -22,6 +22,7 @@ from ..core import _validate_inputs
 from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
+from ..redundancy import contiguity_order
 from . import matprod as mp
 from .beams import UVBeamInterpolator
 
@@ -217,6 +218,14 @@ def simulate(
         antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc
     )
 
+    # Relabelling the antenna axis is free in the Z construction but lets the
+    # block-decomposed matprod slice most of its operands straight out of Z
+    # instead of gathering them (issue #161). Both ends must agree on the
+    # labelling, so the same array goes to the matprod and to the Z calculator.
+    antenna_order = (
+        contiguity_order(antenna_blocks, nant) if antenna_blocks is not None else None
+    )
+
     mpcls = getattr(mp, matprod_method)
     matprod = mpcls(
         nchunks,
@@ -225,6 +234,7 @@ def simulate(
         antpairs,
         precision=precision,
         antenna_blocks=antenna_blocks,
+        antenna_order=antenna_order,
     )
     zcalc = ZMatrixCalc(
         nsrc=nsrc_alloc,
@@ -232,6 +242,7 @@ def simulate(
         nant=nant,
         nax=nax,
         ctype=ctype,
+        antenna_order=antenna_order,
     )
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)

@@ -109,8 +109,17 @@ class GPUMatBlock(MatProd):
     def setup(self):
         """Set up memory and upload the block-dispatch plan to the device once."""
         super().setup()
+        # Slice selectors stay host-side slices (they index z without a copy);
+        # everything else is an index array that must live on the device.
         self._gpu_block_plan = [
-            tuple(cp.asarray(a) for a in entry) for entry in self._block_plan
+            entry._replace(
+                **{
+                    f: cp.asarray(v)
+                    for f, v in zip(entry._fields, entry, strict=True)
+                    if isinstance(v, np.ndarray)
+                }
+            )
+            for entry in self._block_plan
         ]
 
     def allocate_vis(self):
@@ -125,9 +134,13 @@ class GPUMatBlock(MatProd):
         """Perform the source-summing operation for a single time and chunk."""
         z = z.reshape((self.nant, self.nfeed, -1))
 
-        for rows, cols, lr, lc, slots, rlr, rlc, rslots in self._gpu_block_plan:
-            zr = cp.ascontiguousarray(z[rows]).reshape(len(rows) * self.nfeed, -1)
-            zc = cp.ascontiguousarray(z[cols]).reshape(len(cols) * self.nfeed, -1)
+        for blk in self._gpu_block_plan:
+            # Only genuinely scattered antenna sets pay for a staging copy;
+            # consecutive ones are read straight out of z. That staging used to
+            # be about half of this class's runtime (issue #161), which is why
+            # the drivers order z's antenna axis to avoid it.
+            zr = self._operand(z, blk.rows, blk.nrow)
+            zc = self._operand(z, blk.cols, blk.ncol)
 
             # complex_matmul's output is F-contiguous, but its *values* at
             # flat index (local_row*nfeed + feed) match the row-major
@@ -135,17 +148,27 @@ class GPUMatBlock(MatProd):
             # (C) order semantics, same as the CPU path, not the array's own
             # (F) memory layout. cupy (like numpy) copies as needed here.
             block = complex_matmul(zr, zc)
-            block = block.reshape((len(rows), self.nfeed, len(cols), self.nfeed))
+            block = block.reshape((blk.nrow, self.nfeed, blk.ncol, self.nfeed))
             block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
 
-            if slots.size:
-                out[slots] = block[lr, lc]
-            if rslots.size:
+            if blk.slots.size:
+                out[blk.slots] = block[blk.lr, blk.lc]
+            if blk.rslots.size:
                 # This block holds the reversed pair; V_ij is the Hermitian
                 # conjugate of V_ji over the two feed axes.
-                out[rslots] = block[rlr, rlc].conj().transpose((0, 2, 1))
+                out[blk.rslots] = block[blk.rlr, blk.rlc].conj().transpose((0, 2, 1))
 
         return out
+
+    def _operand(self, z: cp.ndarray, sel, nant: int) -> cp.ndarray:
+        """Stage one side of a block product as a C-contiguous cuBLAS operand.
+
+        ``sel`` is a ``slice`` when the block's antennas are consecutive, and
+        then ``z[sel]`` is already a contiguous view that cuBLAS can read in
+        place; ``ascontiguousarray`` passes it through untouched. Otherwise the
+        fancy index gathers the rows into a staging copy.
+        """
+        return cp.ascontiguousarray(z[sel]).reshape(nant * self.nfeed, -1)
 
     def sum_chunks(self, out: np.ndarray):
         """Sum the chunks into the output array."""

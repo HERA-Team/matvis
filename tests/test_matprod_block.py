@@ -644,3 +644,105 @@ def test_cpu_matblock_memory_does_not_scale_with_nant_squared():
         f"with the same small block set (small={small}, large={large} bytes) "
         "-- looks like an O(Nant^2) intermediate snuck into setup()/compute()"
     )
+
+
+# ---------------------------------------------------------------------------
+# antenna_order: relabelling the antenna axis of z (issue #161)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ALL_METHODS)
+@pytest.mark.parametrize("nfeed", [1, 2])
+def test_antenna_order_matches_natural_order(method, nfeed):
+    """Feeding z in a permuted antenna order must give bit-comparable visibilities.
+
+    ``antenna_order`` exists so the Z construction can lay out antennas in an
+    order that makes each block's operand a contiguous slice. It is purely a
+    relabelling, so the answer must not move: same blocks, same antpairs, same
+    z values -- just stored in a different row order.
+    """
+    nant, nsrc, precision = 7, 30, 2
+    rng = np.random.default_rng(3)
+    antpairs = np.array([(i, j) for i in range(nant) for j in range(nant) if i != j])
+    z = _make_z(nant, nfeed, nsrc, precision)
+
+    # Scattered blocks, so the permutation has real work to do.
+    ev, od = np.arange(0, nant, 2), np.arange(1, nant, 2)
+    blocks = [(ev, ev), (ev, od), (od, ev), (od, od)]
+
+    order = rng.permutation(nant)
+    # z with its antenna rows rearranged the way `order` describes.
+    zp = z.reshape(nant, nfeed, nsrc)[order].reshape(nant * nfeed, nsrc)
+
+    cls = _get_cls(method)
+    ctype = get_dtypes(precision)[1]
+
+    _, expected = _run(cls, z, nant, nfeed, antpairs, blocks, precision, method)
+
+    obj = cls(
+        nchunks=1,
+        nfeed=nfeed,
+        nant=nant,
+        antpairs=antpairs,
+        precision=precision,
+        antenna_blocks=blocks,
+        antenna_order=order,
+    )
+    obj.setup()
+    obj(_to_backend(zp, method), chunk=0)
+    out = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
+    obj.sum_chunks(out)
+
+    np.testing.assert_allclose(out, expected, rtol=1e-12)
+
+
+@pytest.mark.parametrize("method", ALL_METHODS)
+def test_antenna_order_makes_blocks_sliceable(method):
+    """The point of the permutation: blocks stop needing a staging copy.
+
+    A block whose antennas land on consecutive rows of z is handed to BLAS as a
+    view; the plan records that by storing a ``slice`` instead of an index array.
+    """
+    from matvis.redundancy import contiguity_order
+
+    nant, nfeed, precision = 8, 1, 2
+    antpairs = np.array([(i, j) for i in range(nant) for j in range(nant) if i != j])
+    ev, od = np.arange(0, nant, 2), np.arange(1, nant, 2)
+    blocks = [(ev, ev), (ev, od), (od, ev), (od, od)]
+
+    def selectors(order):
+        obj = _get_cls(method)(
+            nchunks=1,
+            nfeed=nfeed,
+            nant=nant,
+            antpairs=antpairs,
+            precision=precision,
+            antenna_blocks=blocks,
+            antenna_order=order,
+        )
+        obj.setup()
+        return [s for blk in obj._block_plan for s in (blk.rows, blk.cols)]
+
+    # Evens and odds are maximally interleaved, so nothing is a run to start with.
+    assert not any(isinstance(s, slice) for s in selectors(None))
+    # ...and every side becomes one after reordering.
+    assert all(isinstance(s, slice) for s in selectors(contiguity_order(blocks, nant)))
+
+
+@pytest.mark.parametrize("method", ALL_METHODS)
+def test_antenna_order_requires_blocks_and_must_be_a_permutation(method):
+    """antenna_order is validated up front rather than silently mis-attributing."""
+    nant, nfeed = 4, 1
+    antpairs = np.array([(0, 1), (1, 2)])
+    blocks = [(np.arange(nant), np.arange(nant))]
+    kw = {"nchunks": 1, "nfeed": nfeed, "nant": nant, "antpairs": antpairs}
+
+    with pytest.raises(ValueError, match="must be a permutation"):
+        _get_cls(method)(antenna_blocks=blocks, antenna_order=np.zeros(nant, int), **kw)
+
+    with pytest.raises(ValueError, match="must be a permutation"):
+        _get_cls(method)(antenna_blocks=blocks, antenna_order=np.arange(nant - 1), **kw)
+
+    non_block = "GPUMatMul" if method.startswith("GPU") else "CPUMatMul"
+    with pytest.raises(ValueError, match="only meaningful together with"):
+        _get_cls(non_block)(antenna_order=np.arange(nant), **kw)

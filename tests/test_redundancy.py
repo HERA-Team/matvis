@@ -7,6 +7,7 @@ from matvis._utils import get_dtypes
 from matvis.redundancy import (
     antpairs_to_blocks,
     blocks_from_groups,
+    contiguity_order,
     find_dense_blocks,
     find_redundant_antpairs,
     tile_antennas,
@@ -483,3 +484,112 @@ class TestFindRedundantAntpairs:
         pairs = find_redundant_antpairs(bl)
         blocks = antpairs_to_blocks(np.array(pairs))
         _assert_valid_blocks(blocks, nant=5)
+
+
+# ---------------------------------------------------------------------------
+# contiguity_order
+# ---------------------------------------------------------------------------
+
+
+def _n_runs(idx):
+    """Number of maximal consecutive runs in a set of antenna indices."""
+    idx = np.sort(np.asarray(idx))
+    return 1 + int(np.sum(np.diff(idx) != 1))
+
+
+def _rows_needing_a_gather(blocks, order, nant):
+    """Antenna-rows that would still have to be staged into a copy under `order`."""
+    inv = np.empty(nant, dtype=int)
+    inv[order] = np.arange(nant)
+    return sum(
+        len(side)
+        for blk in blocks
+        for side in blk
+        if _n_runs(inv[np.asarray(side)]) > 1
+    )
+
+
+def test_contiguity_order_is_a_permutation():
+    """Whatever it decides, the result must be a valid relabelling of the antennas."""
+    nant = 12
+    blocks = [
+        (np.arange(0, nant, 3), np.arange(1, nant, 2)),
+        (np.array([7]), np.arange(4)),
+    ]
+    order = contiguity_order(blocks, nant)
+    assert order.shape == (nant,)
+    np.testing.assert_array_equal(np.sort(order), np.arange(nant))
+
+
+def test_contiguity_order_makes_interleaved_blocks_contiguous():
+    """Evens x odds is the worst case for slicing, and is fully fixable."""
+    nant = 10
+    ev, od = np.arange(0, nant, 2), np.arange(1, nant, 2)
+    blocks = [(ev, ev), (ev, od), (od, ev), (od, od)]
+
+    assert _rows_needing_a_gather(blocks, np.arange(nant), nant) == 4 * nant
+    assert _rows_needing_a_gather(blocks, contiguity_order(blocks, nant), nant) == 0
+
+
+def test_contiguity_order_never_makes_things_worse():
+    """It must not break sets that were already contiguous in the natural order."""
+    nant = 16
+    blocks = tile_antennas(nant, chunk_size=4)
+    order = contiguity_order(blocks, nant)
+    assert _rows_needing_a_gather(blocks, order, nant) == 0
+
+
+def test_contiguity_order_on_a_partially_satisfiable_set():
+    """Overlapping blocks can't all be runs at once; the big ones must win.
+
+    ``{0..5}`` and ``{4..9}`` overlap, so a third set interleaved with both can't
+    be made contiguous as well. The greedy takes sets largest-first, so it is the
+    small one that is left to be gathered.
+    """
+    nant = 10
+    big_a, big_b = np.arange(6), np.arange(4, 10)
+    small = np.array([0, 9])
+    blocks = [(big_a, big_a), (big_b, big_b), (small, small)]
+
+    order = contiguity_order(blocks, nant)
+    inv = np.empty(nant, dtype=int)
+    inv[order] = np.arange(nant)
+
+    assert _n_runs(inv[big_a]) == 1
+    assert _n_runs(inv[big_b]) == 1
+
+
+def test_contiguity_order_on_a_real_decomposition():
+    """On a redundant array it should remove most of the gather, not a little of it.
+
+    The antenna *labels* are shuffled relative to the geometry, as they generally
+    are in a real array, so the blocks ``find_dense_blocks`` picks are scattered
+    over the antenna axis and slicing them needs a relabelling.
+    """
+    rng = np.random.default_rng(0)
+    side = 6
+    pos = np.array([(x, y) for x in range(side) for y in range(side)], dtype=float)
+    nant = len(pos)
+    pos = pos[rng.permutation(nant)]  # geometry-independent antenna numbering
+
+    bls = pos[np.newaxis, :, :] - pos[:, np.newaxis, :]
+    antpairs = np.array(find_redundant_antpairs(bls))
+    blocks = find_dense_blocks(antpairs, max_blocks=3)
+
+    before = _rows_needing_a_gather(blocks, np.arange(nant), nant)
+    after = _rows_needing_a_gather(blocks, contiguity_order(blocks, nant), nant)
+    assert before > 0, "test array isn't scattered enough to be interesting"
+    assert after < before / 2, f"gather only fell from {before} to {after} rows"
+
+
+def test_contiguity_order_validates_inputs():
+    """Out-of-range block indices are a hard error, not a mangled permutation."""
+    with pytest.raises(ValueError, match=r"must be in \[0, 4\)"):
+        contiguity_order([(np.array([0, 4]), np.array([1]))], 4)
+    with pytest.raises(ValueError, match="nant must be non-negative"):
+        contiguity_order([], -1)
+
+
+def test_contiguity_order_with_no_blocks():
+    """No blocks means nothing to satisfy; the natural order is a fine answer."""
+    np.testing.assert_array_equal(contiguity_order([], 5), np.arange(5))

@@ -84,19 +84,21 @@ class CPUMatBlock(MatProd):
         """
         z = z.reshape((self.nant, self.nfeed, -1))
 
-        for rows, cols, lr, lc, slots, rlr, rlc, rslots in self._block_plan:
-            zr = z[rows].reshape(len(rows) * self.nfeed, -1)
-            zc = z[cols].reshape(len(cols) * self.nfeed, -1)
+        for blk in self._block_plan:
+            # blk.rows/cols are slices whenever the block's antennas are a
+            # consecutive run, making these views rather than copies.
+            zr = z[blk.rows].reshape(blk.nrow * self.nfeed, -1)
+            zc = z[blk.cols].reshape(blk.ncol * self.nfeed, -1)
 
             block = zr.conj().dot(zc.T)
-            block.shape = (len(rows), self.nfeed, len(cols), self.nfeed)
+            block.shape = (blk.nrow, self.nfeed, blk.ncol, self.nfeed)
             block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
 
-            if slots.size:
-                out[slots] = block[lr, lc]
-            if rslots.size:
+            if blk.slots.size:
+                out[blk.slots] = block[blk.lr, blk.lc]
+            if blk.rslots.size:
                 # This block holds the reversed pair; V_ij is the Hermitian
                 # conjugate of V_ji over the two feed axes.
-                out[rslots] = block[rlr, rlc].conj().transpose((0, 2, 1))
+                out[blk.rslots] = block[blk.rlr, blk.rlc].conj().transpose((0, 2, 1))
 
         return out

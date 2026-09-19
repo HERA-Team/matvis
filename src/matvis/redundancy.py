@@ -11,7 +11,7 @@ col_antenna_idx)`` block lists that the block-decomposed matprod classes consume
   the antenna axes to concentrate them and cuts the result into a few dense
   sub-matrices, minimizing the total area (and hence FLOPs) of the product. On a
   320-antenna hex layout, four blocks cut the product to ~1/38th of the full
-  ``Nant**2`` area while still issuing only four GEMMs, which measures as a 2.4x
+  ``Nant**2`` area while still issuing only four GEMMs, which measures as a 3.5x
   end-to-end speedup (the FLOP saving is not fully collectible -- see the docs
   Performance page).
 - :func:`blocks_from_groups` turns caller-supplied antenna group labels (e.g. "these
@@ -27,6 +27,9 @@ col_antenna_idx)`` block lists that the block-decomposed matprod classes consume
   own right.
 - :func:`find_redundant_antpairs` finds one representative antenna pair per unique
   (rounded) baseline vector.
+- :func:`contiguity_order` picks an antenna labelling that makes as many of a block
+  list's antenna sets as possible contiguous, so the matprod classes can hand those
+  blocks straight to BLAS instead of gathering them.
 """
 
 from __future__ import annotations
@@ -333,3 +336,85 @@ def find_redundant_antpairs(
             pairs.append((int(i), int(j)))
 
     return pairs
+
+
+def contiguity_order(
+    antenna_blocks: Sequence[tuple[np.ndarray, np.ndarray]], nant: int
+) -> np.ndarray:
+    """Order the antenna axis so that block antenna sets become consecutive runs.
+
+    The block-decomposed matprod classes need each block's row and column
+    antennas as one contiguous operand for BLAS. When a block's antenna set is
+    an ascending run of consecutive antennas that operand is a free view of
+    ``Z``; otherwise it has to be gathered into a staging buffer, which for a
+    production-sized chunk costs about as much as the matrix product itself
+    (issue #161). Relabelling the antenna axis doesn't change any visibility, so
+    the cheapest fix is to choose a labelling in which most of those sets *are*
+    runs, and to build ``Z`` directly in that order -- see the ``antenna_order``
+    arguments of :class:`~matvis.core.getz.ZMatrixCalc` and
+    :class:`~matvis.core.matprod.MatProd`, which the ``matvis`` drivers wire up
+    for you.
+
+    Parameters
+    ----------
+    antenna_blocks
+        The blocks that will be computed, as ``(row_idx, col_idx)`` tuples --
+        the same list passed to the matprod class.
+    nant
+        Total number of antennas.
+
+    Returns
+    -------
+    np.ndarray
+        Length-``nant`` permutation ``order``, where ``order[p]`` is the
+        original index of the antenna that should sit at position ``p``.
+
+    Notes
+    -----
+    Not every set can be made consecutive at once -- blocks overlap, and
+    deciding the maximum achievable subset is the (NP-hard) weighted consecutive
+    -ones problem. This uses a greedy refinement that is exact about what it
+    promises but not optimal about how much it achieves:
+
+    An ordered list of *buckets* partitions the antennas; within a bucket the
+    order is still free, and the standing invariant is that every set accepted
+    so far is exactly a union of consecutive whole buckets. Sets are then
+    considered largest-first (largest set = most rows saved). A set is accepted
+    only if the buckets it touches form a consecutive stretch whose interior
+    buckets it fully contains, in which case the two end buckets are split with
+    their in-parts facing inward; splitting never reorders buckets, so the
+    invariant survives for the sets accepted earlier. Sets that fail the test
+    are simply left to be gathered as before.
+    """
+    if nant < 0:
+        raise ValueError(f"nant must be non-negative, got {nant}")
+
+    sets = [frozenset(int(a) for a in side) for blk in antenna_blocks for side in blk]
+    for s in sets:
+        if s and (min(s) < 0 or max(s) >= nant):
+            raise ValueError(f"antenna_blocks indices must be in [0, {nant})")
+
+    buckets: list[set[int]] = [set(range(nant))] if nant else []
+    for s in sorted(sets, key=len, reverse=True):
+        touched = [i for i, b in enumerate(buckets) if b & s]
+        if not touched:
+            continue
+        lo, hi = touched[0], touched[-1]
+        if touched != list(range(lo, hi + 1)):
+            continue  # the set straddles buckets that aren't next to each other
+        if any(not buckets[i] <= s for i in touched[1:-1]):
+            continue  # an interior bucket is only partly in the set
+
+        new: list[set[int]] = []
+        for i, b in enumerate(buckets):
+            if i not in (lo, hi):
+                new.append(b)
+                continue
+            inside, outside = b & s, b - s
+            # Put each end bucket's in-part on the side facing the other end, so
+            # the set's pieces end up adjacent.
+            halves = (outside, inside) if i == lo and lo != hi else (inside, outside)
+            new.extend(h for h in halves if h)
+        buckets = new
+
+    return np.array([a for b in buckets for a in sorted(b)], dtype=int)
