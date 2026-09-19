@@ -593,3 +593,12 @@ def test_contiguity_order_validates_inputs():
 def test_contiguity_order_with_no_blocks():
     """No blocks means nothing to satisfy; the natural order is a fine answer."""
     np.testing.assert_array_equal(contiguity_order([], 5), np.arange(5))
+
+
+def test_contiguity_order_ignores_empty_sides():
+    """An empty block side constrains nothing and must not derail the ordering."""
+    nant = 6
+    blocks = [(np.array([1, 3, 5]), np.array([], dtype=int))]
+    order = contiguity_order(blocks, nant)
+    np.testing.assert_array_equal(np.sort(order), np.arange(nant))
+    assert _rows_needing_a_gather(blocks, order, nant) == 0

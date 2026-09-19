@@ -746,3 +746,31 @@ def test_antenna_order_requires_blocks_and_must_be_a_permutation(method):
     non_block = "GPUMatMul" if method.startswith("GPU") else "CPUMatMul"
     with pytest.raises(ValueError, match="only meaningful together with"):
         _get_cls(non_block)(antenna_order=np.arange(nant), **kw)
+
+
+@pytest.mark.parametrize(
+    "idx,expected",
+    [
+        (np.array([], dtype=int), None),
+        (np.array([4]), slice(4, 5)),
+        (np.array([2, 3, 4]), slice(2, 5)),
+        (np.array([2, 4, 5]), None),  # gap
+        (np.array([4, 3, 2]), None),  # descending
+        (np.array([2, 2, 3]), None),  # duplicate
+    ],
+    ids=["empty", "single", "run", "gap", "descending", "duplicate"],
+)
+def test_as_contiguous_slice(idx, expected):
+    """Only an ascending consecutive run may become a slice.
+
+    A slice is substituted for the index array in the block plan, so it has to
+    select exactly the same rows in exactly the same order -- anything else
+    would silently permute or drop antennas.
+    """
+    from matvis.core.matprod import as_contiguous_slice
+
+    got = as_contiguous_slice(idx)
+    assert got == expected
+    if got is not None:
+        z = np.arange(10)
+        np.testing.assert_array_equal(z[got], z[idx])
