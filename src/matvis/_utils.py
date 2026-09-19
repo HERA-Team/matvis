@@ -132,6 +132,7 @@ def get_required_chunks(
     precision: int,
     source_buffer: float = 1.0,
     memory_buffer: float = 0.9,
+    vis_buffers: int | None = None,
 ) -> int:
     """
     Compute number of chunks (over sources) required to fit data into available memory.
@@ -160,6 +161,11 @@ def get_required_chunks(
         The fraction of free memory to use for the calculation. Default is 0.9,
         which leaves some buffer for other processes and overhead. Must be in
         the range (0, 1].
+    vis_buffers : int, optional
+        How many full ``(nfeed, nant, nfeed, nant)`` visibility buffers are held
+        at once. Defaults to one per chunk, which is the CPU backend's layout.
+        The GPU backend accumulates every chunk into a single buffer, so it
+        passes a small constant instead (see ``matvis.gpu.matprod``).
 
     Returns
     -------
@@ -195,7 +201,7 @@ def get_required_chunks(
             "exptau": nant * nchunk * csize,
             "beam_interp": nbeam * nfeed * nax * nchunk * csize,
             "zmat": nchunk * nfeed * nant * nax * csize,
-            "vis": ch * nfeed * nant * nfeed * nant * csize,
+            "vis": (vis_buffers or ch) * nfeed * nant * nfeed * nant * csize,
         }
         logger.debug(
             f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize.values())}"
@@ -220,6 +226,7 @@ def get_desired_chunks(
     precision: int,
     source_buffer: float = 1.0,
     memory_buffer: float = 0.9,
+    vis_buffers: int | None = None,
 ) -> tuple[int, int]:
     """Get the desired number of chunks.
 
@@ -247,6 +254,8 @@ def get_desired_chunks(
         The fraction of free memory to use for the calculation. Default is 0.9,
         which leaves some buffer for other processes and overhead. Must be in
         the range (0, 1].
+    vis_buffers : int, optional
+        Passed through to :func:`get_required_chunks`.
 
     Returns
     -------
@@ -280,6 +289,7 @@ def get_desired_chunks(
                 precision,
                 source_buffer,
                 memory_buffer,
+                vis_buffers,
             ),
         ),
         nsrc,
