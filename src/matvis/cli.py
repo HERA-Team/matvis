@@ -39,6 +39,8 @@ from .core.coords import CoordinateRotation
 logging.basicConfig(handlers=[RichHandler(rich_tracebacks=True)])
 
 if HAVE_GPU:
+    import cupy as cp
+
     from matvis import gpu
     from matvis.gpu import gpu as gpu_module
 
@@ -61,6 +63,7 @@ STEPS = {
     "Compute exp(tau)": ("taucalc(",),
     "Compute Z": ("zcalc(",),
     "Compute V": ("matprod(",),
+    "Sum Chunks": ("matprod.sum_chunks(",),
 }
 
 profiler = LineProfiler()
@@ -169,6 +172,15 @@ def run_profile(
             beam_spline_opts={"order": spline_order},
         )
 
+        # Release the warmup's device buffers back to the driver. cupy's
+        # memory pool would otherwise keep holding them, and the timed run
+        # decides its chunk count from `Device().mem_info` -- i.e. from
+        # *driver-visible* free memory. Without this the timed run can see a
+        # fraction of the card free and silently pick a far larger chunk
+        # count than requested, which changes the workload being measured.
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+
     if gpu:
         profiler.add_function(simgpu)
     else:
@@ -243,10 +255,27 @@ def run_profile(
             derived["host_overhead_per_integration"] = max(
                 derived["steady_wall_per_integration"] - gpu_time, 0.0
             )
+        if "steady_sum_chunks_per_integration" in run_stats:
+            derived["sum_chunks_per_integration"] = run_stats[
+                "steady_sum_chunks_per_integration"
+            ]
 
     cns.print()
     cns.print(Rule("Summary of timings"))
     cns.print(f"         Total Time:            {out_time - init_time:.3e} seconds")
+    if gpu and "nchunks" in gpu_module.LAST_RUN_STATS:
+        actual_chunks = gpu_module.LAST_RUN_STATS["nchunks"]
+        cns.print(f"  Chunks used:                            {actual_chunks}")
+        if actual_chunks != nchunks:
+            # --nchunks is a *minimum*; auto-chunking raises it when device
+            # memory is tight. That changes the per-chunk problem size, so
+            # timings are not comparable with runs that used the requested
+            # count -- say so rather than letting it pass unnoticed.
+            cns.print(
+                f"[bold yellow]  WARNING: auto-chunking used {actual_chunks} chunks, "
+                f"not the {nchunks} requested; per-chunk timings are NOT comparable "
+                f"with runs at {nchunks} chunks.[/bold yellow]"
+            )
     if "steady_wall_per_integration" in derived:
         cns.print(
             f"  Steady-state wall time per integration: "
@@ -260,6 +289,11 @@ def run_profile(
         cns.print(
             f"  Host overhead per integration:          "
             f"{derived['host_overhead_per_integration']:.3e} seconds"
+        )
+    if "sum_chunks_per_integration" in derived:
+        cns.print(
+            f"  sum_chunks per integration:             "
+            f"{derived['sum_chunks_per_integration']:.3e} seconds"
         )
     cns.print()
     for thing, (hits, _time, time_per_hit, percent, nlines) in thing_stats.items():
@@ -289,6 +323,9 @@ def run_profile(
             "nchunks": nchunks,
             "source_buffer": source_buffer,
         },
+        # What auto-chunking actually settled on; may exceed the requested
+        # minimum when device memory is tight (see the warning above).
+        "nchunks_used": gpu_module.LAST_RUN_STATS.get("nchunks") if gpu else nchunks,
         "total_time": out_time - init_time,
         "stages": {
             thing: {

@@ -29,7 +29,10 @@ jobs:
       - uses: actions/checkout@main
         with:
           fetch-depth: 1
-      - uses: mpi4py/setup-mpi@v1
+      # NOTE: no system MPI is installed here. pyuvsim needs mpi4py, whose PyPI
+      # wheels bind to whatever libmpi the host provides; the MPI runtime is
+      # instead pinned in uv.lock (see the `mpich` entry in the `test`
+      # dependency group) so every job runs an identical MPI stack.
       # - uses: FedericoCarboni/setup-ffmpeg@v2
 
       - name: Setup Python
@@ -48,7 +51,7 @@ jobs:
 
       - name: Run Tests
         run: |
-          uv run --no-sync pytest --ignore tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL }}
+          uv run --no-sync pytest --ignore tests/test_plot.py --cov=matvis --cov-config=.coveragerc --cov-report xml:./coverage.xml --durations=25 --log-cli-level=${{ env.LOG_LEVEL }} --capture=tee-sys
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v7

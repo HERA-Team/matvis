@@ -36,10 +36,21 @@ measurements:
     `gpu_time_per_integration`: everything that isn't GPU compute
     (coordinate rotation, Python dispatch, horizon-cut bookkeeping). Varies
     with the machine's CPU, not the GPU.
+  - `sum_chunks_per_integration` — the once-per-integration visibility
+    readout, timed after an explicit stream drain so it measures its own
+    cost rather than the queued pipeline it would otherwise block on.
+
+  Also check `nchunks_used`. `--nchunks` is only a *minimum*: if device
+  memory is tight the run can use many more chunks, which changes the
+  per-chunk problem size and makes stage timings incomparable between runs.
+  The profiler warns when this happens.
 
   Don't use the line-profiler `stages` table for GPU work: the loop is
   asynchronous, so host-side timings mostly show where the host happens to
-  block. For quieter numbers on shared nodes, consider locking GPU clocks
+  block. `Sum Chunks` is the worst offender — it read ~73 ms per integration
+  there against a true cost of 13.9 ms, the difference being time waiting on
+  queued chunk work plus a first-integration outlier skewing a 4-sample
+  mean. For quieter numbers on shared nodes, consider locking GPU clocks
   (`nvidia-smi -lgc <clock>`) if you have permission.
 
 - **`roofline.py`** — GPU benchmarks for the operations that dominate a

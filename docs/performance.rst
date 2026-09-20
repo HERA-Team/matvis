@@ -359,6 +359,18 @@ The script is designed so its headline numbers are robust out of the box:
   totals and takes the **median across integrations, excluding the first**
   — the same warmup-robust treatment as the wall time above.
 
+- ``derived.sum_chunks_per_integration`` measures the once-per-integration
+  readout (completing the Hermitian matrix, reordering it, and copying it to
+  the host). It is timed *after* an explicit stream drain, so unlike the
+  line-profiler and NVTX views of the same call it excludes time spent
+  waiting on the queued chunk pipeline.
+- ``nchunks_used`` records what auto-chunking actually settled on.
+  ``--nchunks`` is only a *minimum*: when device memory is tight the run can
+  silently use many more chunks, which changes the per-chunk problem size and
+  makes stage timings incomparable. The profiler prints a warning when this
+  happens, and frees the warmup run's device buffers beforehand so the timed
+  run sees the whole card.
+
 The three ``derived`` values (steady wall, GPU time, host overhead) are the
 ones to quote and compare — they are what the Rules of Thumb table reports.
 
@@ -378,6 +390,14 @@ of performance compared to the theoretical maximum), and an
    `issue #133 <https://github.com/HERA-Team/matvis/issues/133>`_). Use it
    only as a rough indicator for the CPU backend; for the GPU backend use
    the ``derived`` and ``run_stats.event_timing_ms`` values.
+
+   "Sum Chunks" is the clearest example of how badly this can mislead. Its
+   ``stages`` entry once read ~73 ms per integration, but essentially all of
+   that was the host waiting on the integration's queued chunk pipeline, plus
+   the first integration's one-off allocations skewing a 4-sample mean. The
+   ``derived.sum_chunks_per_integration`` value — measured after an explicit
+   stream drain, and reported as a median excluding the first integration —
+   put the true cost at 13.9 ms.
 
 Performance changelog
 =====================
@@ -400,6 +420,31 @@ Changes that significantly altered performance, newest first:
        time), ~+9% total runtime at the production slice — versus hundreds of
        kernel launches per chunk on the old fallback path. ~6x lower RMS
        interpolation error at 4° beam sampling.
+   * - `issue #132 <https://github.com/HERA-Team/matvis/issues/132>`_
+       (Sept 2026)
+     - GPU chunk accumulation and visibility readout:
+
+       - Source chunks accumulate directly into one device buffer via the
+         ``beta=1`` argument of ``cherk``, instead of each chunk filling its
+         own buffer that is summed at the end of the integration.
+       - The Hermitian mirror kernel runs once per integration rather than
+         once per chunk.
+       - The transpose into output ordering happens on the device, and the
+         result is staged through a pinned host buffer.
+     - ``sum_chunks`` 13.9 → 1.0 ms per integration (14x) at 350 antennas /
+       30 chunks / fp32 on an RTX A2000. The ``beta=1`` accumulation costs
+       the matrix product ~0.15 ms per chunk, so the *net* saving is ~8 ms
+       per integration — about 0.4% of a 2.0 s integration on that GPU, and
+       an estimated ~0.6% on a V100-class card (the device-side parts of the
+       old readout scale with memory bandwidth, but the PCIe copy and the
+       host-side transpose it removed do not). Device memory for the
+       visibility buffers is now independent of the chunk count
+       (118 MB → 8 MB here); that shifts the auto-chunking decision only
+       occasionally at this size (24 → 22 chunks with 2 GB free), but the
+       term grows as :math:`N_{\rm chunk} (N_{\rm ant} N_{\rm feed})^2` and
+       dominates for larger arrays. Also fixes a correctness bug: a chunk skipped because nothing in it
+       was above the horizon used to contribute the *previous* integration's
+       visibilities.
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
      - GPU hot-path overhaul:
 
