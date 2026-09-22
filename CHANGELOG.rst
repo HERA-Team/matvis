@@ -56,18 +56,25 @@ Changed
     beams that do not set** ``beam_spline_opts`` **will change**: more
     accurate, and ~9% slower overall at the production slice. Pass
     ``beam_spline_opts={"order": 1}`` to restore the previous GPU behaviour.
-  - **Boundary mode.** The GPU's fused kernels implement ``mode="nearest"``
-    (they clamp out-of-range coordinates, and the order-3 prefilter uses edge
-    replication), while the CPU backend inherited scipy's ``mode="constant"``.
-    This is not only an out-of-grid difference: since scipy 1.6 the cubic
-    B-spline prefilter depends on ``mode``, so the two also disagreed on
-    values *inside* the grid within a few nodes of an edge (measured at ~3e-4
-    of peak in the outermost zenith-angle cell of a horizon-truncated HERA
-    dipole beam). Both backends now use ``"nearest"``, which is also the
-    behaviour ``matvis`` wants: a source past the edge of a beam's support
-    pins to the horizon value rather than dropping to zero. Asking the fused
-    kernels for a different mode now raises instead of being silently
-    ignored.
+  - **Boundary mode**, now ``"mirror"`` on both backends. Since ``matvis``
+    drops sources below the horizon before interpolating, it never evaluates a
+    beam outside its grid, so the mode matters for one reason only: for
+    ``order >= 2`` it selects the B-spline prefilter, and so changes
+    interpolated values *inside* the grid within a few nodes of an edge. It is
+    therefore chosen for accuracy just inside the edges. ``"mirror"`` is by far
+    the best fit at the zenith pole — an edge every ``az_za`` beam has, and
+    where the beam is brightest — measuring ~250x more accurate there than
+    ``"nearest"`` on the bundled HERA dipole beam, at the cost of being ~2x
+    worse at a horizon-truncated edge. The GPU's order-3 prefilter previously
+    imposed ``"nearest"`` (12 nodes of edge replication); it now imposes mirror
+    symmetry directly, which also drops that padding approximation and so
+    matches scipy exactly rather than to ~1e-7. Asking the fused kernels for a
+    different mode now raises instead of being silently ignored.
+
+    The CPU backend's in-grid results are unchanged by this: scipy's default
+    ``mode="constant"``, which it previously inherited, shares the ``"mirror"``
+    prefilter. Pinning the mode makes that agreement explicit rather than
+    coincidental.
 
 Fixed
 -----
@@ -75,9 +82,11 @@ Fixed
 - Documentation: the Beam Interpolation page claimed that scipy's ``mode``
   affects only coordinates outside the beam grid. It does not for
   ``order >= 2`` — it selects the B-spline prefilter, and so changes
-  interpolated values inside the grid near an edge. The page now also
-  documents the O(h) error that every symmetric boundary mode produces in the
-  outermost grid cell, which matters only for beams truncated at the horizon.
+  interpolated values inside the grid near an edge. The page also no longer
+  justifies the boundary treatment by what happens to sub-horizon sources
+  (``matvis`` never evaluates one), and now documents the O(h) error that every
+  symmetric boundary mode produces in the outermost grid cell, which matters
+  only for beams truncated at the horizon.
 - GPU: a source chunk skipped because it had no sources above the horizon no
   longer contributes the *previous* integration's visibilities. Previously
   each chunk kept its own buffer which was only overwritten when the chunk

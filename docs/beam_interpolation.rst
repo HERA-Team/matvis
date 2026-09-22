@@ -37,14 +37,14 @@ Two orders have dedicated fused CUDA kernels on the GPU backend:
      - Bicubic B-spline
      - Sixteen grid points per source, plus a one-off prefilter of the beam
        grid at setup. Matches ``scipy.ndimage.map_coordinates(order=3,
-       mode="nearest")``.
+       mode="mirror")``.
 
 Anything not given in ``beam_spline_opts`` falls back to
 :data:`matvis.core.beams.DEFAULT_SPLINE_OPTS`, which both backends share so that
 they agree out of the box. Cubic is the default because it is what the CPU
 backend has always used in practice: it inherited the default from
 ``scipy.ndimage.map_coordinates``, and before that from
-``RectBivariateSpline``'s ``kx=ky=3``. Prior to this release the GPU backend
+``RectBivariateSpline``'s ``kx=ky=3``. Prior to v1.4.0 the GPU backend
 defaulted to linear instead, so a simulation that did not set
 ``beam_spline_opts`` got a different interpolant depending on which backend it
 ran on.
@@ -184,35 +184,74 @@ Behaviour at the edges of the grid
 
 Both fused kernels **clamp** out-of-range coordinates to the edge of the beam
 grid: a source at a zenith angle beyond the last grid node gets the value at
-that last node, rather than an extrapolated or zeroed value. This keeps the
-two orders consistent with each other, and keeps sources just past the edge of
-a beam's support pinned to the horizon value instead of falling off a cliff.
+that last node, rather than an extrapolated or zeroed value. This keeps the two
+orders consistent with each other.
 
-The boundary mode is ``"nearest"`` (edge replication) on both backends, set
-explicitly in :data:`matvis.core.beams.DEFAULT_SPLINE_OPTS` rather than
-inherited from scipy, whose default is ``mode="constant"`` (zero outside the
-grid). ``"nearest"`` is the mode the fused kernels implement, and it is the
-behaviour ``matvis`` wants anyway: a source just past the edge of a beam's
-support should pin to the horizon value rather than fall off a cliff. Asking the
-fused kernels for any other mode raises; the slower ``map_coordinates`` fallback
-used by orders 0, 2, 4 and 5 honours every mode scipy does.
+In practice ``matvis`` does not extrapolate at all. Sources below the horizon
+are dropped before the beam is evaluated, so for a beam sampled all the way to
+``za = 90°`` no out-of-range zenith angle ever reaches the interpolator. The
+clamp is a guard for beams whose grid stops short of that, not a modelling
+choice — if your beam's support really does end above the horizon, decide
+deliberately what should happen there rather than relying on it.
 
-.. important::
+What the boundary mode *does* change
+------------------------------------
 
-   For ``order >= 2`` the mode is **not** just an out-of-grid detail. Since
-   scipy 1.6 the B-spline prefilter itself depends on ``mode``, so two modes
-   give different interpolated values *inside* the grid, within a few nodes of
-   an edge — the difference decays by a factor of about 0.27 per grid
-   cell, so it is negligible more than about six cells in, and O(1) right at the
-   edge. This is why the two backends must agree on ``mode``, not merely on
-   ``order``.
+Because nothing is evaluated outside the grid, ``mode`` matters for one reason
+only: for ``order >= 2`` it selects the B-spline prefilter, and so changes
+interpolated values **inside** the grid, within a few nodes of an edge. (This
+has been true since scipy 1.6.) The perturbation decays by a factor of about
+0.27 per grid cell, so it is negligible more than about six cells in and O(1)
+right at the edge. It is therefore chosen for accuracy just inside the edges,
+and the two backends must agree on it as much as they must agree on ``order``.
 
-With that mode fixed, the cubic kernel reproduces
-``scipy.ndimage.map_coordinates(..., order=3, mode="nearest")`` to
-floating-point precision for any coordinate *inside* the grid. Outside it the
-kernels still differ from scipy deliberately: scipy interpolates through a
-12-node edge-replicated pad, so it rings slightly just outside the grid before
-saturating, whereas the fused kernels clamp immediately.
+Both backends use ``mode="mirror"``, set in
+:data:`matvis.core.beams.DEFAULT_SPLINE_OPTS`. An ``az_za`` beam has two
+zenith-angle edges, and they are not alike:
+
+- **za = 0, the zenith pole.** Every such beam has this edge, and it is where
+  the beam is brightest, so errors there carry the most weight. A smooth field
+  sampled along meridians through a pole is very nearly mirror-symmetric in
+  ``za`` about ``za = 0``, which is exactly the condition ``"mirror"`` imposes.
+- **za = 90, the horizon.** Only a beam truncated there has an edge at all —
+  many beam files run to ``za = 180°``, making it interior. Where it is an
+  edge, the beam is heavily attenuated.
+
+Measured on the bundled HERA dipole beam at its native 2° sampling, as RMS
+error relative to the beam peak (zenith truth from continuing the beam across
+the pole; horizon truth from the untruncated full-sphere grid):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Points in
+     - ``"mirror"``
+     - ``"nearest"``
+     - ``"reflect"``
+   * - za < 2° (zenith pole)
+     - **6.9e-6**
+     - 1.8e-3
+     - 2.3e-3
+   * - za 88–90° (truncated horizon)
+     - 1.2e-5
+     - 6.3e-6
+     - **4.7e-6**
+
+``"mirror"`` is ~250x better at the pole and ~2x worse at a truncated horizon,
+so it wins clearly on the axis that every beam has and that carries the beam's
+peak. (scipy's own default, ``mode="constant"``, shares the ``"mirror"``
+prefilter and so agrees with it everywhere inside the grid; they differ only
+outside, where ``matvis`` does not go.)
+
+Asking the fused kernels for any other mode raises rather than being silently
+ignored. The slower ``map_coordinates`` fallback used by orders 0, 2, 4 and 5
+honours every mode scipy does.
+
+With the mode fixed, the cubic kernel reproduces
+``scipy.ndimage.map_coordinates(..., order=3, mode="mirror")`` to
+floating-point precision for any coordinate inside the grid. Outside it the
+kernels differ deliberately: scipy keeps applying the boundary condition
+(reflecting the beam back on itself), whereas the fused kernels clamp.
 
 Note that a beam whose azimuth grid stops short of 360° does *not* wrap: a
 source in the gap is clamped to the last azimuth node rather than interpolated
@@ -254,16 +293,16 @@ version of the same file):
    :header-rows: 1
 
    * - Zenith-angle band
-     - Cubic
+     - Cubic (``mode="mirror"``)
      - Bilinear
    * - 88–90°
-     - 2.6e-4
+     - 5.2e-4
      - 9.0e-5
    * - 86–88°
-     - 7.1e-5
+     - 1.4e-4
      - 8.9e-5
    * - 60–80°
-     - 2.1e-7
+     - 4.2e-7
      - 1.1e-4
 
 This is not a reason to avoid cubic — it wins everywhere else by two to three

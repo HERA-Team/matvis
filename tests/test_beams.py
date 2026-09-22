@@ -301,9 +301,10 @@ class TestDefaultSplineOpts:
     def test_cpu_backend_passes_them_to_pyuvdata(self, efield_single_freq, monkeypatch):
         """Order and mode must reach map_coordinates explicitly, not via scipy's defaults.
 
-        scipy's own defaults are order=3, mode="constant"; the GPU kernels
-        implement mode="nearest". Inheriting scipy's would put the two backends
-        on different interpolants near the edges of the beam grid.
+        scipy's own default mode is "constant". That happens to share the
+        "mirror" prefilter, so it agrees with the GPU kernels inside the grid
+        today -- but only by coincidence, and it differs outside. Pinning the
+        mode makes the agreement something the tests hold us to.
         """
         seen = {}
         original = type(efield_single_freq).compute_response
@@ -319,4 +320,4 @@ class TestDefaultSplineOpts:
         bmfunc(np.linspace(-0.5, 0.5, 10), np.zeros(10))
 
         assert seen["order"] == DEFAULT_SPLINE_OPTS["order"] == 3
-        assert seen["mode"] == DEFAULT_SPLINE_OPTS["mode"] == "nearest"
+        assert seen["mode"] == DEFAULT_SPLINE_OPTS["mode"] == "mirror"

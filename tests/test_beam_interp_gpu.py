@@ -91,7 +91,7 @@ def test_noop_interpolation_matches_input(
     np.testing.assert_allclose(out, expected, atol=tol, rtol=tol)
 
 
-def _scipy_reference(d0, daz, dza, azmin, az, za, order, mode="nearest"):
+def _scipy_reference(d0, daz, dza, azmin, az, za, order, mode="mirror"):
     """Interpolate ``d0`` at ``(az, za)`` with scipy, in matvis's output layout.
 
     This is the trusted, independent reference the CUDA kernels are checked
@@ -131,7 +131,7 @@ def test_order_gt_1_matches_uvbeam_interp(efield_beam_1freq):
     testing at grid nodes (which any correctly-implemented interpolator
     reproduces exactly regardless of order).
 
-    Both sides are pinned to mode="nearest" -- matvis's default, and what the
+    Both sides are pinned to mode="mirror" -- matvis's default, and what the
     fused kernels implement. For order >= 2 the mode selects the B-spline
     prefilter, so leaving the reference on scipy's "constant" default would
     compare two different interpolants.
@@ -161,7 +161,7 @@ def test_order_gt_1_matches_uvbeam_interp(efield_beam_1freq):
         az_array=AZ.flatten(),
         za_array=ZA.flatten(),
         interpolation_function="az_za_map_coordinates",
-        spline_opts={"order": order, "mode": "nearest"},
+        spline_opts={"order": order, "mode": "mirror"},
         freq_array=np.atleast_1d(efield_beam_1freq.freq_array[0]),
         reuse_spline=False,
         return_basis_vector=False,
@@ -335,7 +335,7 @@ class TestBicubic:
     """Tests for the order=3 (bicubic B-spline) CUDA kernel.
 
     The kernel is checked against ``scipy.ndimage.map_coordinates(order=3,
-    mode="nearest")``, which is the interpolant matvis's cubic path is defined
+    mode="mirror")``, which is the interpolant matvis's cubic path is defined
     to reproduce. Note that ``mode`` only matters *outside* the beam grid -- for
     any coordinate inside it, every scipy mode gives the same answer, so these
     comparisons also hold against scipy's default ``mode="constant"``.
@@ -453,11 +453,13 @@ class TestBicubic:
     def test_out_of_bounds_clamps_to_boundary(self, efield_beam_1freq):
         """Out-of-range points clamp to the grid edge, as the bilinear kernel does.
 
-        This is a deliberate departure from scipy, whose ``mode="nearest"``
-        interpolates through a 12-node edge-replicated pad (so it rings
-        slightly just outside the grid) before saturating. matvis clamps
-        immediately, which keeps the two orders consistent with each other and
-        keeps sub-horizon sources pinned to the horizon value.
+        This is a deliberate departure from scipy, which keeps applying the
+        boundary condition outside the grid (``mode="mirror"`` reflects the
+        beam back on itself there). matvis clamps immediately, which keeps the
+        two orders consistent with each other. It only matters for beams whose
+        grid stops short of the horizon: matvis drops sources below the horizon
+        before interpolating, so a beam sampled to za=90 never gets an
+        out-of-range zenith angle.
         """
         d0, daz, dza, azmin, az_nodes, za_nodes = _grid(efield_beam_1freq)
         nza = d0.shape[2]
@@ -677,7 +679,7 @@ def test_wrong_beamtype():
 
 @pytest.mark.parametrize("order", sorted(_KERNEL_ORDERS))
 def test_fused_kernels_reject_other_modes(order, efield_beam_1freq):
-    """The fused kernels implement mode="nearest" only, and must say so.
+    """The fused kernels implement mode="mirror" only, and must say so.
 
     Silently ignoring the request would be worse than refusing it: for
     ``order >= 2`` the mode changes the prefilter, so the caller would get
@@ -687,7 +689,7 @@ def test_fused_kernels_reject_other_modes(order, efield_beam_1freq):
     d0, daz, dza, azmin, az_nodes, za_nodes = _grid(efield_beam_1freq)
     beam = d0[np.newaxis] if order == 1 else prefilter_beam(d0[np.newaxis])
 
-    with pytest.raises(ValueError, match='mode="nearest"'):
+    with pytest.raises(ValueError, match='mode="mirror"'):
         gpu_beam_interpolation(
             beam,
             [daz],
@@ -714,10 +716,10 @@ def test_setup_rejects_other_modes_before_uploading_beams(order, uvbeam):
         nant=1,
         freq=100e6,
         nsrc=10,
-        spline_opts={"order": order, "mode": "mirror"},
+        spline_opts={"order": order, "mode": "nearest"},
         precision=2,
     )
-    with pytest.raises(ValueError, match='mode="nearest"'):
+    with pytest.raises(ValueError, match='mode="mirror"'):
         bm.setup()
 
 
@@ -725,7 +727,7 @@ def test_fallback_honours_the_requested_mode(efield_beam_1freq):
     """Orders without a fused kernel pass `mode` through to map_coordinates.
 
     Checked just outside the grid, where the modes are unambiguously different:
-    "constant" returns zero, "nearest" returns the edge value.
+    "constant" returns zero there, "nearest" returns the edge value.
     """
     d0, daz, dza, azmin, az_nodes, za_nodes = _grid(efield_beam_1freq)
     az = cp.asarray(az_nodes[:1])

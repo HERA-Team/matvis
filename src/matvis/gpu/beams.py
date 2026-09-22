@@ -30,26 +30,16 @@ _KERNEL_DTYPES = {
 # generic per-(beam, feed, axis) map_coordinates fallback.
 _KERNEL_ORDERS = {1: "bilinear", 3: "bicubic"}
 
-# The only scipy boundary mode the fused kernels implement. They clamp
-# out-of-range coordinates to the edge of the grid, and the order-3 prefilter
-# uses edge replication, which together are exactly mode="nearest". The mode is
-# not merely an out-of-grid detail: it changes the prefilter, and hence the
-# interpolated values within a few nodes of an edge. See DEFAULT_SPLINE_OPTS.
-_KERNEL_MODE = "nearest"
+# The only scipy boundary mode the fused kernels implement, matching
+# DEFAULT_SPLINE_OPTS. The mode is not an out-of-grid detail -- it selects the
+# order-3 prefilter, and so the interpolated values within a few nodes of an
+# edge. Whole-sample mirror symmetry is the boundary condition the kernels
+# encode in the coefficient halo; see prefilter_beam.
+_KERNEL_MODE = "mirror"
 
 # Coefficient nodes the cubic stencil reaches beyond each edge of the grid.
 # Must match CUBIC_HALO in kernels/beam_interp.cu.
 _CUBIC_HALO = 1
-
-# Edge-replication padding applied before the spline prefilter. This is not an
-# independently chosen convergence bound -- it is the value scipy itself uses
-# (``scipy.ndimage._interpolation._prepad_for_spline_filter`` for mode="nearest"),
-# adopted so that matvis agrees with scipy to floating-point precision rather
-# than merely converging towards the same answer. Truncating the filter's
-# boundary condition at 12 nodes leaves a ~1e-7 relative error against the exact
-# nearest-boundary spline, which both libraries share and which is well below
-# single-precision resolution.
-_SPLINE_PAD = 12
 
 
 def prepare_for_map_coords(uvbeam: UVBeam) -> tuple[np.ndarray, float, float, float]:
@@ -135,36 +125,41 @@ def prefilter_beam(beam: np.ndarray | cp.ndarray, order: int = 3) -> BeamCoeffic
     Notes
     -----
     The boundary treatment reproduces ``scipy.ndimage.map_coordinates(...,
-    order=3, mode="nearest")``: the grid is padded with 12 nodes of edge
-    replication before filtering, and the result trimmed back to a one-node
-    halo. The recursion is run in double precision whatever the beam's dtype,
-    since it is a one-off setup cost and is the least numerically forgiving
-    step in the pipeline.
+    order=3, mode="mirror")`` exactly. ``spline_filter1d`` imposes whole-sample
+    mirror symmetry on the recursion itself, so no padding is needed; the halo
+    is then filled by the same symmetry (``c[-1] = c[1]``), which is what makes
+    the kernel's uniform four-tap stencil reproduce scipy's spline right up to
+    the edge nodes.
+
+    The recursion is run in double precision whatever the beam's dtype, since
+    it is a one-off setup cost and is the least numerically forgiving step in
+    the pipeline.
     """
     if order != 3:
         raise ValueError(f"prefilter_beam only supports order=3, got {order}")
 
     beam = cp.asarray(beam)
     work = np.dtype("complex128" if beam.dtype.kind == "c" else "float64")
-    # Pad (and later trim back) only the two grid axes of a single beam's block.
-    pad = ((0, 0),) * (beam.ndim - 3) + ((_SPLINE_PAD, _SPLINE_PAD),) * 2
-    keep = slice(_SPLINE_PAD - _CUBIC_HALO, _CUBIC_HALO - _SPLINE_PAD)
+    # Mirror symmetry in the halo, on the two grid axes only. cupy's "reflect"
+    # is numpy's, i.e. whole-sample mirror -- the same convention scipy.ndimage
+    # spells "mirror".
+    halo = ((0, 0),) * (beam.ndim - 3) + ((_CUBIC_HALO, _CUBIC_HALO),) * 2
 
     nza, naz = beam.shape[-2:]
     out = cp.empty(
         beam.shape[:-2] + (nza + 2 * _CUBIC_HALO, naz + 2 * _CUBIC_HALO), beam.dtype
     )
 
-    # One beam at a time: the padded double-precision working copy is the
-    # largest array involved, and doing all beams at once would need a
-    # multi-gigabyte transient allocation for a production-sized beam list.
+    # One beam at a time: the double-precision working copy is the largest
+    # array involved, and doing all beams at once would need a multi-gigabyte
+    # transient allocation for a production-sized beam list.
     for i, block in enumerate(beam):
-        coeff = cp.pad(block, pad, mode="edge")
+        coeff = block
         for axis in (-2, -1):
             coeff = ndimage.spline_filter1d(
                 coeff, order=order, axis=axis, output=work, mode=_KERNEL_MODE
             )
-        out[i] = coeff[..., keep, keep]
+        out[i] = cp.pad(coeff.astype(beam.dtype, copy=False), halo, mode="reflect")
 
     return BeamCoefficients(out, order=order, halo=_CUBIC_HALO)
 
@@ -347,7 +342,7 @@ def gpu_beam_interpolation(
     mode
         How the interpolant is extended beyond the edges of the beam grid, in
         the sense of :func:`scipy.ndimage.map_coordinates`. The fused kernels
-        implement ``"nearest"`` only, and raise for anything else; the
+        implement ``"mirror"`` only, and raise for anything else; the
         map_coordinates fallback accepts any mode scipy does. Note that for
         ``order >= 2`` the mode also changes interpolated values *inside* the
         grid, within a few nodes of an edge, because it changes the B-spline

@@ -20,14 +20,15 @@ from pyuvdata.utils.pol import polstr2num
 #:     the switch to that routine, from ``RectBivariateSpline``'s ``kx=ky=3``) --
 #:     while the GPU backend defaulted to linear. See :doc:`/beam_interpolation`.
 #: ``mode``
-#:     How the interpolant is extended beyond the edges of the beam grid.
-#:     ``"nearest"`` replicates the edge, which is the behaviour the GPU's fused
-#:     kernels implement. This is *not* scipy's default (``"constant"``, i.e.
-#:     zero outside the grid), and the choice is not confined to out-of-grid
-#:     coordinates: since scipy 1.6 the cubic B-spline prefilter itself depends
-#:     on ``mode``, so the mode also changes interpolated values *inside* the
-#:     grid, within a few nodes of an edge.
-DEFAULT_SPLINE_OPTS = {"order": 3, "mode": "nearest"}
+#:     The boundary condition of the spline. For ``order >= 2`` this is not an
+#:     out-of-grid detail: since scipy 1.6 it selects the B-spline prefilter,
+#:     and so changes interpolated values *inside* the grid within a few nodes
+#:     of an edge. ``matvis`` never evaluates a beam outside its grid -- sources
+#:     below the horizon are dropped before interpolation -- so the mode is
+#:     chosen purely for accuracy just inside the edges, where whole-sample
+#:     mirror symmetry is the best fit for a beam sampled through the zenith
+#:     pole. See :doc:`/beam_interpolation`.
+DEFAULT_SPLINE_OPTS = {"order": 3, "mode": "mirror"}
 
 
 def prepare_beam_unpolarized(
