@@ -169,8 +169,9 @@ def test_coord_rot_erfa_set_bcrs(precision):
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def test_fused_bcrs_matches_unfused_near_solar_limiter(dtype):
-    """The fused CPU kernel preserves each correction near the solar limiter."""
+@pytest.mark.parametrize("compiled", [True, False], ids=["compiled", "python"])
+def test_fused_bcrs_matches_unfused_near_solar_limiter(dtype, compiled: bool):
+    """Both kernel forms preserve each correction near the solar limiter."""
     qdqpe = np.array([0.0, 0.5e-6, 1.0e-6, 2.0e-6])
     theta = np.arccos(1.0 - qdqpe)
     eci = np.array([-np.cos(theta), np.sin(theta), np.zeros_like(theta)], dtype=dtype)
@@ -191,7 +192,12 @@ def test_fused_bcrs_matches_unfused_near_solar_limiter(dtype):
     expected = unfused_bcrs(eci, astrom)
     actual = np.empty_like(eci)
 
-    cpu_coords._fused_bcrs(
+    # Keep testing compiled execution, and trace the Python body for coverage.
+    # Numba's machine code does not emit Python line/branch trace events.
+    kernel = cpu_coords._fused_bcrs
+    if not compiled:
+        kernel = kernel.py_func
+    kernel(
         eci,
         astrom["eh"],
         astrom["em"],
