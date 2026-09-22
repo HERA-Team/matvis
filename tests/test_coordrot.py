@@ -173,9 +173,7 @@ def test_fused_bcrs_matches_unfused_near_solar_limiter(dtype):
     """The fused CPU kernel preserves each correction near the solar limiter."""
     qdqpe = np.array([0.0, 0.5e-6, 1.0e-6, 2.0e-6])
     theta = np.arccos(1.0 - qdqpe)
-    eci = np.array(
-        [-np.cos(theta), np.sin(theta), np.zeros_like(theta)], dtype=dtype
-    )
+    eci = np.array([-np.cos(theta), np.sin(theta), np.zeros_like(theta)], dtype=dtype)
     assert eci.dtype == dtype
     astrom = {
         "eh": np.array([1.0, 0.0, 0.0]),

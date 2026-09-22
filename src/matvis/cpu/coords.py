@@ -280,9 +280,7 @@ class CoordinateRotationERFA(CoordinateRotation):
                     self._bcrs = self._eci.copy()
 
                 # Preserve the array-module path for GPU-backed rotators.
-                self._ld(
-                    self._bcrs, self.xp.asarray(astrom["eh"]), astrom["em"], 1e-6
-                )
+                self._ld(self._bcrs, self.xp.asarray(astrom["eh"]), astrom["em"], 1e-6)
                 self._ab(
                     self._bcrs,
                     self.xp.asarray(astrom["v"]),
