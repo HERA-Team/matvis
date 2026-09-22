@@ -1,5 +1,6 @@
 """Coordinate rotation methods."""
 
+import numba as nb
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import AltAz
@@ -10,6 +11,74 @@ from ..core.coords import CoordinateRotation
 
 # Schwarzschild radius of the Sun (au) */
 ERFA_SRS = 1.97412574336e-8
+
+
+@nb.njit(cache=True)
+def _fused_bcrs(
+    eci: np.ndarray,
+    e: np.ndarray,
+    em: float,
+    v: np.ndarray,
+    bm1: float,
+    bpn: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """Apply light deflection, aberration, and BPN in one source loop."""
+    for i in range(eci.shape[1]):
+        x = eci[0, i]
+        y = eci[1, i]
+        z = eci[2, i]
+
+        # Light deflection by the Sun. Assigning into out here retains the
+        # original in-place cast before aberration when the coordinates are
+        # single precision.
+        qdqpe = x * (x + e[0]) + y * (y + e[1]) + z * (z + e[2])
+        qdqpe = max(qdqpe, 1e-6)
+        w = ERFA_SRS / em / qdqpe
+        ex = e[1] * z - e[2] * y
+        ey = e[2] * x - e[0] * z
+        ez = e[0] * y - e[1] * x
+        px = y * ez - z * ey
+        py = z * ex - x * ez
+        pz = x * ey - y * ex
+        out[0, i] = x + w * px
+        out[1, i] = y + w * py
+        out[2, i] = z + w * pz
+
+        x = out[0, i]
+        y = out[1, i]
+        z = out[2, i]
+        pdv = v[0] * x + v[1] * y + v[2] * z
+        w1 = 1.0 + pdv / (1.0 + bm1)
+        w2 = ERFA_SRS / em
+
+        # The existing implementation multiplies in place before adding the
+        # rest of the aberration correction. Preserve that rounding boundary.
+        out[0, i] = x * bm1
+        out[1, i] = y * bm1
+        out[2, i] = z * bm1
+        x = out[0, i]
+        y = out[1, i]
+        z = out[2, i]
+        out[0, i] = x + (v[0] * w1 + w2 * (v[0] - pdv * x))
+        out[1, i] = y + (v[1] * w1 + w2 * (v[1] - pdv * y))
+        out[2, i] = z + (v[2] * w1 + w2 * (v[2] - pdv * z))
+
+        x = out[0, i]
+        y = out[1, i]
+        z = out[2, i]
+        r = np.sqrt(x * x + y * y + z * z)
+        out[0, i] = x / r
+        out[1, i] = y / r
+        out[2, i] = z / r
+
+        # Bias, precession, and nutation.
+        x = out[0, i]
+        y = out[1, i]
+        z = out[2, i]
+        out[0, i] = bpn[0, 0] * x + bpn[0, 1] * y + bpn[0, 2] * z
+        out[1, i] = bpn[1, 0] * x + bpn[1, 1] * y + bpn[1, 2] * z
+        out[2, i] = bpn[2, 0] * x + bpn[2, 1] * y + bpn[2, 2] * z
 
 
 class CoordinateRotationAstropy(CoordinateRotation):
@@ -192,22 +261,35 @@ class CoordinateRotationERFA(CoordinateRotation):
             or self.times[t] - self.times[self._time_of_last_evaluation]
             > self.update_bcrs_every
         ):
-            if hasattr(self, "_bcrs"):
-                self._bcrs[:] = self._eci[:]
+            if not self.gpu:
+                if not hasattr(self, "_bcrs"):
+                    self._bcrs = np.empty_like(self._eci)
+                _fused_bcrs(
+                    self._eci,
+                    np.asarray(astrom["eh"]),
+                    astrom["em"],
+                    np.asarray(astrom["v"]),
+                    astrom["bm1"],
+                    np.asarray(astrom["bpn"]),
+                    self._bcrs,
+                )
             else:
-                self._bcrs = self._eci.copy()
+                if hasattr(self, "_bcrs"):
+                    self._bcrs[:] = self._eci[:]
+                else:
+                    self._bcrs = self._eci.copy()
 
-            # Light deflection by the Sun, giving BCRS natural direction.
-            self._ld(self._bcrs, self.xp.asarray(astrom["eh"]), astrom["em"], 1e-6)
-
-            # Aberration, giving GCRS proper direction.
-            self._ab(
-                self._bcrs, self.xp.asarray(astrom["v"]), astrom["em"], astrom["bm1"]
-            )
-
-            # Bias-precession-nutation, giving CIRS proper direction.
-            # Has no effect if matrix is identity matrix, in which case gives GCRS ppr.
-            self._bpn(self._bcrs, astrom)
+                # Preserve the array-module path for GPU-backed rotators.
+                self._ld(
+                    self._bcrs, self.xp.asarray(astrom["eh"]), astrom["em"], 1e-6
+                )
+                self._ab(
+                    self._bcrs,
+                    self.xp.asarray(astrom["v"]),
+                    astrom["em"],
+                    astrom["bm1"],
+                )
+                self._bpn(self._bcrs, astrom)
 
             self._time_of_last_evaluation = t
 
