@@ -19,7 +19,7 @@ The scheme is selected with the ``order`` key of ``beam_spline_opts``:
    vis = simulate_vis(
        ...,
        beams=beams,
-       beam_spline_opts={"order": 3},   # bicubic; the default is 1 (bilinear)
+       beam_spline_opts={"order": 1},   # bilinear; the default is 3 (bicubic)
    )
 
 Two orders have dedicated fused CUDA kernels on the GPU backend:
@@ -30,13 +30,30 @@ Two orders have dedicated fused CUDA kernels on the GPU backend:
    * - ``order``
      - Scheme
      - Notes
-   * - 1 (default)
+   * - 1
      - Bilinear
      - Cheapest. Four grid points per source.
-   * - 3
+   * - 3 (default)
      - Bicubic B-spline
      - Sixteen grid points per source, plus a one-off prefilter of the beam
-       grid at setup. Matches ``scipy.ndimage.map_coordinates(order=3)``.
+       grid at setup. Matches ``scipy.ndimage.map_coordinates(order=3,
+       mode="nearest")``.
+
+Anything not given in ``beam_spline_opts`` falls back to
+:data:`matvis.core.beams.DEFAULT_SPLINE_OPTS`, which both backends share so that
+they agree out of the box. Cubic is the default because it is what the CPU
+backend has always used in practice: it inherited the default from
+``scipy.ndimage.map_coordinates``, and before that from
+``RectBivariateSpline``'s ``kx=ky=3``. Prior to this release the GPU backend
+defaulted to linear instead, so a simulation that did not set
+``beam_spline_opts`` got a different interpolant depending on which backend it
+ran on.
+
+.. warning::
+
+   Because cubic is the default, the power-beam overshoot caveat under
+   `When cubic is worth it`_ applies on the default path. If ``nan`` values
+   appear in the visibilities, try ``beam_spline_opts={"order": 1}``.
 
 Any other order (0, 2, 4, 5) still works, but falls back to a generic
 per-beam, per-feed, per-axis :func:`cupyx.scipy.ndimage.map_coordinates` loop
@@ -89,8 +106,9 @@ Interpolating in the beam's own units is also worth keeping in mind: for a
 power beam, ``matvis`` interpolates the power and takes the square root
 afterwards (both orders do this, and so does the CPU backend). A cubic spline
 can overshoot below zero near a deep null in a power beam, which produces
-``nan`` after the square root; linear interpolation cannot. If you see ``nan``
-appear only at order 3, this is the likely cause.
+``nan`` after the square root; linear interpolation cannot. Since order 3 is
+the default, this is the first thing to check if ``nan`` values appear, and
+``beam_spline_opts={"order": 1}`` is the fix.
 
 .. _interp-cost:
 
@@ -170,19 +188,99 @@ that last node, rather than an extrapolated or zeroed value. This keeps the
 two orders consistent with each other, and keeps sources just past the edge of
 a beam's support pinned to the horizon value instead of falling off a cliff.
 
-For any coordinate *inside* the grid, the cubic kernel reproduces
-``scipy.ndimage.map_coordinates(..., order=3)`` to floating-point precision,
-whatever ``mode`` scipy is given — the modes only differ outside the grid.
-Outside it, the kernels differ from scipy deliberately:
+The boundary mode is ``"nearest"`` (edge replication) on both backends, set
+explicitly in :data:`matvis.core.beams.DEFAULT_SPLINE_OPTS` rather than
+inherited from scipy, whose default is ``mode="constant"`` (zero outside the
+grid). ``"nearest"`` is the mode the fused kernels implement, and it is the
+behaviour ``matvis`` wants anyway: a source just past the edge of a beam's
+support should pin to the horizon value rather than fall off a cliff. Asking the
+fused kernels for any other mode raises; the slower ``map_coordinates`` fallback
+used by orders 0, 2, 4 and 5 honours every mode scipy does.
 
-- scipy's ``mode="constant"`` (its default, and what the CPU backend uses
-  unless told otherwise) returns 0 outside the grid.
-- scipy's ``mode="nearest"`` interpolates through a 12-node edge-replicated
-  pad, so it rings slightly just outside the grid before saturating.
-- ``matvis``'s fused kernels clamp immediately.
+.. important::
 
-This only matters if your sources actually fall outside the beam grid. Note
-that a beam whose azimuth grid stops short of 360° does *not* wrap: a source in
-the gap is clamped to the last azimuth node rather than interpolated around to
-the first. Sample azimuth over the full circle if that matters for your
-simulation.
+   For ``order >= 2`` the mode is **not** just an out-of-grid detail. Since
+   scipy 1.6 the B-spline prefilter itself depends on ``mode``, so two modes
+   give different interpolated values *inside* the grid, within a few nodes of
+   an edge — the difference decays by a factor of about 0.27 per grid
+   cell, so it is negligible more than about six cells in, and O(1) right at the
+   edge. This is why the two backends must agree on ``mode``, not merely on
+   ``order``.
+
+With that mode fixed, the cubic kernel reproduces
+``scipy.ndimage.map_coordinates(..., order=3, mode="nearest")`` to
+floating-point precision for any coordinate *inside* the grid. Outside it the
+kernels still differ from scipy deliberately: scipy interpolates through a
+12-node edge-replicated pad, so it rings slightly just outside the grid before
+saturating, whereas the fused kernels clamp immediately.
+
+Note that a beam whose azimuth grid stops short of 360° does *not* wrap: a
+source in the gap is clamped to the last azimuth node rather than interpolated
+around to the first. Sample azimuth over the full circle if that matters for
+your simulation.
+
+Accuracy in the outermost grid cell
+-----------------------------------
+
+One consequence of the B-spline prefilter is worth knowing about if your beam
+grid is *truncated* at the horizon (that is, it has no zenith-angle nodes past
+90°).
+
+Every symmetric extension ``map_coordinates`` can use — ``"nearest"``,
+``"mirror"``, ``"constant"``, ``"reflect"`` — forces an odd derivative of the
+spline to vanish at the edge node. Where the beam has a genuine nonzero
+derivative there, that puts an O(1) error in the slope and hence an **O(h)**
+error in the outermost half-cell, which does not improve with grid refinement
+the way the interior does:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Scheme
+     - Convergence in the outermost cell
+   * - ``map_coordinates`` order 3, any symmetric mode
+     - O(h)
+   * - ``map_coordinates`` order 1 (bilinear)
+     - O(h²)
+   * - Interior, any order-3 mode
+     - O(h⁴)
+
+So in that one cell, cubic is *worse* than bilinear. Measured on the bundled
+HERA dipole beam, truncated at the horizon and interpolated on its native 2°
+grid (errors relative to peak, truth taken from the untruncated full-sphere
+version of the same file):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Zenith-angle band
+     - Cubic
+     - Bilinear
+   * - 88–90°
+     - 2.6e-4
+     - 9.0e-5
+   * - 86–88°
+     - 7.1e-5
+     - 8.9e-5
+   * - 60–80°
+     - 2.1e-7
+     - 1.1e-4
+
+This is not a reason to avoid cubic — it wins everywhere else by two to three
+orders of magnitude, and the affected band is a few percent of the sky by solid
+angle, where most beams are heavily attenuated. It is a reason to prefer beam
+files that extend past the horizon: where they do (za running to 180°, as for
+the beam bundled with ``matvis``), za=90° is interior and none of this applies.
+Azimuth is unaffected regardless, because ``pyuvdata`` wrap-pads that axis
+before interpolating.
+
+The same end-condition argument is why ``scipy.ndimage.map_coordinates`` and
+``scipy.interpolate.RectBivariateSpline`` disagree at order 3 or above: they are
+the same interpolating cubic spline in the interior (agreeing to ~1e-9 more than
+six cells from an edge) and differ only in the end condition, with FITPACK's
+not-a-knot placement staying O(h⁴) at the edge. ``matvis`` matches
+``map_coordinates`` on both backends, because that is the routine the CPU
+backend calls via
+:meth:`pyuvdata.uvbeam.UVBeam.interp` with
+``interpolation_function="az_za_map_coordinates"``, and because it is
+substantially faster.

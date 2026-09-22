@@ -9,7 +9,8 @@ changelog of changes that significantly affected performance.
 Unless noted otherwise, all statements refer to the GPU implementation with
 the following settings: **single precision**, polarized (2 feeds
 × 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation
-(see `Beam interpolation order`_ for the cubic alternative), and
+explicitly selected via ``beam_spline_opts={"order": 1}`` (the default is
+cubic; see `Beam interpolation order`_ for its cost), and
 the ERFA coordinate method with a large value set for ``update_bcrs_every`` so
 that it doesn't dominate the runs.
 
@@ -234,9 +235,11 @@ both with ``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal
 Beam interpolation order
 ========================
 
-The numbers everywhere else on this page use linear (``order=1``) beam
-interpolation. Bicubic interpolation (``beam_spline_opts={"order": 3}``, see
-:doc:`beam_interpolation`) reads 16 grid points per source instead of 4:
+Bicubic interpolation is the default (see :doc:`beam_interpolation`); it reads
+16 grid points per source instead of 4. The numbers everywhere else on this
+page use linear interpolation, selected explicitly with
+``beam_spline_opts={"order": 1}``, so that the rest of the page isolates the
+other stages:
 
 .. list-table::
    :header-rows: 1
@@ -414,8 +417,8 @@ Changes that significantly altered performance, newest first:
      - Added a fused bicubic-B-spline CUDA kernel for gridded beams
        (``beam_spline_opts={"order": 3}``), alongside a one-off spline
        prefilter at setup. Previously, any order other than 1 fell back to a
-       per-(beam, feed, axis) ``map_coordinates`` loop. Opt-in; the default is
-       unchanged.
+       per-(beam, feed, axis) ``map_coordinates`` loop. The GPU default order
+       also moved from 1 to 3, matching what the CPU backend already did.
      - Beam-interpolation stage 1.8x slower than linear (12% → 19% of GPU
        time), ~+9% total runtime at the production slice — versus hundreds of
        kernel launches per chunk on the old fallback path. ~6x lower RMS

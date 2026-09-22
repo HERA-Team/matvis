@@ -10,7 +10,7 @@ from cupyx.scipy import ndimage
 from pyuvdata import UVBeam
 
 from .. import coordinates
-from ..core.beams import BeamInterpolator
+from ..core.beams import DEFAULT_SPLINE_OPTS, BeamInterpolator
 from ..cpu.beams import UVBeamInterpolator
 
 KERNELS_PATH = Path(__file__).parent / "kernels"
@@ -29,6 +29,13 @@ _KERNEL_DTYPES = {
 # Interpolation orders served by a dedicated fused kernel, rather than by the
 # generic per-(beam, feed, axis) map_coordinates fallback.
 _KERNEL_ORDERS = {1: "bilinear", 3: "bicubic"}
+
+# The only scipy boundary mode the fused kernels implement. They clamp
+# out-of-range coordinates to the edge of the grid, and the order-3 prefilter
+# uses edge replication, which together are exactly mode="nearest". The mode is
+# not merely an out-of-grid detail: it changes the prefilter, and hence the
+# interpolated values within a few nodes of an edge. See DEFAULT_SPLINE_OPTS.
+_KERNEL_MODE = "nearest"
 
 # Coefficient nodes the cubic stencil reaches beyond each edge of the grid.
 # Must match CUBIC_HALO in kernels/beam_interp.cu.
@@ -155,7 +162,7 @@ def prefilter_beam(beam: np.ndarray | cp.ndarray, order: int = 3) -> BeamCoeffic
         coeff = cp.pad(block, pad, mode="edge")
         for axis in (-2, -1):
             coeff = ndimage.spline_filter1d(
-                coeff, order=order, axis=axis, output=work, mode="nearest"
+                coeff, order=order, axis=axis, output=work, mode=_KERNEL_MODE
             )
         out[i] = coeff[..., keep, keep]
 
@@ -175,7 +182,16 @@ class GPUBeamInterpolator(BeamInterpolator):
         and dispatches accordingly.
         """
         self.use_interp = self.beam_list[0]._isuvbeam
-        self.spline_order = self.spline_opts.get("order", 1)
+        self.spline_order = self.spline_opts.get("order", DEFAULT_SPLINE_OPTS["order"])
+        # Checked here as well as in gpu_beam_interpolation so that an
+        # unsupported mode is caught before any beam is uploaded and
+        # prefiltered, rather than on the first source chunk.
+        mode = self.spline_opts.get("mode", DEFAULT_SPLINE_OPTS["mode"])
+        if self.spline_order in _KERNEL_ORDERS and mode != _KERNEL_MODE:
+            raise ValueError(
+                f"the fused order-{self.spline_order} kernel implements only "
+                f'mode="{_KERNEL_MODE}", but mode="{mode}" was requested.'
+            )
         if self.use_interp and not all(b._isuvbeam for b in self.beam_list):
             raise ValueError(
                 "GPUBeamInterpolator only supports beam_lists with either all UVBeam or all AnalyticBeam objects."
@@ -300,7 +316,8 @@ def gpu_beam_interpolation(
     az: np.ndarray | cp.ndarray,
     za: np.ndarray | cp.ndarray,
     beam_at_src: cp.ndarray | None = None,
-    order: int = 1,
+    order: int = DEFAULT_SPLINE_OPTS["order"],
+    mode: str = DEFAULT_SPLINE_OPTS["mode"],
     power_beam: bool | None = None,
 ):
     """
@@ -326,8 +343,15 @@ def gpu_beam_interpolation(
         are served by dedicated fused CUDA kernels, which clamp out-of-range
         coordinates to the edge of the beam grid. Any other order falls back to
         a per-(beam, feed, axis) :func:`cupyx.scipy.ndimage.map_coordinates`
-        loop, which is
-        substantially slower and uses map_coordinates' own boundary handling.
+        loop, which is substantially slower.
+    mode
+        How the interpolant is extended beyond the edges of the beam grid, in
+        the sense of :func:`scipy.ndimage.map_coordinates`. The fused kernels
+        implement ``"nearest"`` only, and raise for anything else; the
+        map_coordinates fallback accepts any mode scipy does. Note that for
+        ``order >= 2`` the mode also changes interpolated values *inside* the
+        grid, within a few nodes of an edge, because it changes the B-spline
+        prefilter.
     power_beam
         Whether the provided ``beam`` is in power units or E-field units. If not
         provided, then it is inferred based on whether the provided ``beam`` is real- or
@@ -393,6 +417,14 @@ def gpu_beam_interpolation(
         assert beam_at_src.shape == (nbeam, nfeed, nax, nsrc)
 
     if order in _KERNEL_ORDERS:
+        if mode != _KERNEL_MODE:
+            raise ValueError(
+                f"the fused order-{order} kernel implements only "
+                f'mode="{_KERNEL_MODE}", but mode="{mode}" was requested. Use an '
+                "order outside "
+                f"{sorted(_KERNEL_ORDERS)} to fall back to map_coordinates, "
+                "which honours every scipy mode (at a substantial cost)."
+            )
         # Use the custom beam interpolation kernel. If provided a power beam
         # and a complex output buffer, cast interpolated beam to complex on
         # copy.
@@ -444,6 +476,7 @@ def gpu_beam_interpolation(
                     beam[bm, ax, fd],
                     coords,
                     order=order,
+                    mode=mode,
                     output=beam_at_src[bm, fd, ax],
                 )
 

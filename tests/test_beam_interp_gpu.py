@@ -16,6 +16,7 @@ from scipy import ndimage as scipy_ndimage
 from matvis import simulate_vis
 from matvis._test_utils import get_standard_sim_params
 from matvis.gpu.beams import (
+    _KERNEL_ORDERS,
     gpu_beam_interpolation,
     prefilter_beam,
     prepare_for_map_coords,
@@ -129,6 +130,11 @@ def test_order_gt_1_matches_uvbeam_interp(efield_beam_1freq):
     higher-order spline actually differs from linear interpolation, unlike
     testing at grid nodes (which any correctly-implemented interpolator
     reproduces exactly regardless of order).
+
+    Both sides are pinned to mode="nearest" -- matvis's default, and what the
+    fused kernels implement. For order >= 2 the mode selects the B-spline
+    prefilter, so leaving the reference on scipy's "constant" default would
+    compare two different interpolants.
     """
     order = 2
     d0, daz, dza, azmin, az_nodes, za_nodes = _grid(efield_beam_1freq)
@@ -155,7 +161,7 @@ def test_order_gt_1_matches_uvbeam_interp(efield_beam_1freq):
         az_array=AZ.flatten(),
         za_array=ZA.flatten(),
         interpolation_function="az_za_map_coordinates",
-        spline_opts={"order": order},
+        spline_opts={"order": order, "mode": "nearest"},
         freq_array=np.atleast_1d(efield_beam_1freq.freq_array[0]),
         reuse_spline=False,
         return_basis_vector=False,
@@ -194,6 +200,7 @@ def test_bilinear_kernel_matches_map_coordinates(efield_beam_1freq):
         [azmin],
         cp.asarray(AZ.flatten()),
         cp.asarray(ZA.flatten()),
+        order=1,
     ).get()
     out = out[0].reshape(nfeed, nax, AZ.shape[0], AZ.shape[1])
 
@@ -372,6 +379,7 @@ class TestBicubic:
             [azmin],
             cp.asarray(az),
             cp.asarray(za),
+            order=1,
         ).get()[0]
 
         assert np.abs(cubic - linear).max() > 1e-6 * np.abs(linear).max()
@@ -665,3 +673,71 @@ def test_wrong_beamtype():
         gpu_beam_interpolation(
             dec_beam.astype(int), daz * 2, dza * 2, 0.0, AZ.flatten(), ZA.flatten()
         )
+
+
+@pytest.mark.parametrize("order", sorted(_KERNEL_ORDERS))
+def test_fused_kernels_reject_other_modes(order, efield_beam_1freq):
+    """The fused kernels implement mode="nearest" only, and must say so.
+
+    Silently ignoring the request would be worse than refusing it: for
+    ``order >= 2`` the mode changes the prefilter, so the caller would get
+    values that differ from the mode they asked for *inside* the grid, not just
+    beyond its edges.
+    """
+    d0, daz, dza, azmin, az_nodes, za_nodes = _grid(efield_beam_1freq)
+    beam = d0[np.newaxis] if order == 1 else prefilter_beam(d0[np.newaxis])
+
+    with pytest.raises(ValueError, match='mode="nearest"'):
+        gpu_beam_interpolation(
+            beam,
+            [daz],
+            [dza],
+            [azmin],
+            cp.asarray(az_nodes[:4]),
+            cp.asarray(za_nodes[:4]),
+            order=order,
+            mode="constant",
+        )
+
+
+@pytest.mark.parametrize("order", sorted(_KERNEL_ORDERS))
+def test_setup_rejects_other_modes_before_uploading_beams(order, uvbeam):
+    """An unsupported mode is caught at setup, not on the first source chunk."""
+    from pyuvdata.beam_interface import BeamInterface
+
+    from matvis.gpu.beams import GPUBeamInterpolator
+
+    bm = GPUBeamInterpolator(
+        beam_list=[BeamInterface(uvbeam.select(freq_chans=[0], inplace=False))],
+        beam_idx=np.zeros(1, dtype=int),
+        polarized=True,
+        nant=1,
+        freq=100e6,
+        nsrc=10,
+        spline_opts={"order": order, "mode": "mirror"},
+        precision=2,
+    )
+    with pytest.raises(ValueError, match='mode="nearest"'):
+        bm.setup()
+
+
+def test_fallback_honours_the_requested_mode(efield_beam_1freq):
+    """Orders without a fused kernel pass `mode` through to map_coordinates.
+
+    Checked just outside the grid, where the modes are unambiguously different:
+    "constant" returns zero, "nearest" returns the edge value.
+    """
+    d0, daz, dza, azmin, az_nodes, za_nodes = _grid(efield_beam_1freq)
+    az = cp.asarray(az_nodes[:1])
+    za = cp.asarray(za_nodes[:1] - 2 * dza)  # one grid cell below the first node
+
+    kw = {"order": 2}
+    nearest = gpu_beam_interpolation(
+        d0[np.newaxis], [daz], [dza], [azmin], az, za, mode="nearest", **kw
+    ).get()
+    constant = gpu_beam_interpolation(
+        d0[np.newaxis], [daz], [dza], [azmin], az, za, mode="constant", **kw
+    ).get()
+
+    assert np.all(constant == 0)
+    assert not np.allclose(nearest, constant)

@@ -39,9 +39,45 @@ Performance
     single precision is requested (this also removes a large hidden
     temporary array that could cause out-of-memory errors).
 
+Changed
+-------
+
+- **Beam interpolation defaults are now shared by both backends**, in
+  ``matvis.core.beams.DEFAULT_SPLINE_OPTS`` (``{"order": 3, "mode":
+  "nearest"}``). Anything a caller leaves out of ``beam_spline_opts`` is taken
+  from there. Two backend disagreements are resolved:
+
+  - **Default order.** The GPU backend defaulted to ``order=1`` (bilinear)
+    while the CPU backend defaulted to ``order=3``, having inherited it from
+    ``scipy.ndimage.map_coordinates`` (and, before the switch to that routine,
+    from ``RectBivariateSpline``'s ``kx=ky=3``). A simulation that did not set
+    ``beam_spline_opts`` therefore used a different interpolant depending on
+    the backend. Both now default to cubic. **GPU simulations of gridded
+    beams that do not set** ``beam_spline_opts`` **will change**: more
+    accurate, and ~9% slower overall at the production slice. Pass
+    ``beam_spline_opts={"order": 1}`` to restore the previous GPU behaviour.
+  - **Boundary mode.** The GPU's fused kernels implement ``mode="nearest"``
+    (they clamp out-of-range coordinates, and the order-3 prefilter uses edge
+    replication), while the CPU backend inherited scipy's ``mode="constant"``.
+    This is not only an out-of-grid difference: since scipy 1.6 the cubic
+    B-spline prefilter depends on ``mode``, so the two also disagreed on
+    values *inside* the grid within a few nodes of an edge (measured at ~3e-4
+    of peak in the outermost zenith-angle cell of a horizon-truncated HERA
+    dipole beam). Both backends now use ``"nearest"``, which is also the
+    behaviour ``matvis`` wants: a source past the edge of a beam's support
+    pins to the horizon value rather than dropping to zero. Asking the fused
+    kernels for a different mode now raises instead of being silently
+    ignored.
+
 Fixed
 -----
 
+- Documentation: the Beam Interpolation page claimed that scipy's ``mode``
+  affects only coordinates outside the beam grid. It does not for
+  ``order >= 2`` — it selects the B-spline prefilter, and so changes
+  interpolated values inside the grid near an edge. The page now also
+  documents the O(h) error that every symmetric boundary mode produces in the
+  outermost grid cell, which matters only for beams truncated at the horizon.
 - GPU: a source chunk skipped because it had no sources above the horizon no
   longer contributes the *previous* integration's visibilities. Previously
   each chunk kept its own buffer which was only overwritten when the chunk
