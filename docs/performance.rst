@@ -8,7 +8,9 @@ changelog of changes that significantly affected performance.
 
 Unless noted otherwise, all statements refer to the GPU implementation with
 the following settings: **single precision**, polarized (2 feeds
-× 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation, and
+× 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation
+explicitly selected via ``beam_spline_opts={"order": 1}`` (the default is
+cubic; see `Beam interpolation order`_ for its cost), and
 the ERFA coordinate method with a large value set for ``update_bcrs_every`` so
 that it doesn't dominate the runs.
 
@@ -228,6 +230,80 @@ There is currently no runtime auto-selection between strategies (tracked in
 `issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then, check
 both with ``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal.
 
+.. _interpolation-order:
+
+Beam interpolation order
+========================
+
+Bicubic interpolation is the default (see :doc:`beam_interpolation`); it reads
+16 grid points per source instead of 4. The numbers everywhere else on this
+page use linear interpolation, selected explicitly with
+``beam_spline_opts={"order": 1}``, so that the rest of the page isolates the
+other stages:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Configuration
+     - Beam stage (linear)
+     - Beam stage (cubic)
+     - Beam share of GPU time
+     - Total GPU time
+   * - production-slice (350 ants/beams, :math:`10^6` sources, 30 chunks)
+     - 8.2 ms/chunk
+     - 14.8 ms/chunk (1.8x)
+     - 12% → 19%
+     - +9%
+   * - dev (64 ants/beams, :math:`2\times10^5` sources)
+     - 6.8 ms/chunk
+     - 11.5 ms/chunk (1.7x)
+     - 12% → 17%
+     - +14%
+
+Measured on an RTX A2000 laptop GPU with ``--gpu-event-timing``, polarized,
+single precision, 180 × 360 beam grid; medians of four runs per order for the
+production slice. The total is quoted as the beam-stage *delta* over the linear
+chunk total (+6.6 ms on ~68 ms), because the matrix product's own run-to-run
+jitter is larger than the effect being measured and swamps a direct
+before/after comparison of totals.
+
+.. note::
+
+   Per-chunk stage timings are only comparable between runs at the same chunk
+   size, and absolute values drift with the GPU's clock and thermal state — on
+   a laptop card they moved by up to 20% between sessions. Use the ``tau`` and
+   ``z`` stages as a control: they are unaffected by the interpolation order,
+   so a pair of runs whose ``tau``/``z`` agree is a valid comparison. On that
+   basis the 1.8x stage cost and the 12% → 19% share reproduced across two
+   independent sessions (1.80x and 1.75x) even as the absolute milliseconds
+   moved.
+
+Reproduce with::
+
+    matvis profile -a 350 -b 350 -s 1000000 -t 4 --nchunks 30 --gpu \
+        --interpolated-beam --single-precision --gpu-event-timing \
+        --coord-method CoordinateRotationERFA -f 1 --spline-order 3 \
+        -o profiling/results
+
+The 1.8x on the stage is much less than the 4x increase in grid points read,
+because the stage is bound by the coefficient loads, and the 4 × 4
+neighbourhoods of neighbouring sources overlap heavily in cache. The total-run
+penalty is smaller again (~9%), because the matrix product still dominates —
+so the *relative* cost of cubic falls as the array grows, and rises as the
+source count per antenna falls.
+
+Two one-off setup costs come with ``order=3``, both small:
+
+- The spline **prefilter** (see :doc:`beam_interpolation`) takes ~0.4 s for 350
+  unique beams on a 180 × 360 grid — under a fifth of a single integration,
+  and it does not scale with the number of times, frequencies or sources.
+- The coefficient array carries a one-node halo on each grid axis, making it
+  1.7% larger than the beam grid it replaces (692 → 704 MiB at 350 beams).
+  Negligible against the per-chunk terms discussed under `Memory and
+  chunking`_. Beams are prefiltered one at a time as they reach the device, so
+  setup never holds the raw grids and the coefficients simultaneously (peak
+  720 MiB rather than 1408 MiB at 350 beams).
+
 Precision
 =========
 
@@ -337,6 +413,16 @@ Changes that significantly altered performance, newest first:
    * - Version / PR
      - Change
      - Measured impact
+   * - Bicubic beam interpolation (Sept 2026)
+     - Added a fused bicubic-B-spline CUDA kernel for gridded beams
+       (``beam_spline_opts={"order": 3}``), alongside a one-off spline
+       prefilter at setup. Previously, any order other than 1 fell back to a
+       per-(beam, feed, axis) ``map_coordinates`` loop. The GPU default order
+       also moved from 1 to 3, matching what the CPU backend already did.
+     - Beam-interpolation stage 1.8x slower than linear (12% → 19% of GPU
+       time), ~+9% total runtime at the production slice — versus hundreds of
+       kernel launches per chunk on the old fallback path. ~6x lower RMS
+       interpolation error at 4° beam sampling.
    * - `issue #132 <https://github.com/HERA-Team/matvis/issues/132>`_
        (Sept 2026)
      - GPU chunk accumulation and visibility readout:

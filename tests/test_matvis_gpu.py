@@ -23,9 +23,7 @@ def test_antizenith():
         True, False, nsource=1, first_source_antizenith=True
     )
 
-    vis = simulate_vis(
-        precision=2, use_gpu=True, beam_spline_opts={"kx": 1, "ky": 1}, **kw
-    )
+    vis = simulate_vis(precision=2, use_gpu=True, beam_spline_opts={"order": 1}, **kw)
 
     assert np.all(vis == 0)
 
@@ -44,7 +42,7 @@ def test_gpu_event_timing_zero_active_chunks():
         precision=2,
         use_gpu=True,
         gpu_event_timing=True,
-        beam_spline_opts={"kx": 1, "ky": 1},
+        beam_spline_opts={"order": 1},
         **kw,
     )
 
@@ -110,7 +108,7 @@ def test_multibeam():
     kw |= {
         "precision": 2,
         "use_gpu": True,
-        "beam_spline_opts": {"kx": 1, "ky": 1},
+        "beam_spline_opts": {"order": 1},
         "beam_idx": np.zeros(len(kw["ants"]), dtype=int),
     }
     beams = kw.pop("beams")
