@@ -16,8 +16,8 @@ Added
   ``find_dense_blocks``. Opt-in; the default ``MatMul`` path is unchanged, and
   the result is exact -- a rearrangement of the same computation, not an
   approximation. On a 320-antenna redundant hex layout at production-slice
-  scale (RTX A2000) this is 3.5x faster end-to-end than ``MatMul``, with the
-  matrix product itself going from 41 ms to 5.7 ms per chunk. It is *slower*
+  scale (RTX A2000) this is 3.4x faster end-to-end than ``MatMul``, with the
+  matrix product itself going from 41 ms to 6.6 ms per chunk. It is *slower*
   than ``MatMul`` on non-redundant arrays; see the Performance docs page for
   the sweep and for how to choose ``max_blocks``.
 
