@@ -250,6 +250,15 @@ class GPUBeamInterpolator(BeamInterpolator):
                 # From here on beam_data is a BeamCoefficients, which
                 # gpu_beam_interpolation accepts in place of a raw grid.
                 self.beam_data = BeamCoefficients(self.beam_data)
+
+            # Upload the grid geometry once. These are constants, but
+            # gpu_beam_interpolation has to hand the kernel device pointers, so
+            # leaving them on the host would mean a blocking host-to-device copy
+            # of three nbeam-long arrays on every chunk of every integration.
+            grid_dtype = _KERNEL_DTYPES[np.dtype(dtype)][1]
+            self.daz = cp.asarray(self.daz, dtype=grid_dtype)
+            self.dza = cp.asarray(self.dza, dtype=grid_dtype)
+            self.azmin = cp.asarray(self.azmin, dtype=grid_dtype)
         else:
             # If doing simply analytic beams, just use the UVBeamInterpolator
             self._eval = UVBeamInterpolator.interp
