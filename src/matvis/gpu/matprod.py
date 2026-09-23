@@ -169,9 +169,7 @@ class GPUMatBlock(_AccumulatingMatProd):
 
     def allocate_vis(self):
         """Allocate one (npairs, nfeed, nfeed) accumulator for all chunks."""
-        self.vis = cp.zeros(
-            (self.npairs, self.nfeed, self.nfeed), dtype=self.ctype
-        )
+        self.vis = cp.zeros((self.npairs, self.nfeed, self.nfeed), dtype=self.ctype)
 
     def compute(self, z: cp.ndarray, out: cp.ndarray) -> cp.ndarray:
         """Accumulate the source-summing operation for a single time and chunk."""
