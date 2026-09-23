@@ -304,3 +304,52 @@ def test_gpu_compaction_empty_chunk():
     _, flux, nsrcs_up = coords.select_chunk(0, 0)
     assert nsrcs_up == 0
     assert cp.all(flux == 0)
+
+
+@pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
+@pytest.mark.gpu
+def test_gpu_compaction_chunk_past_the_end():
+    """Chunks beyond the source count are empty, and zero the flux buffer.
+
+    ``get_desired_chunks`` can hand the chunk loop more chunks than there are
+    sources to fill, so the compacted path has to tolerate being asked for one
+    past the end rather than indexing off the end of the count array.
+    """
+    coords = get_random_coordrot(
+        1000, CoordinateRotationERFA, gpu=True, seed=11, precision=1
+    )
+    assert coords._use_gpu_compaction
+    assert coords.nchunks == 1
+    coords.rotate(0)
+
+    # Dirty the flux buffer with the real chunk, so the empty one has
+    # something to zero.
+    _, flux, nsrcs_up = coords.select_chunk(0, 0)
+    assert nsrcs_up > 0
+    assert cp.any(flux != 0)
+
+    _, flux, nsrcs_up = coords.select_chunk(1, 0)
+    assert nsrcs_up == 0
+    assert cp.all(flux == 0)
+
+
+def test_where_path_overflow():
+    """The cp.where horizon cut must raise too, not just the compacted one.
+
+    The compacted path has its own overflow check (see
+    ``test_gpu_compaction_overflow``); this covers the branch everything else
+    still goes through.
+    """
+    coords = get_random_coordrot(
+        20000,
+        CoordinateRotationERFA,
+        gpu=False,
+        seed=7,
+        precision=1,
+        chunk_size=5000,
+        source_buffer=0.2,
+    )
+    assert not coords._use_gpu_compaction
+    coords.rotate(0)
+    with pytest.raises(ValueError, match="is too small for the number of sources"):
+        coords.select_chunk(0, 0)
