@@ -212,6 +212,7 @@ def test_polarized_flux(first_source_antizenith):
         )
 
 
+@pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
 @pytest.mark.gpu
 @pytest.mark.parametrize("precision", [1, 2])
 @pytest.mark.parametrize(
@@ -260,6 +261,7 @@ def test_gpu_compaction_matches_where(precision, nsrc, chunk_size, source_buffer
         np.testing.assert_array_equal(crd[2, n:], 1)
 
 
+@pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
 @pytest.mark.gpu
 def test_gpu_compaction_overflow():
     """Too small a source_buffer must still raise, not silently drop sources."""
@@ -277,6 +279,7 @@ def test_gpu_compaction_overflow():
         coords.select_chunk(0, 0)
 
 
+@pytest.mark.skipif(not HAVE_GPU, reason="GPU is not available")
 @pytest.mark.gpu
 def test_gpu_compaction_empty_chunk():
     """A chunk with nothing above the horizon reports zero sources."""

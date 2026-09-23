@@ -221,7 +221,7 @@ def test_out_of_bounds_clamps_to_boundary(efield_beam_1freq):
     """Points beyond the za range must be assigned the boundary beam values.
 
     The kernel documents clamp-to-edge behaviour for out-of-range points
-    (see bilinear_interp.cu) rather than extrapolating or erroring; this
+    (see beam_interp.cu) rather than extrapolating or erroring; this
     checks that behaviour directly by querying just below za=0 and just
     above the top of the za grid, at azimuths that fall exactly on grid
     nodes (so there's no azimuthal interpolation blur to account for).
