@@ -1916,6 +1916,7 @@ dev = [
     { name = "ipython" },
     { name = "jupyter" },
     { name = "matplotlib" },
+    { name = "mpich", marker = "sys_platform != 'win32'" },
     { name = "nbsphinx" },
     { name = "numpydoc" },
     { name = "papermill" },
@@ -1950,6 +1951,7 @@ test = [
     { name = "hypothesis" },
     { name = "ipython" },
     { name = "matplotlib" },
+    { name = "mpich", marker = "sys_platform != 'win32'" },
     { name = "pyradiosky" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1986,6 +1988,7 @@ dev = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "matplotlib" },
     { name = "matplotlib", specifier = ">=3.8.0" },
+    { name = "mpich", marker = "sys_platform != 'win32'" },
     { name = "nbsphinx" },
     { name = "numpydoc" },
     { name = "papermill", specifier = ">=2.7.0" },
@@ -2018,6 +2021,7 @@ test = [
     { name = "hypothesis" },
     { name = "ipython" },
     { name = "matplotlib" },
+    { name = "mpich", marker = "sys_platform != 'win32'" },
     { name = "pyradiosky" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -2089,6 +2093,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/66/b342e330ac543d0147ebfab754f69854c4777ac9785cb5b7610e3cd0c29a/mpi4py-4.1.1-pp311-pypy311_pp73-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:027b1a1ff9d57afed10af6b79041b95f85fd11b2af74e4c34ef4866ce81ecc24", size = 1380452, upload-time = "2025-10-10T13:55:14.582Z" },
     { url = "https://files.pythonhosted.org/packages/dd/61/bbf87de6f3a8a9c54e7a4b72878c9069646ca9cafac8217fa5493a54b068/mpi4py-4.1.1-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:c1191856906967a48fdcc484b326c179747e68c186261d76480a75156bcc73bf", size = 1255980, upload-time = "2025-10-10T13:55:17.075Z" },
     { url = "https://files.pythonhosted.org/packages/8d/4b/227091dec11518e5545bd1ec91f52e06f64bdae697adc5fb33f9f20c04dc/mpi4py-4.1.1-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:189d49b0ae963f8f6f5dd8ed0f5f37923285c97bc725476990ec0556972bb4b2", size = 1452641, upload-time = "2025-10-10T13:55:18.562Z" },
+]
+
+[[package]]
+name = "mpich"
+version = "5.0.1.post1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/c0/d98a0f61dc46262080ba2750bfb27c51b76691c148d150b6db41c2c1019c/mpich-5.0.1.post1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:d58947bc02e711acb01d648a4d7e01faf01297eef366b384e0fd4274eaf2a8f7", size = 9507189, upload-time = "2026-07-16T13:07:26.424Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/15/e8e0300ddb9734331cd8511ed23ab0a2d2b3ca1caf43f7e4192c741c61cd/mpich-5.0.1.post1-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:eb4e3e562110b1998802fadcde9e0b5ddb262b06941d797daa7f4d69c320c33e", size = 12632375, upload-time = "2026-07-16T13:07:28.886Z" },
+    { url = "https://files.pythonhosted.org/packages/49/f0/0638b5d6f8ca35ff302143c0740152819473f92b5dd998e1381c71800fa8/mpich-5.0.1.post1-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:da9a0676353dcf12133b6a10c569611841a5446fdd224730303d5e26662f1bd2", size = 10360244, upload-time = "2026-07-16T13:07:31.004Z" },
+    { url = "https://files.pythonhosted.org/packages/58/f0/54f6df514ac59c116acbb970017ee6ccf6c9a4b7c28c2b29906a490b071f/mpich-5.0.1.post1-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:edb42832e4d04fe3da78056edf74ef01d0405ad375dd990379d8d9bf2507b386", size = 13243563, upload-time = "2026-07-16T13:07:33.47Z" },
 ]
 
 [[package]]

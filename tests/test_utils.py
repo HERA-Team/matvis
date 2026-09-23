@@ -39,6 +39,30 @@ def test_human_readable_size():
     )
 
 
+class TestVisBuffers:
+    """Tests for the vis_buffers argument of get_required_chunks."""
+
+    def test_defaults_to_one_per_chunk(self):
+        """Omitting vis_buffers reproduces the historical behaviour."""
+        assert _utils.get_required_chunks(**_BASE_KWARGS) == _utils.get_required_chunks(
+            vis_buffers=None, **_BASE_KWARGS
+        )
+
+    def test_fewer_buffers_never_needs_more_chunks(self):
+        """Holding a couple of vis buffers instead of one per chunk can only help.
+
+        The GPU backend accumulates chunks into a single buffer, so its
+        visibility memory no longer grows with the chunk count.
+        """
+        # A config where the visibility buffers are a large share of the
+        # budget: many antennas, relatively few sources.
+        kwargs = dict(_BASE_KWARGS)
+        kwargs.update(nant=512, nsrc=20000, freemem=2 * 1024**3)
+        with_accum = _utils.get_required_chunks(vis_buffers=2, **kwargs)
+        per_chunk = _utils.get_required_chunks(**kwargs)
+        assert with_accum <= per_chunk
+
+
 class TestGetRequiredChunks:
     """Tests for get_required_chunks."""
 

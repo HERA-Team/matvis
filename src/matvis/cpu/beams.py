@@ -24,6 +24,10 @@ class UVBeamInterpolator(BeamInterpolator):
         # Primary beam pattern using direct interpolation of UVBeam object
         az, za = enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
+        # spline_opts carries DEFAULT_SPLINE_OPTS for any key the caller left
+        # out, so "order" and "mode" are set explicitly rather than inherited
+        # from scipy -- which is what keeps this backend agreeing with the GPU
+        # one. See matvis.core.beams.DEFAULT_SPLINE_OPTS.
         kw = {
             "reuse_spline": True,
             "check_azza_domain": False,
