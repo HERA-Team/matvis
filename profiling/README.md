@@ -4,12 +4,14 @@ See the [Performance page](../docs/performance.rst) of the documentation for
 scaling rules-of-thumb and measured numbers. The tools here reproduce those
 measurements:
 
-- **`run-canonical.sh [outdir] [dev|prodslice|both]`** — runs two canonical
+- **`run-canonical.sh [outdir] [dev|prodslice|both] [spline-order]`** — runs two canonical
   benchmark configurations through `matvis profile`: `dev` (64 antennas/beams,
   200k sources — small enough to iterate quickly) and `prodslice` (350
   antennas/beams, 1M sources — a 'production-scale' run).
   Both use the following settings: polarized, gridded beams, one beam per
-  antenna, single precision. Writes human-readable summaries and
+  antenna, single precision, and linear beam interpolation unless a third
+  argument selects another spline order (3 = bicubic; see the docs Beam
+  Interpolation page). Writes human-readable summaries and
   machine-readable `summary-stats-*.json` files for before/after comparison.
   See `docs/cli.rst` for the full `matvis profile` parameter reference and an
   annotated example of the JSON output.
@@ -37,10 +39,21 @@ measurements:
     loop (coordinate rotation, chunk summing, Python dispatch). Host stalls
     *inside* the loop do not appear here — they are hidden in
     `gpu_time_per_integration`; `gpu_idle.py` is what surfaces those.
+  - `sum_chunks_per_integration` — the once-per-integration visibility
+    readout, timed after an explicit stream drain so it measures its own
+    cost rather than the queued pipeline it would otherwise block on.
+
+  Also check `nchunks_used`. `--nchunks` is only a *minimum*: if device
+  memory is tight the run can use many more chunks, which changes the
+  per-chunk problem size and makes stage timings incomparable between runs.
+  The profiler warns when this happens.
 
   Don't use the line-profiler `stages` table for GPU work: the loop is
   asynchronous, so host-side timings mostly show where the host happens to
-  block. For quieter numbers on shared nodes, consider locking GPU clocks
+  block. `Sum Chunks` is the worst offender — it read ~73 ms per integration
+  there against a true cost of 13.9 ms, the difference being time waiting on
+  queued chunk work plus a first-integration outlier skewing a 4-sample
+  mean. For quieter numbers on shared nodes, consider locking GPU clocks
   (`nvidia-smi -lgc <clock>`) if you have permission.
 
 - **`roofline.py`** — GPU benchmarks for the operations that dominate a
