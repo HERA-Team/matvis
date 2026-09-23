@@ -106,7 +106,21 @@ def simulate(
         By default, either a single beam is assumed to apply to all antennas or
         each antenna gets its own beam.
     beam_spline_opts : dict, optional
-        Dictionary of options to pass to the beam interpolation function.
+        Options for interpolating gridded (``UVBeam``) beams. Passed through to
+        :func:`scipy.ndimage.map_coordinates` on the CPU backend, and to its GPU
+        equivalent on the GPU backend. Keys left out fall back to
+        :data:`~matvis.core.beams.DEFAULT_SPLINE_OPTS`, currently
+        ``{"order": 3, "mode": "nearest"}``.
+
+        On the GPU backend only ``order`` 1 (bilinear) and 3 (bicubic) have
+        dedicated fused kernels. Any other order falls back to a
+        per-(beam, feed, axis) ``map_coordinates`` loop that issues a separate
+        kernel launch for every combination -- hundreds per source chunk at
+        production scale -- and is *much* slower than either fused kernel. Orders
+        0, 2, 4 and 5 are supported for completeness, not for production use.
+
+        See :doc:`/beam_interpolation` for how to choose an order, and for the
+        behaviour at the edges of the beam grid.
     max_progress_reports : int, optional
         Maximum number of progress reports to print to the screen (if logging level
         allows). Default is 100.

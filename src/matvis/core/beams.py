@@ -11,6 +11,25 @@ from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.utils.pol import polstr2num
 
+#: Default options for gridded-beam interpolation, shared by every backend so
+#: that the CPU and GPU simulators agree out of the box.
+#:
+#: ``order``
+#:     Cubic. This is what the CPU backend has always used in practice -- it
+#:     inherited the default from ``scipy.ndimage.map_coordinates`` (and, before
+#:     the switch to that routine, from ``RectBivariateSpline``'s ``kx=ky=3``) --
+#:     while the GPU backend defaulted to linear. See :doc:`/beam_interpolation`.
+#: ``mode``
+#:     The boundary condition of the spline. For ``order >= 2`` this is not an
+#:     out-of-grid detail: since scipy 1.6 it selects the B-spline prefilter,
+#:     and so changes interpolated values *inside* the grid within a few nodes
+#:     of an edge. ``matvis`` never evaluates a beam outside its grid -- sources
+#:     below the horizon are dropped before interpolation -- so the mode is
+#:     chosen purely for accuracy just inside the edges, where whole-sample
+#:     mirror symmetry is the best fit for a beam sampled through the zenith
+#:     pole. See :doc:`/beam_interpolation`.
+DEFAULT_SPLINE_OPTS = {"order": 3, "mode": "mirror"}
+
 
 def prepare_beam_unpolarized(
     beam: BeamInterface,
@@ -120,6 +139,8 @@ class BeamInterpolator(ABC):
         Frequency to interpolate beam to.
     spline_opts
         A dictionary of options to send to the spline interpolation method.
+        Merged over :data:`DEFAULT_SPLINE_OPTS`, so keys left out keep their
+        default.
     precision
         The precision of the data (1 or 2).
     """
@@ -147,7 +168,7 @@ class BeamInterpolator(ABC):
         self.polarized = polarized
         self.nant = nant
         self.freq = freq
-        self.spline_opts = spline_opts or {}
+        self.spline_opts = DEFAULT_SPLINE_OPTS | (spline_opts or {})
 
         if self.polarized:
             self.nfeed = 2

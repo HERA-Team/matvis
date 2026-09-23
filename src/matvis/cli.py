@@ -39,6 +39,8 @@ from .core.coords import CoordinateRotation
 logging.basicConfig(handlers=[RichHandler(rich_tracebacks=True)])
 
 if HAVE_GPU:
+    import cupy as cp
+
     from matvis import gpu
     from matvis.gpu import gpu as gpu_module
 
@@ -61,6 +63,7 @@ STEPS = {
     "Compute exp(tau)": ("taucalc(",),
     "Compute Z": ("zcalc(",),
     "Compute V": ("matprod(",),
+    "Sum Chunks": ("matprod.sum_chunks(",),
 }
 
 profiler = LineProfiler()
@@ -76,7 +79,8 @@ def get_label(**kwargs):
     precision = 2 if kwargs["double_precision"] else 1
     label = (
         "A{analytic_beam}_nf{nfreq}_nt{ntimes}_na{nants}_ns{nsource}_nb{nbeams}_"
-        "naz{naz}_nza{nza}_g{gpu}_pr{precision}_{matprod_method}_{coord_method}"
+        "naz{naz}_nza{nza}_o{spline_order}_g{gpu}_pr{precision}_{matprod_method}_"
+        "{coord_method}"
     ).format(precision=precision, **kwargs)
     # Keep MatBlock runs at different block counts in separate files, since
     # comparing them against each other is the whole point of the option.
@@ -107,6 +111,7 @@ def run_profile(
     gpu_event_timing=False,
     warmup=True,
     max_blocks=4,
+    spline_order=1,
 ):
     """Run the script."""
     if not HAVE_GPU and gpu:
@@ -160,6 +165,7 @@ def run_profile(
     cns.print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
     cns.print(f"  NAZ:              {naz:>7}")
     cns.print(f"  NZA:              {nza:>7}")
+    cns.print(f"  SPLINE ORDER:     {spline_order:>7}")
     cns.print(f"  GPU-EVENT-TIMING: {gpu_event_timing:>7}")
     cns.print(f"  WARMUP:           {warmup:>7}")
     cns.print(Rule())
@@ -189,7 +195,17 @@ def run_profile(
             antpairs=pairs,
             antenna_blocks=antenna_blocks,
             source_buffer=source_buffer,
+            beam_spline_opts={"order": spline_order},
         )
+
+        # Release the warmup's device buffers back to the driver. cupy's
+        # memory pool would otherwise keep holding them, and the timed run
+        # decides its chunk count from `Device().mem_info` -- i.e. from
+        # *driver-visible* free memory. Without this the timed run can see a
+        # fraction of the card free and silently pick a far larger chunk
+        # count than requested, which changes the workload being measured.
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
 
     if gpu:
         profiler.add_function(simgpu)
@@ -221,6 +237,7 @@ def run_profile(
         antenna_blocks=antenna_blocks,
         min_chunks=nchunks,
         source_buffer=source_buffer,
+        beam_spline_opts={"order": spline_order},
         **backend_kw,
     )
     out_time = time.time()
@@ -241,6 +258,7 @@ def run_profile(
         naz=naz,
         nza=nza,
         max_blocks=max_blocks if antenna_blocks is not None else None,
+        spline_order=spline_order,
     )
 
     with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
@@ -269,10 +287,27 @@ def run_profile(
             derived["host_overhead_per_integration"] = max(
                 derived["steady_wall_per_integration"] - gpu_time, 0.0
             )
+        if "steady_sum_chunks_per_integration" in run_stats:
+            derived["sum_chunks_per_integration"] = run_stats[
+                "steady_sum_chunks_per_integration"
+            ]
 
     cns.print()
     cns.print(Rule("Summary of timings"))
     cns.print(f"         Total Time:            {out_time - init_time:.3e} seconds")
+    if gpu and "nchunks" in gpu_module.LAST_RUN_STATS:
+        actual_chunks = gpu_module.LAST_RUN_STATS["nchunks"]
+        cns.print(f"  Chunks used:                            {actual_chunks}")
+        if actual_chunks != nchunks:
+            # --nchunks is a *minimum*; auto-chunking raises it when device
+            # memory is tight. That changes the per-chunk problem size, so
+            # timings are not comparable with runs that used the requested
+            # count -- say so rather than letting it pass unnoticed.
+            cns.print(
+                f"[bold yellow]  WARNING: auto-chunking used {actual_chunks} chunks, "
+                f"not the {nchunks} requested; per-chunk timings are NOT comparable "
+                f"with runs at {nchunks} chunks.[/bold yellow]"
+            )
     if "steady_wall_per_integration" in derived:
         cns.print(
             f"  Steady-state wall time per integration: "
@@ -286,6 +321,11 @@ def run_profile(
         cns.print(
             f"  Host overhead per integration:          "
             f"{derived['host_overhead_per_integration']:.3e} seconds"
+        )
+    if "sum_chunks_per_integration" in derived:
+        cns.print(
+            f"  sum_chunks per integration:             "
+            f"{derived['sum_chunks_per_integration']:.3e} seconds"
         )
     cns.print()
     for thing, (hits, _time, time_per_hit, percent, nlines) in thing_stats.items():
@@ -316,6 +356,9 @@ def run_profile(
             "source_buffer": source_buffer,
             "npairs": len(pairs) if pairs is not None else nants**2,
         },
+        # What auto-chunking actually settled on; may exceed the requested
+        # minimum when device memory is tight (see the warning above).
+        "nchunks_used": gpu_module.LAST_RUN_STATS.get("nchunks") if gpu else nchunks,
         "total_time": out_time - init_time,
         "stages": {
             thing: {
@@ -432,6 +475,12 @@ common_profile_options = [
         default=180,
         type=int,
         help="Number of zenith-angle grid points for gridded beams.",
+    ),
+    click.option(
+        "--spline-order",
+        default=1,
+        type=int,
+        help="Spline order for gridded-beam interpolation (1=bilinear, 3=bicubic).",
     ),
     click.option(
         "--source-buffer",

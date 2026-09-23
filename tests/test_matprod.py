@@ -75,3 +75,48 @@ def test_matprod(nfeed, antpairs, precision, method, nchunks):
     assert out.dtype.type == ctype
     assert out.shape == (obj.npairs, nfeed, nfeed)
     np.testing.assert_allclose(out, true)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        pytest.param("GPUMatMul", marks=pytest.mark.gpu),
+        pytest.param("GPUVectorDot", marks=pytest.mark.gpu),
+    ],
+)
+def test_matprod_skipped_chunk_is_not_stale(method):
+    """A chunk not computed this integration must contribute nothing.
+
+    matvis skips chunks with no sources above the horizon, so ``compute`` is
+    never called for them. The accumulator must therefore be reset by
+    ``sum_chunks``; otherwise the skipped chunk silently contributes the
+    *previous* integration's visibilities.
+    """
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    from matvis.gpu import matprod as module
+
+    cls = getattr(module, method)
+    nant, nfeed, nsrc, nchunks = 5, 2, 15, 2
+    ctype = get_dtypes(1)[1]
+
+    obj = cls(nchunks=nchunks, nfeed=nfeed, nant=nant, antpairs=None, precision=1)
+    obj.setup()
+
+    z = cp.asarray(
+        np.arange(nfeed * nant * nsrc, dtype=ctype).reshape((nfeed * nant, nsrc)) + 1j
+    )
+
+    # Integration 0: both chunks have sources up.
+    both = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
+    obj(z, chunk=0)
+    obj(z, chunk=1)
+    obj.sum_chunks(both)
+
+    # Integration 1: chunk 1 is entirely below the horizon, so it is skipped.
+    one = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
+    obj(z, chunk=0)
+    obj.sum_chunks(one)
+
+    np.testing.assert_allclose(both, 2 * one, rtol=1e-5)

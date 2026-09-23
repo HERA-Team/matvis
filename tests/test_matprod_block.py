@@ -346,11 +346,15 @@ def test_nchunks_accumulate_correctly(method, nchunks):
 
 
 @pytest.mark.parametrize("method", ALL_METHODS)
-def test_repeated_calls_on_same_chunk_overwrite_not_accumulate(method):
-    """Calling compute() again on the same chunk index must overwrite, not accumulate.
+def test_one_integration_does_not_leak_into_the_next(method):
+    """Each integration's visibilities must depend only on that integration's z.
 
-    This is the real usage pattern: matvis's per-time loop calls the matprod object
-    once per chunk *per time sample*, reusing chunk indices across times.
+    This is the real usage pattern: matvis's per-time loop calls the matprod
+    object once per chunk *per time sample*, reusing chunk indices across times,
+    with ``sum_chunks`` marking the integration boundary. The CPU path overwrites
+    ``vis[chunk]`` per call; the GPU path accumulates into one buffer that
+    ``sum_chunks`` resets (see ``gpu.matprod._AccumulatingMatProd``). Either way
+    the second integration must come out as if the first had never run.
     """
     precision = 1
     nfeed = 1
@@ -363,17 +367,63 @@ def test_repeated_calls_on_same_chunk_overwrite_not_accumulate(method):
     obj = _construct(cls, nant, nfeed, antpairs, blocks, precision)
     obj.setup()
 
+    ctype = get_dtypes(precision)[1]
     z1 = _make_z(nant, nfeed, nsrc, precision, seed=21)
     z2 = _make_z(nant, nfeed, nsrc, precision, seed=22)
 
+    first = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
     obj(_to_backend(z1, method), chunk=0)  # "time 0"
-    obj(_to_backend(z2, method), chunk=0)  # "time 1" reusing the same chunk index
+    obj.sum_chunks(first)
 
-    out = np.zeros((obj.npairs, nfeed, nfeed), dtype=get_dtypes(precision)[1])
-    obj.sum_chunks(out)
+    second = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
+    obj(_to_backend(z2, method), chunk=0)  # "time 1", same chunk index
+    obj.sum_chunks(second)
 
-    expected = _reference_vis(z2, nant, nfeed, antpairs)
-    np.testing.assert_allclose(out, expected, rtol=1e-4, atol=1e-6)
+    np.testing.assert_allclose(
+        first, _reference_vis(z1, nant, nfeed, antpairs), rtol=1e-4, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        second, _reference_vis(z2, nant, nfeed, antpairs), rtol=1e-4, atol=1e-6
+    )
+
+
+@pytest.mark.parametrize("method", [pytest.param("GPUMatBlock", marks=pytest.mark.gpu)])
+def test_skipped_chunk_is_not_stale(method):
+    """A chunk not computed this integration must contribute nothing.
+
+    The GPU backend skips chunks with no sources above the horizon, so
+    ``compute`` is never called for them. Since all chunks share one
+    accumulator, ``sum_chunks`` has to reset it, or the skipped chunk silently
+    contributes the *previous* integration's visibilities. (Mirrors
+    ``test_matprod.py::test_matprod_skipped_chunk_is_not_stale`` for the
+    block-decomposed path, which scatters into the accumulator rather than
+    writing it whole.)
+    """
+    precision, nfeed = 1, 2
+    nant, nsrc, nchunks = 5, 15, 2
+    all_idx = np.arange(nant)
+    blocks = [(all_idx, all_idx)]
+    antpairs = np.array([(i, j) for i in range(nant) for j in range(nant)])
+
+    cls = _get_cls(method)
+    obj = _construct(cls, nant, nfeed, antpairs, blocks, precision, nchunks=nchunks)
+    obj.setup()
+
+    ctype = get_dtypes(precision)[1]
+    z = _to_backend(_make_z(nant, nfeed, nsrc, precision, seed=7), method)
+
+    # Integration 0: both chunks have sources up.
+    both = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
+    obj(z, chunk=0)
+    obj(z, chunk=1)
+    obj.sum_chunks(both)
+
+    # Integration 1: chunk 1 is entirely below the horizon, so it is skipped.
+    one = np.zeros((obj.npairs, nfeed, nfeed), dtype=ctype)
+    obj(z, chunk=0)
+    obj.sum_chunks(one)
+
+    np.testing.assert_allclose(both, 2 * one, rtol=1e-4, atol=1e-6)
 
 
 @pytest.mark.parametrize("method", ["CPUMatBlock"])
