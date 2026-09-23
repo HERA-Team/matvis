@@ -441,15 +441,14 @@ Changes that significantly altered performance, newest first:
          chunk.
        - ``enu_to_az_za`` clamps instead of using boolean-mask indexing,
          whose result size is only known on the host.
-     - GPU idle time per integration 49.7 → 14.5 ms at 350 antennas / 1M
-       sources / fp32 / ``source_buffer=1.0`` (RTX A2000, ``gpu_idle.py``);
-       27.2 → 8.9 ms at ``source_buffer=0.55``. Device *busy* time is
-       unchanged, so the wall-time gain scales with how fast the card is:
-       ~1-2% on an A2000, ~4% projected for a V100. The idle figures are
-       host-bound and so independent of the beam kernel, but the percentages
-       were taken against an order-1 beam baseline, before bicubic became the
-       GPU default; the extra device work of the bicubic kernel makes them
-       correspondingly smaller.
+     - GPU idle time per integration 50.3 → 15.4 ms at 350 antennas / 350
+       beams / 1M sources / fp32 / 30 chunks / ``source_buffer=1.0`` (RTX
+       A2000, ``gpu_idle.py``, mean of 5 settled integrations); 42.2 → 14.3
+       ms at ``source_buffer=0.55``. Device *busy* time is unchanged
+       (1972 → 1954 ms and 1208 → 1181 ms, both within this card's
+       clock drift), so the wall-time gain is the idle saving and scales
+       with how fast the card is: 1.7-2.2% on an A2000, 4.5-5.7% projected
+       for a V100.
    * - Bicubic beam interpolation (Sept 2026)
      - Added a fused bicubic-B-spline CUDA kernel for gridded beams
        (``beam_spline_opts={"order": 3}``), alongside a one-off spline

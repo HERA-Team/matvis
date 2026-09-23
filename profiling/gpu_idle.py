@@ -230,8 +230,17 @@ def main(argv=None):
         help="integrations to discard as warmup (default: all but the last N-1 "
         "of the final simulation, i.e. everything before the timed loop settles)",
     )
+    # Split on the first "--" ourselves rather than leaving it to argparse: it
+    # would hand the first simulation flag to the `report` positional (so
+    # `--run -- -a 350 ...` loses the `-a` and matvis rejects the stray 350).
+    argv = list(sys.argv[1:] if argv is None else argv)
+    after_sep = []
+    if "--" in argv:
+        cut = argv.index("--")
+        argv, after_sep = argv[:cut], argv[cut + 1 :]
+
     args, rest = p.parse_known_args(argv)
-    sim_args = [a for a in rest if a != "--"]
+    sim_args = rest + after_sep
 
     if args.run:
         report = run_nsys(Path(args.out), sim_args)
