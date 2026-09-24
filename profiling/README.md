@@ -4,12 +4,14 @@ See the [Performance page](../docs/performance.rst) of the documentation for
 scaling rules-of-thumb and measured numbers. The tools here reproduce those
 measurements:
 
-- **`run-canonical.sh [outdir] [dev|prodslice|both]`** — runs two canonical
+- **`run-canonical.sh [outdir] [dev|prodslice|both] [spline-order]`** — runs two canonical
   benchmark configurations through `matvis profile`: `dev` (64 antennas/beams,
   200k sources — small enough to iterate quickly) and `prodslice` (350
   antennas/beams, 1M sources — a 'production-scale' run).
   Both use the following settings: polarized, gridded beams, one beam per
-  antenna, single precision. Writes human-readable summaries and
+  antenna, single precision, and linear beam interpolation unless a third
+  argument selects another spline order (3 = bicubic; see the docs Beam
+  Interpolation page). Writes human-readable summaries and
   machine-readable `summary-stats-*.json` files for before/after comparison.
   See `docs/cli.rst` for the full `matvis profile` parameter reference and an
   annotated example of the JSON output.
@@ -27,13 +29,16 @@ measurements:
     later integration).
   - `gpu_time_per_integration` — each integration's actual per-chunk
     CUDA-event totals summed, then the median taken across integrations
-    (excluding the first), i.e. device compute and transfer time only, no
-    host-side (CPU) dispatch. Comparable across machines that have the same
-    GPU, since it excludes the host's contribution.
+    (excluding the first). This is the time spanned by the chunk pipeline
+    *on the stream*, which is an upper bound on device compute: CUDA events
+    bracket a region of the stream, so device idle *inside* a chunk (waiting
+    for the host to enqueue work) is counted here too. Use `gpu_idle.py`
+    below to separate the two.
   - `host_overhead_per_integration` — `steady_wall_per_integration` minus
-    `gpu_time_per_integration`: everything that isn't GPU compute
-    (coordinate rotation, Python dispatch, horizon-cut bookkeeping). Varies
-    with the machine's CPU, not the GPU.
+    `gpu_time_per_integration`: host work that happens *outside* the chunk
+    loop (coordinate rotation, chunk summing, Python dispatch). Host stalls
+    *inside* the loop do not appear here — they are hidden in
+    `gpu_time_per_integration`; `gpu_idle.py` is what surfaces those.
   - `sum_chunks_per_integration` — the once-per-integration visibility
     readout, timed after an explicit stream drain so it measures its own
     cost rather than the queued pipeline it would otherwise block on.
@@ -76,9 +81,30 @@ nsys stats --report nvtx_sum --report cuda_gpu_kern_sum profiling/results/myrun.
 ```
 
 With the fully-asynchronous pipeline, host-side NVTX ranges mostly measure
-*waiting*, not work: the host spends most of its time waiting during
-`select_chunk`'s `cp.where` call, and that wait dominates the reported NVTX
-range rather than the call's own cost. Use the CUDA kernel summary for true
-device cost.
+*waiting*, not work, so a range's duration is not its cost. Use the CUDA
+kernel summary for true device cost, and `gpu_idle.py` (below) to find out
+where the device is idle.
+
+- **`gpu_idle.py`** — the complement to the CUDA-event timings: it takes the
+  union of all kernel and memcpy intervals in an nsys trace as the device's
+  *busy* time, subtracts that from each integration's wall span, and
+  attributes the remaining idle to the NVTX range the host was inside.
+
+  ```bash
+  profiling/gpu_idle.py --run -- -a 350 -b 350 -s 1000000 -t 3 --nchunks 30
+  profiling/gpu_idle.py profiling/results/mytrace.nsys-rep   # existing trace
+  ```
+
+  Idle is the headroom for anything that only makes the *host* faster
+  (removing a synchronization, fewer launches, deeper queueing); it does not
+  shrink on a faster GPU, so it is a *larger* fraction of the run there. To
+  predict a card `f` times faster on this workload, scale `busy` by `1/f` and
+  leave `idle` alone. This is how a host-side change can be judged honestly
+  on a modest development GPU.
+
+  Caveat: once the host successfully runs ahead of the device, the NVTX range
+  the host occupies during a gap is no longer the range that *caused* it. The
+  per-range breakdown is diagnostic when the host is the critical path (which
+  is exactly when it matters); the total is always meaningful.
 
 Outputs under `profiling/results/` are git-ignored.

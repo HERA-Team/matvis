@@ -41,7 +41,11 @@ def test_cpu_vs_gpu(polarized, use_analytic_beam, precision, min_chunks, source_
         "min_chunks": min_chunks,
         "source_buffer": source_buffer,
     }
-    vis_cpu = simulate_vis(use_gpu=False, beam_spline_opts={"order": 1}, **kw)
+    # No beam_spline_opts on either side: both backends take order and mode from
+    # matvis.core.beams.DEFAULT_SPLINE_OPTS, so this also guards them agreeing.
+    # (This test used to pass order=1 to the CPU only, and passed because the
+    # GPU's default happened to be 1 as well.)
+    vis_cpu = simulate_vis(use_gpu=False, **kw)
     vis_gpu = simulate_vis(use_gpu=True, **kw)
 
     # ---------------------------------------------------------------------------

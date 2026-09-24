@@ -73,9 +73,11 @@ def enu_to_az_za(enu_e, enu_n, orientation="astropy", periodic_azimuth=True):
     ], "orientation must be either 'astropy' or 'uvbeam'"
 
     lsqr = enu_n**2.0 + enu_e**2.0
-    mask = lsqr < 1
-    zeta = xp.zeros_like(lsqr)
-    zeta[mask] = xp.sqrt(1 - lsqr[mask])
+    # Sources at or beyond the horizon (lsqr >= 1) get zeta = 0. Clamping
+    # rather than masking keeps that identical while avoiding boolean-mask
+    # indexing, whose result size is only known on the host -- on the GPU that
+    # synchronizes the stream twice for every chunk of every integration.
+    zeta = xp.sqrt(xp.maximum(1 - lsqr, 0))
 
     az = xp.arctan2(enu_e, enu_n)
     za = 0.5 * np.pi - xp.arcsin(zeta)
