@@ -51,7 +51,7 @@ Fixed
 - GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
   ignores ``source_buffer`` for chunks of fewer than 1000 sources),
   preventing shape-mismatch errors in small simulations.
-  
+
 Performance
 -----------
 
