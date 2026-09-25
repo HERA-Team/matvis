@@ -5,6 +5,18 @@ Changelog
 Dev
 ===
 
+Fixed
+-----
+
+- Source chunking was planned from ``Device().mem_info[0]``, i.e. free device
+  memory as the *driver* sees it. cupy keeps freed blocks in its own pool
+  rather than returning them, so every ``gpu.simulate`` call after the first in
+  a process saw a fraction of the card free and chunked far more finely than
+  necessary -- at the production slice, 100 chunks instead of the 30 requested.
+  Because ``simulate_vis`` calls the backend once per channel, a
+  multi-frequency run could use a different chunk size for each channel.
+  Availability is now computed as driver-free plus the pool's free blocks.
+
 Performance
 -----------
 
