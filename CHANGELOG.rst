@@ -21,6 +21,37 @@ Added
   than ``MatMul`` on non-redundant arrays; see the Performance docs page for
   the sweep and for how to choose ``max_blocks``.
 
+Fixed
+-----
+
+- Source chunking was planned from ``Device().mem_info[0]``, i.e. free device
+  memory as the *driver* sees it. cupy keeps freed blocks in its own pool
+  rather than returning them, so every ``gpu.simulate`` call after the first in
+  a process saw a fraction of the card free and chunked far more finely than
+  necessary -- at the production slice, 100 chunks instead of the 30 requested.
+  Because ``simulate_vis`` calls the backend once per channel, a
+  multi-frequency run could use a different chunk size for each channel.
+  Availability is now computed as driver-free plus the pool's free blocks.
+- Documentation: the Beam Interpolation page claimed that scipy's ``mode``
+  affects only coordinates outside the beam grid. It does not for
+  ``order >= 2`` — it selects the B-spline prefilter, and so changes
+  interpolated values inside the grid near an edge. The page also no longer
+  justifies the boundary treatment by what happens to sub-horizon sources
+  (``matvis`` never evaluates one), and now documents the O(h) error that every
+  symmetric boundary mode produces in the outermost grid cell, which matters
+  only for beams truncated at the horizon.
+- GPU: a source chunk skipped because it had no sources above the horizon no
+  longer contributes the *previous* integration's visibilities. Previously
+  each chunk kept its own buffer which was only overwritten when the chunk
+  was actually computed, but was summed unconditionally.
+- Better handling of errors when GPUs are present but currently unavailable for some
+  reason.
+- Single-precision GPU simulations with gridded (``UVBeam``) beams no longer
+  crash on a dtype mismatch when uploading beam data.
+- GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
+  ignores ``source_buffer`` for chunks of fewer than 1000 sources),
+  preventing shape-mismatch errors in small simulations.
+  
 Performance
 -----------
 
@@ -98,28 +129,6 @@ Changed
     prefilter. Pinning the mode makes that agreement explicit rather than
     coincidental.
 
-Fixed
------
-
-- Documentation: the Beam Interpolation page claimed that scipy's ``mode``
-  affects only coordinates outside the beam grid. It does not for
-  ``order >= 2`` — it selects the B-spline prefilter, and so changes
-  interpolated values inside the grid near an edge. The page also no longer
-  justifies the boundary treatment by what happens to sub-horizon sources
-  (``matvis`` never evaluates one), and now documents the O(h) error that every
-  symmetric boundary mode produces in the outermost grid cell, which matters
-  only for beams truncated at the horizon.
-- GPU: a source chunk skipped because it had no sources above the horizon no
-  longer contributes the *previous* integration's visibilities. Previously
-  each chunk kept its own buffer which was only overwritten when the chunk
-  was actually computed, but was summed unconditionally.
-- Better handling of errors when GPUs are present but currently unavailable for some
-  reason.
-- Single-precision GPU simulations with gridded (``UVBeam``) beams no longer
-  crash on a dtype mismatch when uploading beam data.
-- GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
-  ignores ``source_buffer`` for chunks of fewer than 1000 sources),
-  preventing shape-mismatch errors in small simulations.
 
 Infrastructure
 --------------

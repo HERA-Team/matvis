@@ -58,6 +58,25 @@ ONE_OVER_C = 1.0 / speed_of_light.value
 # call, for profiling harnesses. Not part of the public API.
 LAST_RUN_STATS: dict = {}
 
+
+def available_device_memory() -> int:
+    """Device memory cupy can allocate without the driver having to find more.
+
+    ``Device().mem_info[0]`` is free memory as the *driver* sees it, but cupy
+    does not hand freed blocks back to the driver -- it keeps them in its own
+    pool. So after any previous allocation in the process, driver-visible free
+    memory understates what is actually available by the size of the pool's
+    free blocks, and source chunking sized from it is far too conservative.
+
+    This matters most when ``simulate`` is called more than once in a process,
+    which ``simulate_vis`` does for every frequency channel: without it, each
+    channel after the first plans a smaller chunk size than the one before,
+    and can reach the 100-chunk ceiling in ``get_required_chunks``.
+    """
+    pool = cp.get_default_memory_pool()
+    return int(cp.cuda.Device().mem_info[0] + pool.total_bytes() - pool.used_bytes())
+
+
 try:
     from cupy.cuda import nvtx as _nvtx
 
@@ -143,7 +162,7 @@ def simulate(  # noqa: C901
     rtype, ctype = get_dtypes(precision)
 
     nchunks, npixc = get_desired_chunks(
-        min(max_memory, cp.cuda.Device().mem_info[0]),
+        min(max_memory, available_device_memory()),
         min_chunks,
         beam_list,
         nax,
