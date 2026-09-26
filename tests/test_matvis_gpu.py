@@ -14,7 +14,41 @@ from pyuvdata.beam_interface import BeamInterface
 
 from matvis import simulate_vis
 from matvis._test_utils import get_standard_sim_params
-from matvis.gpu.gpu import LAST_RUN_STATS
+from matvis.gpu.gpu import LAST_RUN_STATS, available_device_memory
+
+
+def test_available_device_memory_counts_the_cupy_pool():
+    """Memory cupy already holds is available, even though the driver says it isn't.
+
+    Regression test for chunk planning: `Device().mem_info[0]` shrinks as cupy's
+    pool grows, so a second simulate() call in the same process used to see a
+    fraction of the card free and silently pick a much larger chunk count.
+    """
+    import cupy as cp
+
+    pool = cp.get_default_memory_pool()
+    pool.free_all_blocks()
+
+    baseline = available_device_memory()
+    driver_baseline = cp.cuda.Device().mem_info[0]
+
+    # Hold, then release, a block big enough to be unambiguous against noise
+    # from other allocations on the device.
+    nbytes = 256 * 1024**2
+    block = cp.empty(nbytes, dtype=cp.uint8)
+    del block  # returns to the pool, NOT to the driver
+
+    assert pool.total_bytes() - pool.used_bytes() >= nbytes
+    driver_after = cp.cuda.Device().mem_info[0]
+
+    # The driver now sees less free memory than before...
+    assert driver_after < driver_baseline
+    # ...but the pooled block is still ours to allocate, so our accounting
+    # should not have dropped by anything like that much.
+    assert available_device_memory() > driver_after
+    assert available_device_memory() >= baseline - nbytes // 2
+
+    pool.free_all_blocks()
 
 
 def test_antizenith():
@@ -23,9 +57,7 @@ def test_antizenith():
         True, False, nsource=1, first_source_antizenith=True
     )
 
-    vis = simulate_vis(
-        precision=2, use_gpu=True, beam_spline_opts={"kx": 1, "ky": 1}, **kw
-    )
+    vis = simulate_vis(precision=2, use_gpu=True, beam_spline_opts={"order": 1}, **kw)
 
     assert np.all(vis == 0)
 
@@ -44,7 +76,7 @@ def test_gpu_event_timing_zero_active_chunks():
         precision=2,
         use_gpu=True,
         gpu_event_timing=True,
-        beam_spline_opts={"kx": 1, "ky": 1},
+        beam_spline_opts={"order": 1},
         **kw,
     )
 
@@ -110,7 +142,7 @@ def test_multibeam():
     kw |= {
         "precision": 2,
         "use_gpu": True,
-        "beam_spline_opts": {"kx": 1, "ky": 1},
+        "beam_spline_opts": {"order": 1},
         "beam_idx": np.zeros(len(kw["ants"]), dtype=int),
     }
     beams = kw.pop("beams")

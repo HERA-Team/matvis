@@ -15,11 +15,17 @@ jobs:
   notebooks:
     name: Running Docs Notebooks
     runs-on: ubuntu-latest
+    env:
+      # Keep UCX off the host's RDMA devices: on the Azure runners that expose a
+      # MANA NIC, opening the verbs transport fails and aborts the interpreter
+      # from C. Only shared-memory/loopback transports are ever needed here.
+      UCX_TLS: self,sm,tcp
     steps:
       - uses: actions/checkout@main
         with:
           fetch-depth: 1
-      - uses: mpi4py/setup-mpi@v1
+      # No system MPI: the MPI runtime is pinned in uv.lock (the `mpich` entry in
+      # the `test` dependency group) so every job runs an identical MPI stack.
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
