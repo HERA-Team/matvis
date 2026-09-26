@@ -5,6 +5,22 @@ Changelog
 Dev
 ===
 
+Added
+-----
+
+- Block-decomposed matrix product: ``matprod_method="MatBlock"`` computes a
+  handful of rectangular antenna-index sub-matrix products instead of the full
+  ``Nant x Nant`` one, for arrays whose requested ``antpairs`` are far fewer
+  than ``Nant**2`` (i.e. redundant arrays). The new ``matvis.redundancy``
+  module provides helpers for building the decomposition, chiefly
+  ``find_dense_blocks``. Opt-in; the default ``MatMul`` path is unchanged, and
+  the result is exact -- a rearrangement of the same computation, not an
+  approximation. On a 320-antenna redundant hex layout at production-slice
+  scale (RTX A2000) this is 3.4x faster end-to-end than ``MatMul``, with the
+  matrix product itself going from 41 ms to 6.6 ms per chunk. It is *slower*
+  than ``MatMul`` on non-redundant arrays; see the Performance docs page for
+  the sweep and for how to choose ``max_blocks``.
+
 Fixed
 -----
 
@@ -16,6 +32,25 @@ Fixed
   Because ``simulate_vis`` calls the backend once per channel, a
   multi-frequency run could use a different chunk size for each channel.
   Availability is now computed as driver-free plus the pool's free blocks.
+- Documentation: the Beam Interpolation page claimed that scipy's ``mode``
+  affects only coordinates outside the beam grid. It does not for
+  ``order >= 2`` — it selects the B-spline prefilter, and so changes
+  interpolated values inside the grid near an edge. The page also no longer
+  justifies the boundary treatment by what happens to sub-horizon sources
+  (``matvis`` never evaluates one), and now documents the O(h) error that every
+  symmetric boundary mode produces in the outermost grid cell, which matters
+  only for beams truncated at the horizon.
+- GPU: a source chunk skipped because it had no sources above the horizon no
+  longer contributes the *previous* integration's visibilities. Previously
+  each chunk kept its own buffer which was only overwritten when the chunk
+  was actually computed, but was summed unconditionally.
+- Better handling of errors when GPUs are present but currently unavailable for some
+  reason.
+- Single-precision GPU simulations with gridded (``UVBeam``) beams no longer
+  crash on a dtype mismatch when uploading beam data.
+- GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
+  ignores ``source_buffer`` for chunks of fewer than 1000 sources),
+  preventing shape-mismatch errors in small simulations.
 
 Performance
 -----------
@@ -44,6 +79,12 @@ Performance
   auto-chunking decision at 350 antennas (e.g. 24 → 22 chunks with 2 GB
   free), but the buffers previously grew with the very chunk count they
   helped determine, and that term dominates for larger arrays.
+- ``MatBlock`` builds the ``Z`` matrix with its antenna axis ordered to suit
+  the block decomposition, so that most blocks can be handed to BLAS as slices
+  of ``Z`` rather than being staged into a contiguous copy first -- that
+  staging would otherwise be about half of ``MatBlock``'s runtime. The order
+  is chosen by ``matvis.redundancy.contiguity_order`` and wired up
+  automatically; the visibilities are unchanged.
 - Major GPU hot-path overhaul (~7.7x faster per chunk at 350 antennas / 350
   beams / polarized / single precision; see the new "Performance" docs page):
 
@@ -98,28 +139,6 @@ Changed
     prefilter. Pinning the mode makes that agreement explicit rather than
     coincidental.
 
-Fixed
------
-
-- Documentation: the Beam Interpolation page claimed that scipy's ``mode``
-  affects only coordinates outside the beam grid. It does not for
-  ``order >= 2`` — it selects the B-spline prefilter, and so changes
-  interpolated values inside the grid near an edge. The page also no longer
-  justifies the boundary treatment by what happens to sub-horizon sources
-  (``matvis`` never evaluates one), and now documents the O(h) error that every
-  symmetric boundary mode produces in the outermost grid cell, which matters
-  only for beams truncated at the horizon.
-- GPU: a source chunk skipped because it had no sources above the horizon no
-  longer contributes the *previous* integration's visibilities. Previously
-  each chunk kept its own buffer which was only overwritten when the chunk
-  was actually computed, but was summed unconditionally.
-- Better handling of errors when GPUs are present but currently unavailable for some
-  reason.
-- Single-precision GPU simulations with gridded (``UVBeam``) beams no longer
-  crash on a dtype mismatch when uploading beam data.
-- GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
-  ignores ``source_buffer`` for chunks of fewer than 1000 sources),
-  preventing shape-mismatch errors in small simulations.
 
 Infrastructure
 --------------

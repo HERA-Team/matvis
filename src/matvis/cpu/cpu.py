@@ -22,6 +22,7 @@ from ..core import _validate_inputs
 from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
+from ..redundancy import contiguity_order
 from . import matprod as mp
 from .beams import UVBeamInterpolator
 
@@ -42,12 +43,13 @@ def simulate(
     I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    antenna_blocks: list[tuple[np.ndarray, np.ndarray]] | None = None,
     precision: int = 1,
     polarized: bool = False,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
-    matprod_method: Literal["CPUMatMul", "CPUVectorLoop"] = "CPUMatMul",
+    matprod_method: Literal["CPUMatMul", "CPUVectorLoop", "CPUMatBlock"] = "CPUMatMul",
     coord_method: Literal[
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationAstropy",
@@ -83,6 +85,11 @@ def simulate(
         Either a 2D array, shape ``(Npairs, 2)``, or list of 2-tuples of ints, with
         the list of antenna-pairs to return as visibilities (all feed-pairs are always
         calculated). If None, all feed-pairs are returned.
+    antenna_blocks : list, optional
+        Advanced/optional. A list of ``(row_antenna_idx, col_antenna_idx)``
+        integer-array tuples defining rectangular sub-matrix blocks to compute
+        instead of the full antenna x antenna product; only used when
+        ``matprod_method`` is ``CPUMatBlock``. See :mod:`matvis.redundancy`.
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
@@ -225,14 +232,31 @@ def simulate(
         antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc
     )
 
+    # Relabelling the antenna axis is free in the Z construction but lets the
+    # block-decomposed matprod slice most of its operands straight out of Z
+    # instead of gathering them (issue #161). Both ends must agree on the
+    # labelling, so the same array goes to the matprod and to the Z calculator.
+    antenna_order = (
+        contiguity_order(antenna_blocks, nant) if antenna_blocks is not None else None
+    )
+
     mpcls = getattr(mp, matprod_method)
-    matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+    matprod = mpcls(
+        nchunks,
+        nfeed,
+        nant,
+        antpairs,
+        precision=precision,
+        antenna_blocks=antenna_blocks,
+        antenna_order=antenna_order,
+    )
     zcalc = ZMatrixCalc(
         nsrc=nsrc_alloc,
         nfeed=nfeed,
         nant=nant,
         nax=nax,
         ctype=ctype,
+        antenna_order=antenna_order,
     )
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)

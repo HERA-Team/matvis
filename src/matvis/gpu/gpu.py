@@ -29,6 +29,7 @@ from ..cpu.cpu import simulate as simcpu
 try:
     import cupy as cp
 
+    from ..redundancy import contiguity_order
     from . import beams
     from . import matprod as mp
     from .getz import GPUZMatrixCalc
@@ -106,6 +107,7 @@ def simulate(  # noqa: C901
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
     polarized: bool = False,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    antenna_blocks: list[tuple[np.ndarray, np.ndarray]] | None = None,
     beam_idx: np.ndarray | None = None,
     max_memory: int = np.inf,
     min_chunks: int = 1,
@@ -116,7 +118,7 @@ def simulate(  # noqa: C901
         "CoordinateRotationERFA",
         "GPUCoordinateRotationERFA",
     ] = "CoordinateRotationAstropy",
-    matprod_method: Literal["GPUMatMul", "GPUVectorDot"] = "GPUMatMul",
+    matprod_method: Literal["GPUMatMul", "GPUVectorDot", "GPUMatBlock"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     memory_buffer: float = 0.9,
@@ -203,15 +205,36 @@ def simulate(  # noqa: C901
         precision=precision,
         spline_opts=beam_spline_opts,
     )
+    # Relabelling the antenna axis is free here but lets the block-decomposed
+    # matprod hand most of its operands straight to cuBLAS instead of gathering
+    # them (issue #161). Both ends must agree on the labelling, so the same
+    # array goes to the Z construction and to the matprod.
+    antenna_order = (
+        contiguity_order(antenna_blocks, nant) if antenna_blocks is not None else None
+    )
     zcalc = GPUZMatrixCalc(
-        nsrc=nsrc_alloc, nfeed=nfeed, nant=nant, nax=nax, ctype=ctype, gpu=True
+        nsrc=nsrc_alloc,
+        nfeed=nfeed,
+        nant=nant,
+        nax=nax,
+        ctype=ctype,
+        gpu=True,
+        antenna_order=antenna_order,
     )
     taucalc = TauCalculator(
         antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc, gpu=True
     )
 
     mpcls = getattr(mp, matprod_method)
-    matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+    matprod = mpcls(
+        nchunks,
+        nfeed,
+        nant,
+        antpairs,
+        precision=precision,
+        antenna_blocks=antenna_blocks,
+        antenna_order=antenna_order,
+    )
     debug_enabled = logger.isEnabledFor(logging.DEBUG)
 
     logger.debug("Starting GPU allocations...")

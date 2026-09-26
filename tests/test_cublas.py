@@ -92,12 +92,129 @@ def test_complex_matmul_invalid_dtype():
         cb.complex_matmul(a, a)
 
 
-def test_complex_matmul_raises_on_shape_mismatch():
-    """complex_matmul should reject a and b with different shapes."""
+def test_complex_matmul_raises_on_k_mismatch():
+    """complex_matmul should reject a and b whose source (column) axes disagree.
+
+    ``a`` and ``b`` are allowed to have a different number of *rows* (this is what
+    lets matprod block-dispatch multiply a rectangular antenna-group block), but
+    the shared source/K axis (their number of columns) must match.
+    """
     a = cp.zeros((4, 8), dtype=np.complex64)
-    b = cp.zeros((5, 8), dtype=np.complex64)
-    with pytest.raises(ValueError, match="a and b must have the same shape"):
+    b = cp.zeros((5, 9), dtype=np.complex64)
+    with pytest.raises(ValueError, match="same number of columns"):
         cb.complex_matmul(a, b)
+
+
+@pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
+def test_complex_matmul_rectangular(dtype):
+    """complex_matmul must support a and b with different numbers of rows (M != N).
+
+    This is required by non-square matprod blocks (e.g. a 3-antenna x 5-antenna block).
+    """
+    rng = np.random.default_rng(11)
+    a = (rng.standard_normal((3, 20)) + 1j * rng.standard_normal((3, 20))).astype(dtype)
+    b = (rng.standard_normal((5, 20)) + 1j * rng.standard_normal((5, 20))).astype(dtype)
+
+    c = cb.complex_matmul(cp.asarray(a), cp.asarray(b))
+    assert c.shape == (3, 5)
+    np.testing.assert_allclose(
+        c.get(),
+        np.dot(a.conj(), b.T),
+        rtol=1e-3 if dtype == np.complex64 else 1e-10,
+    )
+
+
+def test_complex_matmul_rectangular_matches_square_case_when_equal():
+    """Rectangular support must not change behaviour for the existing equal-shape case.
+
+    This is the square-output usage that GPUVectorDot relies on.
+    """
+    rng = np.random.default_rng(12)
+    a = (rng.standard_normal((2, 30)) + 1j * rng.standard_normal((2, 30))).astype(
+        np.complex64
+    )
+    b = (rng.standard_normal((2, 30)) + 1j * rng.standard_normal((2, 30))).astype(
+        np.complex64
+    )
+    c = cb.complex_matmul(cp.asarray(a), cp.asarray(b))
+    assert c.shape == (2, 2)
+    np.testing.assert_allclose(c.get(), np.dot(a.conj(), b.T), rtol=1e-3)
+
+
+def test_complex_matmul_raises_on_preallocated_out_wrong_shape():
+    """A preallocated `out` for a rectangular product must match (M, N), not (M, M)."""
+    a = cp.zeros((3, 8), dtype=np.complex64)
+    b = cp.zeros((5, 8), dtype=np.complex64)
+    out = cp.zeros((3, 3), dtype=np.complex64, order="F")
+    with pytest.raises(ValueError, match="shape"):
+        cb.complex_matmul(a, b, out=out)
+
+
+def test_complex_matmul_raises_on_non_c_contiguous_b():
+    """B's contiguity must be validated too, not just a's.
+
+    Block dispatch routinely passes a fancy-indexed (non-contiguous-by-default)
+    `b`; silently accepting it would corrupt results rather than raising.
+    """
+    a = cp.zeros((3, 8), dtype=np.complex64)
+    # A C-order (8, 5) array transposed to (5, 8) is F-contiguous, not C-contiguous.
+    b = cp.zeros((8, 5), dtype=np.complex64, order="C").T
+    assert b.shape == (5, 8) and not b._c_contiguous
+    with pytest.raises(ValueError, match="b must be C-contiguous"):
+        cb.complex_matmul(a, b)
+
+
+@pytest.mark.parametrize("m,n", [(3, 5), (5, 3)])
+def test_complex_matmul_rectangular_both_orientations(m, n):
+    """Rectangular support must work with either operand being the larger one."""
+    rng = np.random.default_rng(13)
+    a = (rng.standard_normal((m, 20)) + 1j * rng.standard_normal((m, 20))).astype(
+        np.complex64
+    )
+    b = (rng.standard_normal((n, 20)) + 1j * rng.standard_normal((n, 20))).astype(
+        np.complex64
+    )
+    c = cb.complex_matmul(cp.asarray(a), cp.asarray(b))
+    assert c.shape == (m, n)
+    np.testing.assert_allclose(c.get(), np.dot(a.conj(), b.T), rtol=1e-3)
+
+
+def test_complex_matmul_rectangular_out_and_beta_accumulation():
+    """A preallocated rectangular `out` with beta=1 must accumulate.
+
+    Exercises ldc/alpha/beta under M != N, which nothing else in this file does.
+    """
+    rng = np.random.default_rng(14)
+    a = (rng.standard_normal((3, 15)) + 1j * rng.standard_normal((3, 15))).astype(
+        np.complex64
+    )
+    b = (rng.standard_normal((5, 15)) + 1j * rng.standard_normal((5, 15))).astype(
+        np.complex64
+    )
+    expected = np.dot(a.conj(), b.T)
+
+    out = cp.zeros((3, 5), dtype=np.complex64, order="F")
+    cb.complex_matmul(cp.asarray(a), cp.asarray(b), out=out)
+    cb.complex_matmul(cp.asarray(a), cp.asarray(b), out=out, beta=1.0)
+    np.testing.assert_allclose(out.get(), 2 * expected, rtol=1e-3)
+
+
+def test_complex_matmul_rectangular_falls_back_without_lib(monkeypatch):
+    """The cgemm/zgemm fallback path must also support M != N.
+
+    Used when libcublas can't be bound directly; it has its own m/n/ld arguments.
+    """
+    rng = np.random.default_rng(15)
+    a = (rng.standard_normal((3, 12)) + 1j * rng.standard_normal((3, 12))).astype(
+        np.complex64
+    )
+    b = (rng.standard_normal((6, 12)) + 1j * rng.standard_normal((6, 12))).astype(
+        np.complex64
+    )
+    monkeypatch.setattr(cb, "_LIB", None)
+    c = cb.complex_matmul(cp.asarray(a), cp.asarray(b))
+    assert c.shape == (3, 6)
+    np.testing.assert_allclose(c.get(), np.dot(a.conj(), b.T), rtol=1e-3)
 
 
 def test_complex_matmul_raises_on_non_c_contiguous_a():
