@@ -8,8 +8,11 @@ changelog of changes that significantly affected performance.
 
 Unless noted otherwise, all statements refer to the GPU implementation with
 the following settings: **single precision**, polarized (2 feeds
-× 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation, and
-the ERFA coordinate method.
+× 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation
+explicitly selected via ``beam_spline_opts={"order": 1}`` (the default is
+cubic; see `Beam interpolation order`_ for its cost), and
+the ERFA coordinate method with a large value set for ``update_bcrs_every`` so
+that it doesn't dominate the runs.
 
 .. note::
 
@@ -18,6 +21,7 @@ the ERFA coordinate method.
    as much per time step -- 1594 ms against 49 ms at 3.1e6 sources on an
    RTX A2000, which turns coordinate rotation from ~0.7% of an integration into
    ~24% of one. The two agree to 10 mas in double precision.
+
 
 The simulations reported here were run with the ``matvis profile`` script,
 documented at :doc:`cli`. This script outputs a JSON file with profiling
@@ -160,8 +164,12 @@ provided ``profiling/gemm_experiments.py`` script.
 
 **GPU time** (``derived.gpu_time_per_integration``: per-integration sum of
 per-chunk CUDA event totals, median over integrations excluding the first)
-measures the time spent computing on the GPU (and transferring data to/from
-the GPU).
+measures the time spanned by the chunk pipeline *on the CUDA stream*. Note
+that this is an upper bound on device compute: CUDA events bracket a region
+of the stream, so any time the device sat idle inside a chunk waiting for the
+host to enqueue more work is counted here too. To separate real device work
+from pipeline stalls, use ``profiling/gpu_idle.py``, which takes the union of
+kernel and memcpy intervals from an ``nsys`` trace.
 **Wall time** (``derived.steady_wall_per_integration``: median
 per-integration wall time, excluding the first integration) adds host-side
 work — coordinate rotation, Python dispatch — and so also depends on the
@@ -235,6 +243,80 @@ There is currently no runtime auto-selection between strategies (tracked in
 `issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then, check
 both with ``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal.
 
+.. _interpolation-order:
+
+Beam interpolation order
+========================
+
+Bicubic interpolation is the default (see :doc:`beam_interpolation`); it reads
+16 grid points per source instead of 4. The numbers everywhere else on this
+page use linear interpolation, selected explicitly with
+``beam_spline_opts={"order": 1}``, so that the rest of the page isolates the
+other stages:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Configuration
+     - Beam stage (linear)
+     - Beam stage (cubic)
+     - Beam share of GPU time
+     - Total GPU time
+   * - production-slice (350 ants/beams, :math:`10^6` sources, 30 chunks)
+     - 8.2 ms/chunk
+     - 14.8 ms/chunk (1.8x)
+     - 12% → 19%
+     - +9%
+   * - dev (64 ants/beams, :math:`2\times10^5` sources)
+     - 6.8 ms/chunk
+     - 11.5 ms/chunk (1.7x)
+     - 12% → 17%
+     - +14%
+
+Measured on an RTX A2000 laptop GPU with ``--gpu-event-timing``, polarized,
+single precision, 180 × 360 beam grid; medians of four runs per order for the
+production slice. The total is quoted as the beam-stage *delta* over the linear
+chunk total (+6.6 ms on ~68 ms), because the matrix product's own run-to-run
+jitter is larger than the effect being measured and swamps a direct
+before/after comparison of totals.
+
+.. note::
+
+   Per-chunk stage timings are only comparable between runs at the same chunk
+   size, and absolute values drift with the GPU's clock and thermal state — on
+   a laptop card they moved by up to 20% between sessions. Use the ``tau`` and
+   ``z`` stages as a control: they are unaffected by the interpolation order,
+   so a pair of runs whose ``tau``/``z`` agree is a valid comparison. On that
+   basis the 1.8x stage cost and the 12% → 19% share reproduced across two
+   independent sessions (1.80x and 1.75x) even as the absolute milliseconds
+   moved.
+
+Reproduce with::
+
+    matvis profile -a 350 -b 350 -s 1000000 -t 4 --nchunks 30 --gpu \
+        --interpolated-beam --single-precision --gpu-event-timing \
+        --coord-method CoordinateRotationERFA -f 1 --spline-order 3 \
+        -o profiling/results
+
+The 1.8x on the stage is much less than the 4x increase in grid points read,
+because the stage is bound by the coefficient loads, and the 4 × 4
+neighbourhoods of neighbouring sources overlap heavily in cache. The total-run
+penalty is smaller again (~9%), because the matrix product still dominates —
+so the *relative* cost of cubic falls as the array grows, and rises as the
+source count per antenna falls.
+
+Two one-off setup costs come with ``order=3``, both small:
+
+- The spline **prefilter** (see :doc:`beam_interpolation`) takes ~0.4 s for 350
+  unique beams on a 180 × 360 grid — under a fifth of a single integration,
+  and it does not scale with the number of times, frequencies or sources.
+- The coefficient array carries a one-node halo on each grid axis, making it
+  1.7% larger than the beam grid it replaces (692 → 704 MiB at 350 beams).
+  Negligible against the per-chunk terms discussed under `Memory and
+  chunking`_. Beams are prefiltered one at a time as they reach the device, so
+  setup never holds the raw grids and the coefficients simultaneously (peak
+  720 MiB rather than 1408 MiB at 350 beams).
+
 Precision
 =========
 
@@ -293,25 +375,54 @@ The script is designed so its headline numbers are robust out of the box:
   totals and takes the **median across integrations, excluding the first**
   — the same warmup-robust treatment as the wall time above.
 
+- ``derived.sum_chunks_per_integration`` measures the once-per-integration
+  readout (completing the Hermitian matrix, reordering it, and copying it to
+  the host). It is timed *after* an explicit stream drain, so unlike the
+  line-profiler and NVTX views of the same call it excludes time spent
+  waiting on the queued chunk pipeline.
+- ``nchunks_used`` records what auto-chunking actually settled on.
+  ``--nchunks`` is only a *minimum*: when device memory is tight the run can
+  silently use many more chunks, which changes the per-chunk problem size and
+  makes stage timings incomparable. The profiler prints a warning when this
+  happens, and frees the warmup run's device buffers beforehand so the timed
+  run sees the whole card.
+
 The three ``derived`` values (steady wall, GPU time, host overhead) are the
 ones to quote and compare — they are what the Rules of Thumb table reports.
 
 The ``profiling/`` directory in the repository contains canonical benchmark
 configurations, GEMM/interpolation roofline micro-benchmarks (i.e. measures
-of performance compared to the theoretical maximum), and an
-``nsys`` recipe (the GPU loop is annotated with NVTX ranges). See
-``profiling/README.md``.
+of performance compared to the theoretical maximum), an ``nsys`` recipe (the
+GPU loop is annotated with NVTX ranges), and ``gpu_idle.py``, which reports
+how much of a run the device spends idle and which stage the host was in at
+the time. See ``profiling/README.md``.
+
+.. tip::
+
+   Idle time is the headroom available to changes that only make the *host*
+   faster — deeper queueing, fewer kernel launches, removing a
+   synchronization. It does not shrink when you move to a faster GPU, so on
+   a faster card it is a larger fraction of the run. That makes
+   ``gpu_idle.py`` the right tool for judging a host-side optimization on
+   modest hardware: measure the idle it removes, and scale only the *busy*
+   part by the ratio between your card and the target card.
 
 .. warning::
 
    The ``stages`` table in the JSON output comes from ``line_profiler``
    timing individual Python lines, but the GPU loop is asynchronous: a line
    can appear expensive simply because it's where the host next blocks on
-   already-queued GPU work (especially "Coordinate Rotation", which shares
-   its bucket with the horizon-cut's blocking sync — see
-   `issue #133 <https://github.com/HERA-Team/matvis/issues/133>`_). Use it
+   already-queued GPU work. Use it
    only as a rough indicator for the CPU backend; for the GPU backend use
    the ``derived`` and ``run_stats.event_timing_ms`` values.
+
+   "Sum Chunks" is the clearest example of how badly this can mislead. Its
+   ``stages`` entry once read ~73 ms per integration, but essentially all of
+   that was the host waiting on the integration's queued chunk pipeline, plus
+   the first integration's one-off allocations skewing a 4-sample mean. The
+   ``derived.sum_chunks_per_integration`` value — measured after an explicit
+   stream drain, and reported as a median excluding the first integration —
+   put the true cost at 13.9 ms.
 
 Performance changelog
 =====================
@@ -324,6 +435,64 @@ Changes that significantly altered performance, newest first:
    * - Version / PR
      - Change
      - Measured impact
+   * - `issue #133 <https://github.com/HERA-Team/matvis/issues/133>`_
+       (Sept 2026)
+     - Removed the three remaining per-chunk host synchronizations from the
+       GPU loop:
+
+       - The horizon cut is now a device-side order-preserving compaction
+         (``kernels/horizon_compact.cu``); the per-chunk counts needed to
+         skip empty chunks are gathered for the whole integration in one
+         batched pass, so the ``cp.where`` result size is no longer read
+         back once per chunk.
+       - The beam grid geometry (``daz``/``dza``/``azmin``) is uploaded once
+         at setup instead of being copied from pageable host memory on every
+         chunk.
+       - ``enu_to_az_za`` clamps instead of using boolean-mask indexing,
+         whose result size is only known on the host.
+     - GPU idle time per integration 50.3 → 15.4 ms at 350 antennas / 350
+       beams / 1M sources / fp32 / 30 chunks / ``source_buffer=1.0`` (RTX
+       A2000, ``gpu_idle.py``, mean of 5 settled integrations); 42.2 → 14.3
+       ms at ``source_buffer=0.55``. Device *busy* time is unchanged
+       (1972 → 1954 ms and 1208 → 1181 ms, both within this card's
+       clock drift), so the wall-time gain is the idle saving and scales
+       with how fast the card is: 1.7-2.2% on an A2000, 4.5-5.7% projected
+       for a V100.
+   * - Bicubic beam interpolation (Sept 2026)
+     - Added a fused bicubic-B-spline CUDA kernel for gridded beams
+       (``beam_spline_opts={"order": 3}``), alongside a one-off spline
+       prefilter at setup. Previously, any order other than 1 fell back to a
+       per-(beam, feed, axis) ``map_coordinates`` loop. The GPU default order
+       also moved from 1 to 3, matching what the CPU backend already did.
+     - Beam-interpolation stage 1.8x slower than linear (12% → 19% of GPU
+       time), ~+9% total runtime at the production slice — versus hundreds of
+       kernel launches per chunk on the old fallback path. ~6x lower RMS
+       interpolation error at 4° beam sampling.
+   * - `issue #132 <https://github.com/HERA-Team/matvis/issues/132>`_
+       (Sept 2026)
+     - GPU chunk accumulation and visibility readout:
+
+       - Source chunks accumulate directly into one device buffer via the
+         ``beta=1`` argument of ``cherk``, instead of each chunk filling its
+         own buffer that is summed at the end of the integration.
+       - The Hermitian mirror kernel runs once per integration rather than
+         once per chunk.
+       - The transpose into output ordering happens on the device, and the
+         result is staged through a pinned host buffer.
+     - ``sum_chunks`` 13.9 → 1.0 ms per integration (14x) at 350 antennas /
+       30 chunks / fp32 on an RTX A2000. The ``beta=1`` accumulation costs
+       the matrix product ~0.15 ms per chunk, so the *net* saving is ~8 ms
+       per integration — about 0.4% of a 2.0 s integration on that GPU, and
+       an estimated ~0.6% on a V100-class card (the device-side parts of the
+       old readout scale with memory bandwidth, but the PCIe copy and the
+       host-side transpose it removed do not). Device memory for the
+       visibility buffers is now independent of the chunk count
+       (118 MB → 8 MB here); that shifts the auto-chunking decision only
+       occasionally at this size (24 → 22 chunks with 2 GB free), but the
+       term grows as :math:`N_{\rm chunk} (N_{\rm ant} N_{\rm feed})^2` and
+       dominates for larger arrays. Also fixes a correctness bug: a chunk skipped because nothing in it
+       was above the horizon used to contribute the *previous* integration's
+       visibilities.
    * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
      - GPU hot-path overhaul:
 

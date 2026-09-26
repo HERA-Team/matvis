@@ -57,6 +57,25 @@ ONE_OVER_C = 1.0 / speed_of_light.value
 # call, for profiling harnesses. Not part of the public API.
 LAST_RUN_STATS: dict = {}
 
+
+def available_device_memory() -> int:
+    """Device memory cupy can allocate without the driver having to find more.
+
+    ``Device().mem_info[0]`` is free memory as the *driver* sees it, but cupy
+    does not hand freed blocks back to the driver -- it keeps them in its own
+    pool. So after any previous allocation in the process, driver-visible free
+    memory understates what is actually available by the size of the pool's
+    free blocks, and source chunking sized from it is far too conservative.
+
+    This matters most when ``simulate`` is called more than once in a process,
+    which ``simulate_vis`` does for every frequency channel: without it, each
+    channel after the first plans a smaller chunk size than the one before,
+    and can reach the 100-chunk ceiling in ``get_required_chunks``.
+    """
+    pool = cp.get_default_memory_pool()
+    return int(cp.cuda.Device().mem_info[0] + pool.total_bytes() - pool.used_bytes())
+
+
 try:
     from cupy.cuda import nvtx as _nvtx
 
@@ -116,6 +135,13 @@ def simulate(  # noqa: C901
         ``steady_gpu_time_per_integration`` summed from the actual chunks of
         each integration) via ``LAST_RUN_STATS``. Default is False.
 
+        ``sum_chunks`` runs once per integration rather than per chunk, so it
+        is timed separately: the stream is drained before it starts, meaning
+        ``steady_sum_chunks_per_integration`` is its own cost and not the
+        queued chunk pipeline it would otherwise block on. The drain adds no
+        work (the device-to-host copy blocks anyway), so per-integration wall
+        times remain comparable with runs that have event timing off.
+
     """
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")
@@ -134,7 +160,7 @@ def simulate(  # noqa: C901
     rtype, ctype = get_dtypes(precision)
 
     nchunks, npixc = get_desired_chunks(
-        min(max_memory, cp.cuda.Device().mem_info[0]),
+        min(max_memory, available_device_memory()),
         min_chunks,
         beam_list,
         nax,
@@ -144,6 +170,10 @@ def simulate(  # noqa: C901
         precision,
         source_buffer=source_buffer,
         memory_buffer=memory_buffer,
+        # The GPU matprods accumulate every chunk into one buffer, and keep a
+        # second one holding the result in output ordering, rather than one
+        # buffer per chunk.
+        vis_buffers=2,
     )
 
     coord_method = CoordinateRotation._methods[coord_method]
@@ -240,7 +270,14 @@ def simulate(  # noqa: C901
             "tau": [],
             "z": [],
             "matprod": [],
+            "sum_chunks": [],
         }
+        # sum_chunks runs once per integration rather than once per chunk, and
+        # has a host-side component as well as a device one, so it gets its own
+        # event pair plus a wall timer (see the `sum_chunks` block below).
+        event_sum_start = [cp.cuda.Event() for _ in range(ntimes)]
+        event_sum_end = [cp.cuda.Event() for _ in range(ntimes)]
+        sum_chunks_wall = []
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
 
@@ -354,8 +391,22 @@ def simulate(  # noqa: C901
 
         # No explicit synchronization needed: sum_chunks' device-to-host copy
         # is ordered on the same stream as all the compute above.
+        if gpu_event_timing:
+            # Drain the queued chunk pipeline first, so the wall timer below
+            # measures sum_chunks' own cost rather than the backlog it would
+            # otherwise block on. This only moves the (unavoidable) block
+            # earlier -- it adds no work -- so per-integration wall times are
+            # unaffected.
+            stream.synchronize()
+            event_sum_start[t].record(stream)
+            t_sum_start = time.time()
+
         with nvtx_range("sum_chunks"):
             matprod.sum_chunks(vis[t])
+
+        if gpu_event_timing:
+            event_sum_end[t].record(stream)
+            sum_chunks_wall.append(time.time() - t_sum_start)
         logdebug("vis", vis[t])
 
         integration_times.append(time.time() - t_int_start)
@@ -384,6 +435,12 @@ def simulate(  # noqa: C901
     )
 
     if gpu_event_timing and event_samples["chunk_total"]:
+        for t in range(ntimes):
+            event_sum_end[t].synchronize()
+            event_samples["sum_chunks"].append(
+                cp.cuda.get_elapsed_time(event_sum_start[t], event_sum_end[t])
+            )
+
         LAST_RUN_STATS["event_timing_ms"] = {
             stage: {
                 "median": float(np.median(samples)) if samples else 0.0,
@@ -406,12 +463,30 @@ def simulate(  # noqa: C901
             float(np.median(steady_gpu_ms)) / 1000.0
         )
 
+        # sum_chunks' wall cost (device reduction/copy plus any host-side
+        # reshaping). Measured after a stream drain, so it excludes the time
+        # spent waiting on the queued chunk pipeline -- unlike the line
+        # profiler's or NVTX's view of the same call.
+        steady_sum = (
+            sum_chunks_wall[1:] if len(sum_chunks_wall) > 1 else sum_chunks_wall
+        )
+        LAST_RUN_STATS["steady_sum_chunks_per_integration"] = float(
+            np.median(steady_sum)
+        )
+
         logger.info(
             "GPU event timing, median (ms): chunk_total=%.3f beam=%.3f tau=%.3f "
-            "z=%.3f matprod=%.3f",
+            "z=%.3f matprod=%.3f sum_chunks=%.3f",
             *(
                 LAST_RUN_STATS["event_timing_ms"][stage]["median"]
-                for stage in ("chunk_total", "beam", "tau", "z", "matprod")
+                for stage in (
+                    "chunk_total",
+                    "beam",
+                    "tau",
+                    "z",
+                    "matprod",
+                    "sum_chunks",
+                )
             ),
         )
 

@@ -93,7 +93,21 @@ def simulate_vis(
     use_gpu : bool, optional
         Whether to use the GPU for simulation.
     beam_spline_opts : dict, optional
-        Options to be passed to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
+        Options for interpolating gridded (``UVBeam``) beams. Passed through to
+        :func:`scipy.ndimage.map_coordinates` on the CPU backend, and to its GPU
+        equivalent on the GPU backend. Keys left out fall back to
+        :data:`~matvis.core.beams.DEFAULT_SPLINE_OPTS`, currently
+        ``{"order": 3, "mode": "nearest"}``.
+
+        On the GPU backend only ``order`` 1 (bilinear) and 3 (bicubic) have
+        dedicated fused kernels. Any other order falls back to a
+        per-(beam, feed, axis) ``map_coordinates`` loop that issues a separate
+        kernel launch for every combination -- hundreds per source chunk at
+        production scale -- and is *much* slower than either fused kernel. Orders
+        0, 2, 4 and 5 are supported for completeness, not for production use.
+
+        See :doc:`/beam_interpolation` for how to choose an order, and for the
+        behaviour at the edges of the beam grid.
     beam_idx
         An array of integers, of the same length as ``ants``. Each entry is for an
         antenna of the same index, and its value should be the index of the beam in

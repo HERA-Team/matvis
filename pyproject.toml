@@ -73,6 +73,11 @@ test = [
 	"pytest-cov",
 	"pytest-lazy-fixtures",
 	"pyuvsim[sim]>=1.2.5",
+	# pyuvsim pulls in mpi4py, whose PyPI wheels do not bundle an MPI runtime --
+	# they dynamically bind to whatever libmpi the system provides. Ship a
+	# self-contained, version-locked MPICH so the MPI stack under test is pinned
+	# like every other dependency instead of varying with the host.
+	"mpich; sys_platform != 'win32'",
 ]
 dev = [
 	{ include-group = "docs" },
