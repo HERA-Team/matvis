@@ -11,7 +11,11 @@ from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.utils.pol import polnum2str
 
 from matvis import HAVE_GPU
-from matvis.core.beams import _wrangle_beams, prepare_beam_unpolarized
+from matvis.core.beams import (
+    DEFAULT_SPLINE_OPTS,
+    _wrangle_beams,
+    prepare_beam_unpolarized,
+)
 from matvis.cpu.beams import UVBeamInterpolator
 
 
@@ -201,8 +205,16 @@ class TestGPUBeamInterpolator:
 
 
 @pytest.mark.gpu
-def test_gpu_beam_interp_against_cpu(efield_single_freq):
-    """Test that GPU beam interpolation matches the CPU interpolation."""
+@pytest.mark.parametrize("order", [1, 3])
+def test_gpu_beam_interp_against_cpu(efield_single_freq, order):
+    """Test that GPU beam interpolation matches the CPU interpolation.
+
+    ``mode`` is deliberately left unset so that both backends take it from
+    :data:`DEFAULT_SPLINE_OPTS`. At ``order=3`` that matters: the mode selects
+    the B-spline prefilter, so a backend inheriting scipy's ``"constant"``
+    default would disagree with the fused kernel near the edges of the grid,
+    not merely outside it.
+    """
     if not HAVE_GPU:
         pytest.skip("GPU is not available")
 
@@ -221,7 +233,7 @@ def test_gpu_beam_interp_against_cpu(efield_single_freq):
         nant=1,
         freq=100e6,
         nsrc=len(tx),
-        spline_opts={"order": 1},
+        spline_opts={"order": order},
         precision=2,
     )
 
@@ -232,7 +244,7 @@ def test_gpu_beam_interp_against_cpu(efield_single_freq):
         nant=1,
         freq=100e6,
         nsrc=len(tx),
-        spline_opts={"order": 1},
+        spline_opts={"order": order},
         precision=2,
     )
 
@@ -250,3 +262,62 @@ def test_gpu_beam_interp_against_cpu(efield_single_freq):
     np.testing.assert_allclose(
         cpu_bmfunc.interpolated_beam, gpu_bmfunc.interpolated_beam.get(), atol=1e-6
     )
+
+
+class TestDefaultSplineOpts:
+    """The interpolation defaults both backends share."""
+
+    def _interp(self, beam, **kw):
+        return UVBeamInterpolator(
+            beam_list=[beam],
+            beam_idx=np.zeros(1, dtype=int),
+            polarized=True,
+            nant=1,
+            freq=100e6,
+            nsrc=10,
+            precision=2,
+            **kw,
+        )
+
+    def test_unset_opts_take_the_defaults(self, efield_single_freq):
+        """An unset spline_opts must not leave order/mode to the backend."""
+        assert self._interp(efield_single_freq).spline_opts == DEFAULT_SPLINE_OPTS
+        assert self._interp(efield_single_freq, spline_opts=None).spline_opts == (
+            DEFAULT_SPLINE_OPTS
+        )
+
+    def test_partial_opts_merge_over_the_defaults(self, efield_single_freq):
+        """Keys the caller gives win; keys they omit keep their default."""
+        opts = self._interp(efield_single_freq, spline_opts={"order": 1}).spline_opts
+        assert opts["order"] == 1
+        assert opts["mode"] == DEFAULT_SPLINE_OPTS["mode"]
+
+    def test_caller_opts_are_not_mutated(self, efield_single_freq):
+        """Merging must not write the defaults back into the caller's dict."""
+        given = {"order": 1}
+        self._interp(efield_single_freq, spline_opts=given)
+        assert given == {"order": 1}
+
+    def test_cpu_backend_passes_them_to_pyuvdata(self, efield_single_freq, monkeypatch):
+        """Order and mode must reach map_coordinates explicitly, not via scipy's defaults.
+
+        scipy's own default mode is "constant". That happens to share the
+        "mirror" prefilter, so it agrees with the GPU kernels inside the grid
+        today -- but only by coincidence, and it differs outside. Pinning the
+        mode makes the agreement something the tests hold us to.
+        """
+        seen = {}
+        original = type(efield_single_freq).compute_response
+
+        def spy(self, **kwargs):
+            seen.update(kwargs.get("spline_opts") or {})
+            return original(self, **kwargs)
+
+        monkeypatch.setattr(type(efield_single_freq), "compute_response", spy)
+
+        bmfunc = self._interp(efield_single_freq)
+        bmfunc.setup()
+        bmfunc(np.linspace(-0.5, 0.5, 10), np.zeros(10))
+
+        assert seen["order"] == DEFAULT_SPLINE_OPTS["order"] == 3
+        assert seen["mode"] == DEFAULT_SPLINE_OPTS["mode"] == "mirror"
