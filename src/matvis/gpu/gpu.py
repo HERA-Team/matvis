@@ -115,7 +115,7 @@ def simulate(  # noqa: C901
         "CoordinateRotationAstropy",
         "CoordinateRotationERFA",
         "GPUCoordinateRotationERFA",
-    ] = "CoordinateRotationAstropy",
+    ] = "CoordinateRotationERFA",
     matprod_method: Literal["GPUMatMul", "GPUVectorDot"] = "GPUMatMul",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
