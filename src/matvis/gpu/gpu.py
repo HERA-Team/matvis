@@ -7,7 +7,6 @@ import logging
 import time
 import warnings
 from collections.abc import Sequence
-from contextlib import contextmanager, nullcontext
 from typing import Literal
 
 import numpy as np
@@ -20,8 +19,10 @@ from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
 
+from .._nvtx import nvtx_range  # noqa: F401  (re-exported for back-compat)
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
+from ..core import beams as _core_beams
 from ..core.coords import CoordinateRotation
 from ..core.tau import TauCalculator
 from ..cpu.cpu import simulate as simcpu
@@ -57,6 +58,13 @@ ONE_OVER_C = 1.0 / speed_of_light.value
 # call, for profiling harnesses. Not part of the public API.
 LAST_RUN_STATS: dict = {}
 
+# The same, but one entry per simulate() call, appended in call order and never
+# cleared implicitly. simulate() runs one frequency at a time, so a
+# multi-frequency run produces nfreq entries; LAST_RUN_STATS would only ever
+# show the last of them. Harnesses should call reset_run_stats() before a run
+# and read this afterwards.
+ALL_RUN_STATS: list[dict] = []
+
 
 def available_device_memory() -> int:
     """Device memory cupy can allocate without the driver having to find more.
@@ -76,22 +84,10 @@ def available_device_memory() -> int:
     return int(cp.cuda.Device().mem_info[0] + pool.total_bytes() - pool.used_bytes())
 
 
-try:
-    from cupy.cuda import nvtx as _nvtx
-
-    @contextmanager
-    def nvtx_range(name: str):
-        """Annotate a block as an NVTX range (visible in nsys timelines)."""
-        _nvtx.RangePush(name)
-        try:
-            yield
-        finally:
-            _nvtx.RangePop()
-
-except ImportError:
-
-    def nvtx_range(name: str):  # noqa: D103
-        return nullcontext()
+def reset_run_stats():
+    """Discard the stats of all previous simulate() calls."""
+    LAST_RUN_STATS.clear()
+    ALL_RUN_STATS.clear()
 
 
 @combine_docstrings(simcpu)
@@ -152,12 +148,28 @@ def simulate(  # noqa: C901
         raise ValueError("memory_buffer must satisfy 0 < memory_buffer <= 1")
 
     init_time = time.time()
+
+    # Host-side breakdown of setup, so the profiling harness can separate the
+    # part of it that a multi-frequency restructure could hoist out of the
+    # per-frequency loop from the part that is irreducibly per-frequency.
+    setup_breakdown: dict[str, float] = {}
+    device_bytes: dict[str, int] = {}
+    _phase_t = init_time
+
+    def _mark(name: str):
+        nonlocal _phase_t
+        now = time.time()
+        setup_breakdown[name] = now - _phase_t
+        device_bytes[name] = int(cp.get_default_memory_pool().used_bytes())
+        _phase_t = now
+
     pr = psutil.Process()
     nax, nfeed, nant, ntimes = _validate_inputs(
         precision, polarized, antpos, times, I_sky
     )
 
     rtype, ctype = get_dtypes(precision)
+    _mark("validate")
 
     nchunks, npixc = get_desired_chunks(
         min(max_memory, available_device_memory()),
@@ -175,6 +187,7 @@ def simulate(  # noqa: C901
         # buffer per chunk.
         vis_buffers=2,
     )
+    _mark("chunk_planning")
 
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
@@ -192,6 +205,7 @@ def simulate(  # noqa: C901
     # Use the same buffer width as the coordinate rotator, which may ignore
     # source_buffer for small chunks (see CoordinateRotation.__init__).
     nsrc_alloc = coords.nsrc_alloc
+    _mark("coord_construct")
 
     bmfunc = beams.GPUBeamInterpolator(
         beam_list=beam_list,
@@ -203,6 +217,15 @@ def simulate(  # noqa: C901
         precision=precision,
         spline_opts=beam_spline_opts,
     )
+    _mark("beam_construct")
+    # Inside beam_construct, how much was the per-frequency UVBeam.interp.
+    setup_breakdown["beam_wrangle_freq_independent"] = (
+        _core_beams.LAST_WRANGLE_TIMES.get("freq_independent", 0.0)
+    )
+    setup_breakdown["beam_wrangle_freq_dependent"] = _core_beams.LAST_WRANGLE_TIMES.get(
+        "freq_dependent", 0.0
+    )
+
     zcalc = GPUZMatrixCalc(
         nsrc=nsrc_alloc, nfeed=nfeed, nant=nant, nax=nax, ctype=ctype, gpu=True
     )
@@ -221,27 +244,32 @@ def simulate(  # noqa: C901
 
     # antpos here is imaginary and in wavelength units
     taucalc.setup()
+    _mark("tau_setup")
     if debug_enabled:
         memnow = cp.cuda.Device().mem_info[0]
         logger.debug(f"After antpos, GPU mem avail is: {memnow / 1024**3} GB.")
 
     bmfunc.setup()
+    _mark("beam_setup")
     if debug_enabled:
         memnow = cp.cuda.Device().mem_info[0]
         if bmfunc.use_interp:
             logger.debug(f"After bmfunc, GPU mem avail is: {memnow / 1024**3} GB.")
 
     coords.setup()
+    _mark("coord_setup")
     if debug_enabled:
         memnow = cp.cuda.Device().mem_info[0]
         logger.debug(f"After coords, GPU mem avail is: {memnow / 1024**3} GB.")
 
     zcalc.setup()
+    _mark("z_setup")
     if debug_enabled:
         memnow = cp.cuda.Device().mem_info[0]
         logger.debug(f"After zcalc, GPU mem avail is: {memnow / 1024**3} GB.")
 
     matprod.setup()
+    _mark("matprod_setup")
     if debug_enabled:
         memnow = cp.cuda.Device().mem_info[0]
         logger.debug(f"After matprod, GPU mem avail is: {memnow / 1024**3} GB.")
@@ -280,6 +308,7 @@ def simulate(  # noqa: C901
         sum_chunks_wall = []
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
+    _mark("vis_alloc")
 
     logger.info(f"Running With {nchunks} chunks")
 
@@ -289,6 +318,8 @@ def simulate(  # noqa: C901
     mlast = pr.memory_info().rss
     plast = tstart
     integration_times = []
+    # cupy's pool bookkeeping is host-side, so sampling it costs no sync.
+    peak_device_bytes = int(cp.get_default_memory_pool().used_bytes())
 
     for t in range(ntimes):
         t_int_start = time.time()
@@ -410,6 +441,9 @@ def simulate(  # noqa: C901
         logdebug("vis", vis[t])
 
         integration_times.append(time.time() - t_int_start)
+        peak_device_bytes = max(
+            peak_device_bytes, int(cp.get_default_memory_pool().used_bytes())
+        )
 
         if not t % report_chunk and t != ntimes - 1:
             plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
@@ -421,18 +455,19 @@ def simulate(  # noqa: C901
     # steady-state throughput is the median of the *remaining* integrations.
     steady = integration_times[1:] if len(integration_times) > 1 else integration_times
 
-    LAST_RUN_STATS.clear()
-    LAST_RUN_STATS.update(
-        {
-            "setup_time": tstart - init_time,
-            "loop_time": final_time - tstart,
-            "ntimes": ntimes,
-            "nchunks": nchunks,
-            "time_per_integration": (final_time - tstart) / ntimes,
-            "integration_times": integration_times,
-            "steady_time_per_integration": float(np.median(steady)),
-        }
-    )
+    stats = {
+        "freq": float(freq),
+        "setup_time": tstart - init_time,
+        "loop_time": final_time - tstart,
+        "ntimes": ntimes,
+        "nchunks": nchunks,
+        "time_per_integration": (final_time - tstart) / ntimes,
+        "integration_times": integration_times,
+        "steady_time_per_integration": float(np.median(steady)),
+        "setup_breakdown": setup_breakdown,
+        "setup_device_bytes": device_bytes,
+        "peak_device_bytes": peak_device_bytes,
+    }
 
     if gpu_event_timing and event_samples["chunk_total"]:
         for t in range(ntimes):
@@ -441,7 +476,7 @@ def simulate(  # noqa: C901
                 cp.cuda.get_elapsed_time(event_sum_start[t], event_sum_end[t])
             )
 
-        LAST_RUN_STATS["event_timing_ms"] = {
+        stats["event_timing_ms"] = {
             stage: {
                 "median": float(np.median(samples)) if samples else 0.0,
                 "mean": float(np.mean(samples)) if samples else 0.0,
@@ -459,7 +494,7 @@ def simulate(  # noqa: C901
             if len(per_integration_gpu_ms) > 1
             else per_integration_gpu_ms
         )
-        LAST_RUN_STATS["steady_gpu_time_per_integration"] = (
+        stats["steady_gpu_time_per_integration"] = (
             float(np.median(steady_gpu_ms)) / 1000.0
         )
 
@@ -470,15 +505,13 @@ def simulate(  # noqa: C901
         steady_sum = (
             sum_chunks_wall[1:] if len(sum_chunks_wall) > 1 else sum_chunks_wall
         )
-        LAST_RUN_STATS["steady_sum_chunks_per_integration"] = float(
-            np.median(steady_sum)
-        )
+        stats["steady_sum_chunks_per_integration"] = float(np.median(steady_sum))
 
         logger.info(
             "GPU event timing, median (ms): chunk_total=%.3f beam=%.3f tau=%.3f "
             "z=%.3f matprod=%.3f sum_chunks=%.3f",
             *(
-                LAST_RUN_STATS["event_timing_ms"][stage]["median"]
+                stats["event_timing_ms"][stage]["median"]
                 for stage in (
                     "chunk_total",
                     "beam",
@@ -489,5 +522,9 @@ def simulate(  # noqa: C901
                 )
             ),
         )
+
+    LAST_RUN_STATS.clear()
+    LAST_RUN_STATS.update(stats)
+    ALL_RUN_STATS.append(stats)
 
     return vis if polarized else vis[:, :, 0, 0]
