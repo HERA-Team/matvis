@@ -51,6 +51,50 @@ def prepare_beam_unpolarized(
     return beam
 
 
+def _already_at_freq(beam: BeamInterface, freq: float) -> bool:
+    """Report whether this UVBeam is a single channel sitting exactly on ``freq``.
+
+    Interpolating such a beam onto that frequency is a no-op in substance, but
+    ``UVBeam.interp(new_object=True)`` rebuilds the whole object regardless --
+    a cost paid per beam, per channel. Callers that interpolate their beams
+    before handing them over, as HERA does for each single-channel job, hit
+    this every time.
+    """
+    fa = np.atleast_1d(beam.beam.freq_array)
+    return fa.size == 1 and bool(np.isclose(fa[0], freq, rtol=0, atol=1e-3))
+
+
+def _interp_beams_to_freq(
+    beam_list: list[BeamInterface], freq: float
+) -> list[BeamInterface]:
+    """Put every UVBeam in ``beam_list`` on a single channel at ``freq``.
+
+    Two shortcuts, both of which leave the result identical:
+
+    * a beam already on exactly that channel is returned untouched;
+    * beams that are the *same object* are interpolated once between them,
+      which matters because a shared beam is usually passed as ``[beam] * nant``.
+
+    Analytic beams carry no frequency axis and are returned as they are.
+    """
+    interped: dict[int, BeamInterface] = {}
+    out = []
+    for bm in beam_list:
+        if not bm._isuvbeam or _already_at_freq(bm, freq):
+            out.append(bm)
+            continue
+
+        key = id(bm.beam)
+        if key not in interped:
+            interped[key] = bm.clone(
+                beam=bm.beam.interp(
+                    freq_array=np.array([freq]), new_object=True, run_check=False
+                )
+            )
+        out.append(interped[key])
+    return out
+
+
 def _wrangle_beams(
     beam_idx: np.ndarray | None,
     beam_list: list[BeamInterface | UVBeam | AnalyticBeam],
@@ -98,18 +142,7 @@ def _wrangle_beams(
             )
 
     # make sure we interpolate to the right frequency first.
-    beam_list = [
-        (
-            bm.clone(
-                beam=bm.beam.interp(
-                    freq_array=np.array([freq]), new_object=True, run_check=False
-                )
-            )
-            if bm._isuvbeam
-            else bm
-        )
-        for bm in beam_list
-    ]
+    beam_list = _interp_beams_to_freq(beam_list, freq)
 
     if polarized:
         if any(b.beam_type != "efield" for b in beam_list):
