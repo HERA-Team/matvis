@@ -51,3 +51,54 @@ class CPUVectorDot(MatProd):
             out[i] = z[aj].dot(z[ai].conj().T)  # dot(z[aj].T)
 
         return out
+
+
+class CPUMatBlock(MatProd):
+    """Compute a set of rectangular antenna-block sub-matrix products.
+
+    Instead of one full ``Nant x Nant`` product (:class:`CPUMatMul`) or a Python
+    loop over individual pairs (:class:`CPUVectorDot`), this computes one smaller
+    ``(len(rows)*Nfeed) x (len(cols)*Nfeed)`` product per ``antenna_blocks`` entry
+    and gathers just the requested ``antpairs`` out of each block directly into
+    the output -- no ``(Nant, Nant, Nfeed, Nfeed)`` intermediate is ever built.
+    Useful when the requested ``antpairs`` are concentrated within a modest
+    number of antenna groupings (e.g. redundant-baseline dedup, or an
+    array with a compact core), trading a small amount of "wasted" computation
+    on non-requested pairs inside a block for either fewer total FLOPs than the
+    full product, or fewer/bigger BLAS calls than :class:`CPUVectorDot`.
+
+    See :mod:`matvis.redundancy` for helpers that build ``antenna_blocks`` lists.
+    """
+
+    supports_blocks = True
+
+    def compute(self, z: np.ndarray, out: np.ndarray) -> np.ndarray:
+        """Perform the source-summing operation for a single time and chunk.
+
+        Parameters
+        ----------
+        z
+            Complex integrand. Shape=(Nfeed*Nant, Nax*Nsrc).
+        out
+            Output array, shaped as (Npairs, Nfeed, Nfeed).
+        """
+        z = z.reshape((self.nant, self.nfeed, -1))
+
+        for blk in self._block_plan:
+            # blk.rows/cols are slices whenever the block's antennas are a
+            # consecutive run, making these views rather than copies.
+            zr = z[blk.rows].reshape(blk.nrow * self.nfeed, -1)
+            zc = z[blk.cols].reshape(blk.ncol * self.nfeed, -1)
+
+            block = zr.conj().dot(zc.T)
+            block.shape = (blk.nrow, self.nfeed, blk.ncol, self.nfeed)
+            block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
+
+            if blk.slots.size:
+                out[blk.slots] = block[blk.lr, blk.lc]
+            if blk.rslots.size:
+                # This block holds the reversed pair; V_ij is the Hermitian
+                # conjugate of V_ji over the two feed axes.
+                out[blk.rslots] = block[blk.rlr, blk.rlc].conj().transpose((0, 2, 1))
+
+        return out

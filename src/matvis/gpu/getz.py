@@ -22,6 +22,11 @@ class GPUZMatrixCalc(ZMatrixCalc):
         kwargs.setdefault("gpu", True)
         super().__init__(*args, **kwargs)
         self._beam_idx_gpu = None
+        self._ant_order_gpu = (
+            np.uint64(0)  # NULL pointer
+            if self.antenna_order is None
+            else cp.asarray(self.antenna_order, dtype=np.int64)
+        )
 
     @combine_docstrings(ZMatrixCalc.__call__)
     def __call__(
@@ -66,6 +71,7 @@ class GPUZMatrixCalc(ZMatrixCalc):
                 exptau,
                 sqrt_flux,
                 bidx,
+                self._ant_order_gpu,
                 bmul,
                 np.int32(self.nfeed),
                 np.int32(self.nax),

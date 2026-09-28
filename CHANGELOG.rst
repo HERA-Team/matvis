@@ -39,6 +39,18 @@ Added
   already on the requested one.
 - ``profiling/freq_sweeps.py`` runs and tabulates the sweeps bearing on
   `#134 <https://github.com/HERA-Team/matvis/issues/134>`_.
+- Block-decomposed matrix product: ``matprod_method="MatBlock"`` computes a
+  handful of rectangular antenna-index sub-matrix products instead of the full
+  ``Nant x Nant`` one, for arrays whose requested ``antpairs`` are far fewer
+  than ``Nant**2`` (i.e. redundant arrays). The new ``matvis.redundancy``
+  module provides helpers for building the decomposition, chiefly
+  ``find_dense_blocks``. Opt-in; the default ``MatMul`` path is unchanged, and
+  the result is exact -- a rearrangement of the same computation, not an
+  approximation. On a 320-antenna redundant hex layout at production-slice
+  scale (RTX A2000) this is 3.4x faster end-to-end than ``MatMul``, with the
+  matrix product itself going from 41 ms to 6.6 ms per chunk. It is *slower*
+  than ``MatMul`` on non-redundant arrays; see the Performance docs page for
+  the sweep and for how to choose ``max_blocks``.
 
 Fixed
 -----
@@ -85,6 +97,12 @@ Performance
   auto-chunking decision at 350 antennas (e.g. 24 → 22 chunks with 2 GB
   free), but the buffers previously grew with the very chunk count they
   helped determine, and that term dominates for larger arrays.
+- ``MatBlock`` builds the ``Z`` matrix with its antenna axis ordered to suit
+  the block decomposition, so that most blocks can be handed to BLAS as slices
+  of ``Z`` rather than being staged into a contiguous copy first -- that
+  staging would otherwise be about half of ``MatBlock``'s runtime. The order
+  is chosen by ``matvis.redundancy.contiguity_order`` and wired up
+  automatically; the visibilities are unchanged.
 - Major GPU hot-path overhaul (~7.7x faster per chunk at 350 antennas / 350
   beams / polarized / single precision; see the new "Performance" docs page):
 
@@ -105,6 +123,17 @@ Performance
 Changed
 -------
 
+- **The default** ``coord_method`` **is now** ``CoordinateRotationERFA``, where it
+  was ``CoordinateRotationAstropy``. Astropy's frame transform costs about 25x
+  what the ERFA path costs: measured on an RTX A2000 at 3.1e6 sources
+  (HEALPix Nside=512), 1594 ms per time step against 49 ms, which is ~24% of a
+  whole integration against ~0.7%. ``tests/test_coordrot.py`` pins the two
+  against each other at 10 mas in double precision, and the end-to-end
+  comparison against ``pyuvsim`` passes unchanged.
+
+  Visibilities computed with the new default therefore differ very slightly
+  from previous releases. Pass ``coord_method="CoordinateRotationAstropy"`` to
+  restore the old behaviour exactly.
 - **Beam interpolation defaults are now shared by both backends**, in
   ``matvis.core.beams.DEFAULT_SPLINE_OPTS`` (``{"order": 3, "mode":
   "nearest"}``). Anything a caller leaves out of ``beam_spline_opts`` is taken
@@ -141,7 +170,14 @@ Changed
 
 Fixed
 -----
-
+- Source chunking was planned from ``Device().mem_info[0]``, i.e. free device
+  memory as the *driver* sees it. cupy keeps freed blocks in its own pool
+  rather than returning them, so every ``gpu.simulate`` call after the first in
+  a process saw a fraction of the card free and chunked far more finely than
+  necessary -- at the production slice, 100 chunks instead of the 30 requested.
+  Because ``simulate_vis`` calls the backend once per channel, a
+  multi-frequency run could use a different chunk size for each channel.
+  Availability is now computed as driver-free plus the pool's free blocks.
 - Documentation: the Beam Interpolation page claimed that scipy's ``mode``
   affects only coordinates outside the beam grid. It does not for
   ``order >= 2`` — it selects the B-spline prefilter, and so changes
@@ -161,6 +197,7 @@ Fixed
 - GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
   ignores ``source_buffer`` for chunks of fewer than 1000 sources),
   preventing shape-mismatch errors in small simulations.
+
 
 Infrastructure
 --------------

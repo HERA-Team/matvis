@@ -194,12 +194,18 @@ def zdotz(a, out=None, alpha=1.0, beta=0.0, mirror=True):
 def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
     """Compute ``a.conj() @ b.T``.
 
+    ``a`` and ``b`` need not have the same number of rows -- only the shared
+    source/K axis (their number of columns) must match -- so this also serves
+    non-square, rectangular antenna-block products (e.g. a 3-antenna x
+    5-antenna block), not just the square per-pair case ``GPUVectorDot`` uses.
+
     For complex64 uses ``cgemm3m`` (Gauss 3M algorithm, which is roughly 2x faster than
     cgemm for typical matvis shapes) when available, otherwise ``cgemm``/``zgemm``.
     """
-    if a.shape != b.shape:
+    if a.shape[1] != b.shape[1]:
         raise ValueError(
-            f"a and b must have the same shape, got {a.shape} and {b.shape}"
+            "a and b must have the same number of columns (the shared source "
+            f"axis), got a.shape={a.shape} and b.shape={b.shape}"
         )
     use_3m = _LIB is not None
     if a.dtype == "complex64":
@@ -217,12 +223,16 @@ def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
     transa = cublas.CUBLAS_OP_C
     transb = cublas.CUBLAS_OP_N
     m, k = a.shape
-    n = m
+    n = b.shape[0]
     if not a._c_contiguous:
         raise ValueError("a must be C-contiguous")
+    if not b._c_contiguous:
+        raise ValueError("b must be C-contiguous")
 
     if out is None:
         out = cp.empty((m, n), dtype=a.dtype, order="F")
+    elif out.shape != (m, n):
+        raise ValueError(f"out must have shape {(m, n)}, got {out.shape}")
     elif not out._f_contiguous:
         raise ValueError("out must be F-contiguous")
 
@@ -238,7 +248,7 @@ def complex_matmul(a, b, out=None, alpha=1.0, beta=0.0):
     cublas.setPointerMode(handle, cublas.CUBLAS_POINTER_MODE_HOST)
 
     lda = a.shape[1]
-    ldb = a.shape[1]
+    ldb = b.shape[1]
 
     try:
         if use_3m:
