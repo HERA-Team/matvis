@@ -5,6 +5,22 @@ Changelog
 Dev
 ===
 
+Added
+-----
+
+- Block-decomposed matrix product: ``matprod_method="MatBlock"`` computes a
+  handful of rectangular antenna-index sub-matrix products instead of the full
+  ``Nant x Nant`` one, for arrays whose requested ``antpairs`` are far fewer
+  than ``Nant**2`` (i.e. redundant arrays). The new ``matvis.redundancy``
+  module provides helpers for building the decomposition, chiefly
+  ``find_dense_blocks``. Opt-in; the default ``MatMul`` path is unchanged, and
+  the result is exact -- a rearrangement of the same computation, not an
+  approximation. On a 320-antenna redundant hex layout at production-slice
+  scale (RTX A2000) this is 3.4x faster end-to-end than ``MatMul``, with the
+  matrix product itself going from 41 ms to 6.6 ms per chunk. It is *slower*
+  than ``MatMul`` on non-redundant arrays; see the Performance docs page for
+  the sweep and for how to choose ``max_blocks``.
+
 Performance
 -----------
 
@@ -32,6 +48,12 @@ Performance
   auto-chunking decision at 350 antennas (e.g. 24 → 22 chunks with 2 GB
   free), but the buffers previously grew with the very chunk count they
   helped determine, and that term dominates for larger arrays.
+- ``MatBlock`` builds the ``Z`` matrix with its antenna axis ordered to suit
+  the block decomposition, so that most blocks can be handed to BLAS as slices
+  of ``Z`` rather than being staged into a contiguous copy first -- that
+  staging would otherwise be about half of ``MatBlock``'s runtime. The order
+  is chosen by ``matvis.redundancy.contiguity_order`` and wired up
+  automatically; the visibilities are unchanged.
 - Major GPU hot-path overhaul (~7.7x faster per chunk at 350 antennas / 350
   beams / polarized / single precision; see the new "Performance" docs page):
 
@@ -51,7 +73,6 @@ Performance
 
 Changed
 -------
-
 
 - **The default** ``coord_method`` **is now** ``CoordinateRotationERFA``, where it
   was ``CoordinateRotationAstropy``. Astropy's frame transform costs about 25x
@@ -100,7 +121,6 @@ Changed
 
 Fixed
 -----
-
 - Source chunking was planned from ``Device().mem_info[0]``, i.e. free device
   memory as the *driver* sees it. cupy keeps freed blocks in its own pool
   rather than returning them, so every ``gpu.simulate`` call after the first in
@@ -128,6 +148,7 @@ Fixed
 - GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
   ignores ``source_buffer`` for chunks of fewer than 1000 sources),
   preventing shape-mismatch errors in small simulations.
+
 
 Infrastructure
 --------------

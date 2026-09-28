@@ -38,6 +38,7 @@ def simulate_vis(
     beam_spline_opts: dict | None = None,
     beam_idx: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    antenna_blocks: list[tuple[np.ndarray, np.ndarray]] | None = None,
     source_buffer: float = 1.0,
     coord_method: Literal[
         "CoordinateRotationAstropy",
@@ -48,10 +49,13 @@ def simulate_vis(
     matprod_method: Literal[
         "MatMul",
         "VectorDot",
+        "MatBlock",
         "CPUMatMul",
         "GPUMatMul",
         "CPUVectorDot",
         "GPUVectorDot",
+        "CPUMatBlock",
+        "GPUMatBlock",
     ] = "MatMul",
     **backend_kwargs,
 ):
@@ -115,6 +119,13 @@ def simulate_vis(
     antpairs
         A list of antpairs (in the form of 2-tuples of integers) to actually
         calculate visibility for. If None, all feed-pairs are calculated.
+    antenna_blocks
+        Advanced/optional. A list of ``(row_antenna_idx, col_antenna_idx)``
+        integer-array tuples defining rectangular sub-matrix blocks to compute
+        instead of the full antenna x antenna product; only used when
+        ``matprod_method`` is ``"MatBlock"``/``"CPUMatBlock"``/``"GPUMatBlock"``.
+        See :mod:`matvis.redundancy` for helpers to build one, and
+        :class:`~matvis.cpu.matprod.CPUMatBlock` for the full rationale.
     source_buffer : float, optional
         The fraction of the total number of sources to use when allocating memory
         for the sources above horizon. For large numbers of sources, a fraction of
@@ -205,6 +216,7 @@ def simulate_vis(
             beam_spline_opts=beam_spline_opts,
             beam_idx=beam_idx,
             antpairs=antpairs,
+            antenna_blocks=antenna_blocks,
             source_buffer=source_buffer,
             matprod_method=matprod_method,
             coord_method=coord_method,

@@ -21,11 +21,39 @@ class ZMatrixCalc:
             Z = A I \exp(tau)
 
     where A is the beam, I is the square root of the flux, and tau is the phase.
+
+    Parameters
+    ----------
+    antenna_order
+        Optional length-``Nant`` permutation: row ``p`` of the returned ``Z`` is
+        built for antenna ``antenna_order[p]`` rather than for antenna ``p``.
+        Relabelling the antenna axis costs nothing here (it only changes which
+        row of ``exptau`` and which beam each output row reads), but it lets the
+        block-decomposed matprod classes slice their operands straight out of
+        ``Z`` instead of gathering them -- see
+        :func:`~matvis.redundancy.contiguity_order`. Whatever is passed here
+        must also be passed to the matprod class, or the visibilities will be
+        attributed to the wrong antennas.
     """
 
     def __init__(
-        self, nant: int, nfeed: int, nax: int, nsrc: int, ctype, gpu: bool = False
+        self,
+        nant: int,
+        nfeed: int,
+        nax: int,
+        nsrc: int,
+        ctype,
+        gpu: bool = False,
+        antenna_order: np.ndarray | None = None,
     ):
+        self.antenna_order = (
+            None if antenna_order is None else np.asarray(antenna_order)
+        )
+        if self.antenna_order is not None and self.antenna_order.shape != (nant,):
+            raise ValueError(
+                f"antenna_order must have shape ({nant},), got "
+                f"{self.antenna_order.shape}"
+            )
         self.nant = nant
         self.nfeed = nfeed
         self.nax = nax
@@ -81,18 +109,30 @@ class ZMatrixCalc:
 
         self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
 
+        # Row p of z belongs to antenna src_ant[p]; the identity unless the
+        # caller asked for a different antenna order (see the class docstring).
+        src_ant = self.antenna_order
+
         for fd in range(self.nfeed):
             for ax in range(self.nax):
-                self.z[:, fd, ax, :] = exptau
+                self.z[:, fd, ax, :] = exptau if src_ant is None else exptau[src_ant]
 
-        if beam_idx is None:
+        if beam.shape[0] == 1 or (beam_idx is None and src_ant is None):
+            # A single shared beam broadcasts over the antenna axis; and with no
+            # beam_idx and no reordering, `beam` is already one-per-antenna in
+            # row order. Either way a plain broadcast multiply is correct.
             self.z *= beam
         else:
-            # Since beam_idx is an array of integers, using it as an index into beam
+            # Which beam each *row* of z wants. Without beam_idx there is one
+            # beam per antenna, so the beam index is just the antenna index.
+            rowbeam = np.arange(self.nant) if beam_idx is None else beam_idx
+            if src_ant is not None:
+                rowbeam = rowbeam[src_ant]
+            # Since rowbeam is an array of integers, using it as an index into beam
             # is "fancy indexing", which causes a memory copy. To avoid this, we loop
             # over the indices. While this might be a bit slower, it avoids the memory
             # copy and thus is more memory efficient.
-            for ant, bmidx in enumerate(beam_idx):
+            for ant, bmidx in enumerate(rowbeam):
                 self.z[ant] *= beam[bmidx]
 
         # Here we expand the beam to all ants (from its beams), then broadcast to
