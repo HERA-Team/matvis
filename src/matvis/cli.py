@@ -378,7 +378,7 @@ common_profile_options = [
     ),
     click.option(
         "--coord-method",
-        default="CoordinateRotationAstropy",
+        default="CoordinateRotationERFA",
         type=click.Choice(list(CoordinateRotation._methods.keys())),
         help="Coordinate rotation method.",
     ),

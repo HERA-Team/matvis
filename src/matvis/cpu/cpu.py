@@ -50,7 +50,7 @@ def simulate(
     matprod_method: Literal["CPUMatMul", "CPUVectorLoop"] = "CPUMatMul",
     coord_method: Literal[
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
-    ] = "CoordinateRotationAstropy",
+    ] = "CoordinateRotationERFA",
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,

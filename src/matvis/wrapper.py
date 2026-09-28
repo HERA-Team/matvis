@@ -43,7 +43,7 @@ def simulate_vis(
         "CoordinateRotationAstropy",
         "CoordinateRotationERFA",
         "GPUCoordinateRotationERFA",
-    ] = "CoordinateRotationAstropy",
+    ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
     matprod_method: Literal[
         "MatMul",
