@@ -9,6 +9,7 @@ It will also save these results in pickle format to a file annotated with the in
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import linecache
@@ -921,7 +922,13 @@ def get_standard_sim_params(
             axis2_array=np.linspace(0, np.pi, nza + 1),
         )
 
-    beams = [beam] * nbeams
+    # --nbeams means that many *unique* beams, but they are all built from one
+    # model for convenience. Give each its own identity: _wrangle_beams
+    # interpolates a beam object onto the channel once however often it is
+    # passed, so `[beam] * nbeams` would time one beam's interpolation, not
+    # nbeams'. Shallow copies share the data arrays, so this costs no memory;
+    # nothing in matvis modifies a beam in place.
+    beams = [copy.copy(beam) for _ in range(nbeams)]
 
     # Random antenna locations
     x = rng.uniform(size=nants) * 400.0  # Up to 400 metres

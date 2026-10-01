@@ -52,24 +52,6 @@ Added
   than ``MatMul`` on non-redundant arrays; see the Performance docs page for
   the sweep and for how to choose ``max_blocks``.
 
-Fixed
------
-
-- ``matvis profile --gpu`` with ``--nfreq > 1`` crashed in the warmup
-  simulation, which sliced the frequency axis of ``freqs`` but not of
-  ``fluxes``.
-- ``docs/performance.rst`` stated that the published numbers used a large
-  ``update_bcrs_every``. They did not, and could not: the CLI had no way to
-  set it.
-- Source chunking was planned from ``Device().mem_info[0]``, i.e. free device
-  memory as the *driver* sees it. cupy keeps freed blocks in its own pool
-  rather than returning them, so every ``gpu.simulate`` call after the first in
-  a process saw a fraction of the card free and chunked far more finely than
-  necessary -- at the production slice, 100 chunks instead of the 30 requested.
-  Because ``simulate_vis`` calls the backend once per channel, a
-  multi-frequency run could use a different chunk size for each channel.
-  Availability is now computed as driver-free plus the pool's free blocks.
-
 Performance
 -----------
 
@@ -170,6 +152,17 @@ Changed
 
 Fixed
 -----
+- ``matvis profile --gpu`` with ``--nfreq > 1`` crashed in the warmup
+  simulation, which sliced the frequency axis of ``freqs`` but not of
+  ``fluxes``.
+- ``docs/performance.rst`` stated that the published numbers used a large
+  ``update_bcrs_every``. They did not, and could not: the CLI had no way to
+  set it.
+- ``matvis profile --nbeams N`` (and ``profiling/beam_freq_cost.py``) passed
+  N references to one beam object. Since matvis now interpolates each beam
+  object onto the channel only once, that timed one beam's per-channel
+  frequency interpolation rather than N's -- about 0.4 s per beam per channel
+  at a 360x181 grid. Each of the N beams is now its own (shallow) copy.
 - Source chunking was planned from ``Device().mem_info[0]``, i.e. free device
   memory as the *driver* sees it. cupy keeps freed blocks in its own pool
   rather than returning them, so every ``gpu.simulate`` call after the first in

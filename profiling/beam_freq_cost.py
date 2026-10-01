@@ -32,6 +32,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import copy
 import time
 import warnings
 
@@ -113,7 +114,10 @@ def cmd_redundant(a):
         f"{'of which interp s':>18} {'cost to detect s':>17}"
     )
     for nb in a.nbeams:
-        beams = [beam] * nb
+        # Distinct objects, as nb unique beams would be: matvis interpolates a
+        # beam object once however often it is passed, so `[beam] * nb` would
+        # time one beam rather than nb.
+        beams = [copy.copy(beam) for _ in range(nb)]
         t_wrangle = timeit(lambda b=beams, n=nb: _wrangle_beams(None, b, True, n, FREQ))
         t_interp = timeit(
             lambda b=beams: [

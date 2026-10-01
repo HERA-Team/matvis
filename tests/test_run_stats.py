@@ -11,7 +11,12 @@ import pytest
 
 from matvis import HAVE_GPU, simulate_vis
 from matvis._test_utils import get_standard_sim_params
-from matvis.cli import SETUP_FREQ_DEPENDENT, SETUP_FREQ_INDEPENDENT, classify_setup
+from matvis.cli import (
+    SETUP_FREQ_DEPENDENT,
+    SETUP_FREQ_INDEPENDENT,
+    classify_setup,
+)
+from matvis.cli import get_standard_sim_params as get_profile_sim_params
 from matvis.cpu import cpu as cpu_module
 
 BACKENDS = [(False, cpu_module)]
@@ -113,3 +118,22 @@ def test_cpu_stage_totals_cover_the_loop():
     # integration.
     assert len(stats["integration_times"]) == 3
     assert np.all(np.array(stats["integration_times"]) > 0)
+
+
+@pytest.mark.parametrize("analytic", [True, False])
+def test_profile_beams_are_distinct_objects(analytic):
+    """--nbeams N must give N beam objects, or the per-channel interp is shared.
+
+    matvis interpolates each beam *object* onto the channel once, however often
+    it appears in the list, so N references to one beam would time the
+    frequency interpolation of a single beam rather than N.
+    """
+    nbeams = 4
+    *_, beams, beam_idx = get_profile_sim_params(
+        analytic, nfreq=2, ntime=1, nants=6, nsource=5, nbeams=nbeams, naz=8, nza=5
+    )
+    assert len(beams) == nbeams
+    assert len({id(b) for b in beams}) == nbeams
+    if not analytic:
+        # Distinct objects, but no extra memory: the data are shared.
+        assert all(b.data_array is beams[0].data_array for b in beams)
