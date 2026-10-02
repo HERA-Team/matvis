@@ -2,12 +2,12 @@
 
 import numpy as np
 import pytest
-from pyuvdata import UVBeam, UVData
+from pyuvdata import UVData
 from pyuvsim import simsetup, uvsim
 from pyuvsim.telescope import BeamList
 
 from matvis import simulate_vis
-from matvis._test_utils import get_standard_sim_params, nants
+from matvis._test_utils import get_standard_sim_params, nants, perturbed_beam
 from matvis.redundancy import antpairs_to_blocks
 
 
@@ -68,43 +68,20 @@ def test_compare_pyuvsim_chunking(min_chunks, source_buffer, default_uvsim):
     compare_sims(default_uvsim, vis_matvis, nants, polarized=True, rtol=0.01)
 
 
-def _perturbed_beam(beam: UVBeam, perturbation: str) -> UVBeam:
-    """Copy of an efield UVBeam with a different polarization response."""
-    new = beam.copy()
-    if perturbation == "feed_phase":
-        new.data_array[:, 1] *= np.exp(0.6j)
-    elif perturbation == "rotated_feed":
-        # Rotate by two azimuth samples; the last sample repeats the first.
-        new.data_array[..., :-1] = np.roll(new.data_array[..., :-1], 2, axis=-1)
-        new.data_array[..., -1] = new.data_array[..., 0]
-    else:
-        raise ValueError(f"unknown perturbation {perturbation!r}")
-    return new
-
-
 @pytest.mark.parametrize("perturbation", ["feed_phase", "rotated_feed"])
-@pytest.mark.parametrize(
-    "matprod_method",
-    [
-        "CPUMatMul",
-        "CPUVectorDot",
-        "CPUMatBlock",
-        pytest.param("GPUMatMul", marks=pytest.mark.gpu),
-        pytest.param("GPUVectorDot", marks=pytest.mark.gpu),
-        pytest.param("GPUMatBlock", marks=pytest.mark.gpu),
-    ],
-)
+@pytest.mark.parametrize("matprod_method", ["CPUMatMul", "CPUVectorDot", "CPUMatBlock"])
 def test_compare_pyuvsim_per_antenna_beams(perturbation: str, matprod_method: str):
-    """Antennas with different beams match pyuvsim for every pair, in both orders."""
-    use_gpu = matprod_method.startswith("GPU")
-    if use_gpu:
-        pytest.importorskip("cupy")
+    """Antennas with different beams match pyuvsim for every pair, in both orders.
 
-    kw, sky_model, uvbeams, _, uvdata = get_standard_sim_params(
+    The GPU methods are checked against these CPU results in test_cpu_vs_gpu.py.
+    """
+    kw, sky_model, _, _, uvdata = get_standard_sim_params(
         use_analytic_beam=False, polarized=True
     )
-    beam0 = uvbeams.beam_list[0]
-    beam1 = beam0.clone(beam=_perturbed_beam(beam0.beam, perturbation))
+    # The same BeamInterface that get_standard_sim_params gives pyuvsim; read it
+    # from kw because pyuvsim's BeamList exposes its beams differently by version.
+    beam0 = kw["beams"][0]
+    beam1 = beam0.clone(beam=perturbed_beam(beam0.beam, perturbation))
     beam_idx = np.arange(nants) % 2
 
     uvd_uvsim = uvsim.run_uvdata_uvsim(
@@ -125,7 +102,6 @@ def test_compare_pyuvsim_per_antenna_beams(perturbation: str, matprod_method: st
     vis_matvis = simulate_vis(
         precision=2,
         beam_idx=beam_idx,
-        use_gpu=use_gpu,
         matprod_method=matprod_method,
         **extra,
         **kw,
