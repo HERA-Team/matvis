@@ -124,6 +124,12 @@ def test_compare_pyuvsim_per_antenna_beams(perturbation: str, matprod_method: st
     )
 
 
+def test_perturbed_beam_rejects_unknown_perturbation(uvbeam):
+    """Only the documented perturbations are accepted."""
+    with pytest.raises(ValueError, match="unknown perturbation"):
+        perturbed_beam(uvbeam, "not_a_perturbation")
+
+
 def compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol):
     """Run the test of comparing matvis and pyuvsim visibilities."""
     # If it passes this test, but fails the following tests, then its probably an
