@@ -24,8 +24,7 @@ class ZMatrixCalc:
     The beam enters conjugated so that the source sum ``conj(Z_i) Z_j^T``
     computed by the matprod classes is ``A_i C A_j^H`` times the fringe term for
     feeds (p, q) of antennas (i, j), with A indexed [feed, sky component]. This
-    is pyuvsim's convention, and it is what makes the result correct when
-    antennas have different beams.
+    is pyuvsim's convention.
 
     Parameters
     ----------
