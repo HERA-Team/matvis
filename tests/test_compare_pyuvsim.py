@@ -75,12 +75,10 @@ def test_compare_pyuvsim_per_antenna_beams(perturbation: str, matprod_method: st
 
     The GPU methods are checked against these CPU results in test_cpu_vs_gpu.py.
     """
-    kw, sky_model, _, _, uvdata = get_standard_sim_params(
+    kw, sky_model, uvbeams, _, uvdata = get_standard_sim_params(
         use_analytic_beam=False, polarized=True
     )
-    # The same BeamInterface that get_standard_sim_params gives pyuvsim; read it
-    # from kw because pyuvsim's BeamList exposes its beams differently by version.
-    beam0 = kw["beams"][0]
+    beam0 = uvbeams.beam_list[0]
     beam1 = beam0.clone(beam=perturbed_beam(beam0.beam, perturbation))
     beam_idx = np.arange(nants) % 2
 

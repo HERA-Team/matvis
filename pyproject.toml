@@ -43,7 +43,7 @@ gpu = [
 profile = [
 	"click",
 	"line-profiler",
-	"pyuvsim>=1.2.5",
+	"pyuvsim>=1.4.0",
 ]
 
 [dependency-groups]
@@ -72,7 +72,7 @@ test = [
 	"pytest",
 	"pytest-cov",
 	"pytest-lazy-fixtures",
-	"pyuvsim[sim]>=1.2.5",
+	"pyuvsim[sim]>=1.4.0",
 	# pyuvsim pulls in mpi4py, whose PyPI wheels do not bundle an MPI runtime --
 	# they dynamically bind to whatever libmpi the system provides. Ship a
 	# self-contained, version-locked MPICH so the MPI stack under test is pinned

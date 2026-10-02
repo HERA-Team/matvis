@@ -1972,7 +1972,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "psutil" },
     { name = "pyuvdata", specifier = ">=3.2.0" },
-    { name = "pyuvsim", marker = "extra == 'profile'", specifier = ">=1.2.5" },
+    { name = "pyuvsim", marker = "extra == 'profile'", specifier = ">=1.4.0" },
     { name = "rich" },
     { name = "scipy" },
 ]
@@ -1997,7 +1997,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-lazy-fixtures" },
-    { name = "pyuvsim", extras = ["sim"], specifier = ">=1.2.5" },
+    { name = "pyuvsim", extras = ["sim"], specifier = ">=1.4.0" },
     { name = "ruff" },
     { name = "sphinx" },
     { name = "sphinx-click" },
@@ -2026,7 +2026,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-lazy-fixtures" },
-    { name = "pyuvsim", extras = ["sim"], specifier = ">=1.2.5" },
+    { name = "pyuvsim", extras = ["sim"], specifier = ">=1.4.0" },
 ]
 
 [[package]]
