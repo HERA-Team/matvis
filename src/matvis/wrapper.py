@@ -199,6 +199,10 @@ def simulate_vis(
         where :math:`P` is the beam's power response for the 'x' feed, or the
         beam's own polarization if it is a single-polarization power beam. When
         all antennas share a beam, this equals the polarized ``"xx"`` result.
+
+    See Also
+    --------
+    matvis.matvis_to_uvdata : Put this output into a ``UVData`` object.
     """
     if use_gpu:
         if not HAVE_GPU:

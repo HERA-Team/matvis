@@ -21,6 +21,7 @@ except ImportError:
 
 
 from . import cpu, gpu
+from .uvdata import matvis_to_uvdata
 from .wrapper import simulate_vis
 
 DATA_PATH = Path(__file__).parent / "data"

@@ -10,6 +10,7 @@ High-Level Wrapper
    :toctree: _autosummary
 
    matvis.wrapper
+   matvis.uvdata
 
 
 Simulator implementations
