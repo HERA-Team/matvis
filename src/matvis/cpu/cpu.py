@@ -96,8 +96,9 @@ def simulate(
         must be power beams with a single polarization (either XX or YY).
     antpairs : array_like, optional
         Either a 2D array, shape ``(Npairs, 2)``, or list of 2-tuples of ints, with
-        the list of antenna-pairs to return as visibilities (all feed-pairs are always
-        calculated). If None, all feed-pairs are returned.
+        the antenna-index pairs (rows of ``antpos``) to return as visibilities (all
+        feed-pairs are always calculated). If None, all ``NANT**2`` ordered pairs
+        are returned.
     antenna_blocks : list, optional
         Advanced/optional. A list of ``(row_antenna_idx, col_antenna_idx)``
         integer-array tuples defining rectangular sub-matrix blocks to compute
@@ -178,8 +179,9 @@ def simulate(
     -------
     vis : array_like
         Simulated visibilities. If `polarized = True`, the output will have
-        shape (NTIMES, NBLS, NFEED, NFEED), otherwise it will have
-        shape (NTIMES, NBLS).
+        shape (NTIMES, NPAIRS, NFEED, NFEED), otherwise it will have
+        shape (NTIMES, NPAIRS). The pair order, feed order and visibility
+        convention are those of :func:`matvis.simulate_vis`, for one frequency.
 
     """
     if not 0 < source_buffer <= 1:

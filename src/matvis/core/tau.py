@@ -53,7 +53,8 @@ class TauCalculator:
     def __call__(self, crdtop: np.ndarray) -> np.ndarray:
         """Compute the complex exponential of the delay.
 
-        exp(-2π*i*nu*D.X)
+        exp(+2πi * nu * x . s / c), with x the antenna position and s the source
+        direction.
 
         Parameters
         ----------
