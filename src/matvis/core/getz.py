@@ -18,9 +18,13 @@ class ZMatrixCalc:
 
     .. math::
 
-            Z = A I \exp(tau)
+            Z = A^* I \exp(tau)
 
     where A is the beam, I is the square root of the flux, and tau is the phase.
+    The beam enters conjugated so that the source sum ``conj(Z_i) Z_j^T``
+    computed by the matprod classes is ``A_i C A_j^H`` times the fringe term for
+    feeds (p, q) of antennas (i, j), with A indexed [feed, sky component]. This
+    is pyuvsim's convention.
 
     Parameters
     ----------
@@ -86,7 +90,7 @@ class ZMatrixCalc:
     ) -> np.ndarray:
         """Compute the Z matrix.
 
-        Z = A * I * exp(tau)
+        Z = conj(A) * I * exp(tau)
 
         Parameters
         ----------
@@ -113,9 +117,14 @@ class ZMatrixCalc:
         # caller asked for a different antenna order (see the class docstring).
         src_ant = self.antenna_order
 
+        # z is built as conj(conj(exptau) * A), which equals conj(A) * exptau
+        # without allocating a conjugated copy of the beam.
+        exptau_conj = exptau.conj()
         for fd in range(self.nfeed):
             for ax in range(self.nax):
-                self.z[:, fd, ax, :] = exptau if src_ant is None else exptau[src_ant]
+                self.z[:, fd, ax, :] = (
+                    exptau_conj if src_ant is None else exptau_conj[src_ant]
+                )
 
         if beam.shape[0] == 1 or (beam_idx is None and src_ant is None):
             # A single shared beam broadcasts over the antenna axis; and with no
@@ -134,6 +143,8 @@ class ZMatrixCalc:
             # copy and thus is more memory efficient.
             for ant, bmidx in enumerate(rowbeam):
                 self.z[ant] *= beam[bmidx]
+
+        self.xp.conj(self.z, out=self.z)
 
         # Here we expand the beam to all ants (from its beams), then broadcast to
         # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)

@@ -140,6 +140,14 @@ def simulate(  # noqa: C901
         work (the device-to-host copy blocks anyway), so per-integration wall
         times remain comparable with runs that have event timing off.
 
+    The other parameters are as for :func:`matvis.cpu.simulate`.
+
+    Returns
+    -------
+    vis : np.ndarray
+        Simulated visibilities, with the same shape, pair order, feed order and
+        convention as :func:`matvis.cpu.simulate`.
+
     """
     if not HAVE_CUDA:
         raise ImportError("You need to install the [gpu] extra to use this function!")

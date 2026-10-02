@@ -22,7 +22,7 @@ class CPUMatMul(MatProd):
 
         # Separate feed/ant axes to make indexing easier
         v.shape = (self.nant, self.nfeed, self.nant, self.nfeed)
-        v = v.transpose((0, 2, 3, 1))  # transpose always returns a view
+        v = v.transpose((0, 2, 1, 3))  # -> (ant_i, ant_j, feed_i, feed_j), a view
 
         if self.all_pairs:
             out[:] = v.reshape((self.nant * self.nant, self.nfeed, self.nfeed))
@@ -48,7 +48,7 @@ class CPUVectorDot(MatProd):
         z = z.reshape((self.nant, self.nfeed, -1))
 
         for i, (ai, aj) in enumerate(self.antpairs):
-            out[i] = z[aj].dot(z[ai].conj().T)  # dot(z[aj].T)
+            out[i] = z[ai].conj().dot(z[aj].T)
 
         return out
 
@@ -92,7 +92,7 @@ class CPUMatBlock(MatProd):
 
             block = zr.conj().dot(zc.T)
             block.shape = (blk.nrow, self.nfeed, blk.ncol, self.nfeed)
-            block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
+            block = block.transpose((0, 2, 1, 3))  # -> (rows, cols, nfeed_i, nfeed_j)
 
             if blk.slots.size:
                 out[blk.slots] = block[blk.lr, blk.lc]

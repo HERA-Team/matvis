@@ -59,7 +59,7 @@ def simulate_vis(
     ] = "MatMul",
     **backend_kwargs,
 ):
-    """
+    r"""
     Run a basic simulation using ``matvis``.
 
     This wrapper handles the necessary coordinate conversions etc.
@@ -69,7 +69,9 @@ def simulate_vis(
     ants : dict
         Dictionary of antenna positions. The keys are the antenna names
         (integers) and the values are the Cartesian x,y,z positions of the
-        antennas (in meters) relative to the array center.
+        antennas (in meters) relative to the array center. The order of the
+        keys defines the antenna indices used by ``beam_idx``, ``antpairs`` and
+        the output.
     fluxes : array_like
         2D array with the flux of each source as a function of frequency, of
         shape (NSRCS, NFREQS).
@@ -85,15 +87,17 @@ def simulate_vis(
     telescope_loc
         An EarthLocation object representing the center of the array.
     polarized : bool, optional
-        If True, use polarized beams and calculate all available linearly-
-        polarized visibilities, e.g. V_nn, V_ne, V_en, V_ee.
-        Default: False (only uses the 'ee' polarization).
+        If True, use efield beams and calculate the visibility for every pair of
+        feeds in the beams' ``feed_array`` (e.g. xx, xy, yx, yy). If False
+        (default), calculate a single visibility from the beams' power response.
+        See Returns for both layouts.
     precision : int, optional
         Which precision setting to use for :func:`~matvis`. If set to ``1``,
         uses the (``np.float32``, ``np.complex64``) dtypes. If set to ``2``,
         uses the (``np.float64``, ``np.complex128``) dtypes.
     use_feed
-        Either 'x' or 'y'. Only used if polarized is False.
+        Either 'x' or 'y'. Intended for ``polarized=False``, but currently not
+        passed on: unpolarized simulations always use the 'x' feed (see Returns).
     use_gpu : bool, optional
         Whether to use the GPU for simulation.
     beam_spline_opts : dict, optional
@@ -117,8 +121,10 @@ def simulate_vis(
         antenna of the same index, and its value should be the index of the beam in
         the beam list that corresponds to the antenna.
     antpairs
-        A list of antpairs (in the form of 2-tuples of integers) to actually
-        calculate visibility for. If None, all feed-pairs are calculated.
+        Pairs of antenna *indices* (positions in ``ants``, not antenna names) to
+        calculate visibilities for, as an integer array of shape ``(Npairs, 2)``.
+        Both orders of a pair may be requested. If None, all ``Nants**2``
+        ordered pairs are calculated.
     antenna_blocks
         Advanced/optional. A list of ``(row_antenna_idx, col_antenna_idx)``
         integer-array tuples defining rectangular sub-matrix blocks to compute
@@ -151,9 +157,52 @@ def simulate_vis(
 
     Returns
     -------
-    vis : array_like
-        Complex array of shape (NFREQS, NTIMES, NBLS, NFEED, NFEED)
-        if ``polarized == True``, or (NFREQS, NTIMES, NBLS) otherwise.
+    vis : np.ndarray
+        Complex visibilities in the units of ``fluxes``, ``complex64`` if
+        ``precision=1`` and ``complex128`` if ``precision=2``. The shape is
+        ``(Nfreqs, Ntimes, Npairs, Nfeeds, Nfeeds)`` if ``polarized`` is True and
+        ``(Nfreqs, Ntimes, Npairs)`` otherwise.
+
+        The pair axis follows ``antpairs``. If ``antpairs`` is None, it holds all
+        ``Nants**2`` ordered pairs, with pair ``(i, j)`` at index
+        ``i * Nants + j``. In both cases ``i`` and ``j`` are indices into
+        ``ants``, not antenna names.
+
+        With ``polarized=True``, pair ``(i, j)`` follows pyuvsim's convention:
+
+        .. math::
+
+            V_{ij} = \sum_{\rm sources} A_i \, C \, A_j^\dagger \,
+            \exp\left(2 \pi i \nu \, (\mathbf{x}_j - \mathbf{x}_i) \cdot
+            \hat{\mathbf{s}} / c\right),
+
+        where :math:`A_i` is antenna ``i``'s Jones matrix in the source
+        direction :math:`\hat{\mathbf{s}}`, indexed [feed, sky component],
+        :math:`C` is the source coherency (:math:`I/2` times the identity for the
+        unpolarized sources simulated here), and :math:`\mathbf{x}` are the
+        positions in ``ants``. So ``vis[..., p, q]`` correlates feed ``p`` of
+        antenna ``i`` with the conjugate of feed ``q`` of antenna ``j``, with
+        feeds ordered as in the beams' ``feed_array``. In pyuvdata's naming this
+        is the polarization ``feed_array[p] + feed_array[q]``: for example,
+        ``"xy"`` is x on antenna ``i`` and y on antenna ``j``. The baseline
+        vector (pyuvdata's uvw) is :math:`\mathbf{x}_j - \mathbf{x}_i`, and
+        :math:`V_{ji} = V_{ij}^\dagger`.
+
+        With ``polarized=False``, each pair holds
+
+        .. math::
+
+            V_{ij} = \sum_{\rm sources} \sqrt{P_i P_j} \, \frac{I}{2} \,
+            \exp\left(2 \pi i \nu \, (\mathbf{x}_j - \mathbf{x}_i) \cdot
+            \hat{\mathbf{s}} / c\right),
+
+        where :math:`P` is the beam's power response for the 'x' feed, or the
+        beam's own polarization if it is a single-polarization power beam. When
+        all antennas share a beam, this equals the polarized ``"xx"`` result.
+
+    See Also
+    --------
+    matvis.matvis_to_uvdata : Put this output into a ``UVData`` object.
     """
     if use_gpu:
         if not HAVE_GPU:

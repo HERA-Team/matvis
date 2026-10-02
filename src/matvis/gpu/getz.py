@@ -10,7 +10,7 @@ from ..core.getz import ZMatrixCalc
 
 KERNELS_PATH = Path(__file__).parent / "kernels"
 
-# Z[ant, feed, ax, src] = A[beam_idx[ant], feed, ax, src] * exptau[ant, src] * sqrtI[src]
+# Z[ant, feed, ax, src] = conj(A[beam_idx[ant], feed, ax, src]) * exptau[ant, src] * sqrtI[src]
 # See kernels/fused_z.cu for the kernel source.
 _FUSED_Z_MODULE = cp.RawModule(code=(KERNELS_PATH / "fused_z.cu").read_text())
 
@@ -36,7 +36,7 @@ class GPUZMatrixCalc(ZMatrixCalc):
         exptau: cp.ndarray,
         beam_idx: np.ndarray | None,
     ) -> cp.ndarray:
-        """Compute Z = A * sqrtI * exp(tau) in one pass.
+        """Compute Z = conj(A) * sqrtI * exp(tau) in one pass.
 
         Unlike the base implementation, ``exptau`` is not modified in place.
         """

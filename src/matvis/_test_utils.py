@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from astropy import units as un
@@ -172,3 +173,33 @@ def get_standard_sim_params(
         beam_dict,
         uvdata,
     )
+
+
+def perturbed_beam(
+    beam: UVBeam, perturbation: Literal["feed_phase", "rotated_feed"]
+) -> UVBeam:
+    """Return a copy of an efield UVBeam with a different polarization response.
+
+    Parameters
+    ----------
+    beam
+        Efield beam on an azimuth/zenith-angle grid whose last azimuth sample
+        repeats the first, as produced by :func:`get_standard_sim_params`.
+    perturbation
+        ``"feed_phase"`` multiplies the second feed by a constant complex phase;
+        ``"rotated_feed"`` rotates the whole pattern by two azimuth samples.
+
+    Returns
+    -------
+    UVBeam
+        The perturbed copy.
+    """
+    new = beam.copy()
+    if perturbation == "feed_phase":
+        new.data_array[:, 1] *= np.exp(0.6j)
+    elif perturbation == "rotated_feed":
+        new.data_array[..., :-1] = np.roll(new.data_array[..., :-1], 2, axis=-1)
+        new.data_array[..., -1] = new.data_array[..., 0]
+    else:
+        raise ValueError(f"unknown perturbation {perturbation!r}")
+    return new

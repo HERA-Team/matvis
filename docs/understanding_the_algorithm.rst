@@ -37,12 +37,13 @@ The ``matvis`` Framework
 
 The visibility observed on a baseline formed by antennas *i* and *j* at frequency :math:`\nu` is
 
-.. math:: V_{ij} = \int_{\rm sky} \mathcal{A}_i \mathcal{C} \mathcal{A}_j^\dagger \exp(-2\pi \nu i \vec{b}_{ij} \hat{n}/c) d^2 \Omega,
+.. math:: V_{ij} = \int_{\rm sky} \mathcal{A}_i \mathcal{C} \mathcal{A}_j^\dagger \exp(2\pi i \nu \vec{b}_{ij} \cdot \hat{n}/c) d^2 \Omega,
 
-where :math:`\mathcal{A}_i` is the complex, polarized beam of antenna *i*,
+where :math:`\mathcal{A}_i` is the complex, polarized beam (Jones matrix) of antenna *i*,
+indexed [feed, sky component],
 :math:`\mathcal{C}` is the "coherency matrix" which is essentially the polarized sky model,
-:math:`\vec{b}_{ij}` is the vector pointing from antenna *i* to antenna *j*, *c* is
-the speed of light,
+:math:`\vec{b}_{ij} = \vec{x}_j - \vec{x}_i` is the vector pointing from antenna *i*
+to antenna *j* (pyuvdata's uvw), *c* is the speed of light,
 and :math:`\hat{n}` is the unit vector in the direction of the sky.
 The integral is over all angles in the sky, and both the beam and sky model are
 angle-dependent.
@@ -81,7 +82,12 @@ be :math:`\vec{X}(t)`, and their flux-density by *I*.
 Then, with all these approximations in place, we can rewrite our visibility equation for
 baseline *ij* and feed-pair *pq* as:
 
-.. math:: V^{pq}_{ij}(t) = \sum_n \vec{A}^p_i(\vec{X}_n(t)) \cdot \vec{A}^q_i(\vec{X}_n(t)) I_n \exp(-2\pi i \nu \vec{X}_n \cdot \vec{b}_{ij}/c).
+.. math:: V^{pq}_{ij}(t) = \sum_n \vec{A}^p_i(\vec{X}_n(t)) \cdot \vec{A}^{q*}_j(\vec{X}_n(t)) \frac{I_n}{2} \exp(2\pi i \nu \vec{X}_n \cdot \vec{b}_{ij}/c).
+
+Here *p* is a feed of antenna *i* and *q* a feed of antenna *j*, so in pyuvdata's naming
+:math:`V^{pq}_{ij}` is polarization *pq* of baseline *ij* (e.g. *xy* is x on antenna *i*
+and y on antenna *j*). This is the same convention as ``pyuvsim``. The factor of 1/2
+splits the unpolarized intensity equally between the two polarizations.
 
 This is the equation that ``matvis`` calculates.
 
@@ -121,13 +127,14 @@ Then, for a particular frequency and time, the ``matvis`` algorithm is:
        :math:`N_{\rm feed}N_{\rm ant} \times N_{\rm ax}N'_{\rm src}` matrix
        :math:`A_{ij, kl} = A_{ijk}(X_l)`.
     5. Compute the antenna-based exponent:
-       :math:`\tau = -2 \pi i \nu D \cdot X / c`, where
+       :math:`\tau = 2 \pi i \nu D \cdot X / c`, where
        :math:`\tau` is a :math:`N_{\rm ant}\times N_{\rm src}` matrix.
     6. Compute the :math:`N_{\rm feed}N_{\rm ant} \times N_{\rm ax}N'_{\rm src}`
        "pseudo"-visibility of an antenna:
-       :math:`Z_{ij, kl} = \sqrt{I}_l A_{ij, kl} \exp(\tau_{jl})`.
+       :math:`Z_{ij, kl} = \sqrt{I_l/2}\, A^*_{ij, kl} \exp(\tau_{jl})`.
     7. Compute the :math:`N_{\rm feed} N_{\rm ant} \times N_{\rm feed} N_{\rm ant}`
-       visibility: :math:`V = Z Z^*`.
+       visibility: :math:`V = Z^* Z^T`. Its feed-by-feed block for antennas *a* and
+       *b* is :math:`A_a C A_b^\dagger` times the fringe term, as above.
 
 Exploiting Redundancy: Block-Decomposed Products
 =================================================
