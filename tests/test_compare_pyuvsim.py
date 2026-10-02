@@ -2,11 +2,13 @@
 
 import numpy as np
 import pytest
-from pyuvdata import UVData
+from pyuvdata import UVBeam, UVData
 from pyuvsim import simsetup, uvsim
+from pyuvsim.telescope import BeamList
 
 from matvis import simulate_vis
 from matvis._test_utils import get_standard_sim_params, nants
+from matvis.redundancy import antpairs_to_blocks
 
 
 @pytest.fixture(scope="function")
@@ -64,6 +66,86 @@ def test_compare_pyuvsim_chunking(min_chunks, source_buffer, default_uvsim):
     )
 
     compare_sims(default_uvsim, vis_matvis, nants, polarized=True, rtol=0.01)
+
+
+def _perturbed_beam(beam: UVBeam, perturbation: str) -> UVBeam:
+    """Copy of an efield UVBeam with a different polarization response."""
+    new = beam.copy()
+    if perturbation == "feed_phase":
+        new.data_array[:, 1] *= np.exp(0.6j)
+    elif perturbation == "rotated_feed":
+        # Rotate by two azimuth samples; the last sample repeats the first.
+        new.data_array[..., :-1] = np.roll(new.data_array[..., :-1], 2, axis=-1)
+        new.data_array[..., -1] = new.data_array[..., 0]
+    else:
+        raise ValueError(f"unknown perturbation {perturbation!r}")
+    return new
+
+
+@pytest.mark.parametrize("perturbation", ["feed_phase", "rotated_feed"])
+@pytest.mark.parametrize(
+    "matprod_method",
+    [
+        "CPUMatMul",
+        "CPUVectorDot",
+        "CPUMatBlock",
+        pytest.param("GPUMatMul", marks=pytest.mark.gpu),
+        pytest.param("GPUVectorDot", marks=pytest.mark.gpu),
+        pytest.param("GPUMatBlock", marks=pytest.mark.gpu),
+    ],
+)
+def test_compare_pyuvsim_per_antenna_beams(perturbation: str, matprod_method: str):
+    """Antennas with different beams match pyuvsim for every pair, in both orders."""
+    use_gpu = matprod_method.startswith("GPU")
+    if use_gpu:
+        pytest.importorskip("cupy")
+
+    kw, sky_model, uvbeams, _, uvdata = get_standard_sim_params(
+        use_analytic_beam=False, polarized=True
+    )
+    beam0 = uvbeams.beam_list[0]
+    beam1 = beam0.clone(beam=_perturbed_beam(beam0.beam, perturbation))
+    beam_idx = np.arange(nants) % 2
+
+    uvd_uvsim = uvsim.run_uvdata_uvsim(
+        uvdata,
+        BeamList([beam0, beam1]),
+        beam_dict={str(ant): int(bidx) for ant, bidx in enumerate(beam_idx)},
+        catalog=simsetup.SkyModelData(sky_model),
+    )
+
+    extra = {}
+    if matprod_method.endswith("MatBlock"):
+        # Blocks hold only i <= j, so the reversed pairs come from the
+        # Hermitian-conjugate path.
+        extra["antenna_blocks"] = antpairs_to_blocks(
+            [(i, j) for i in range(nants) for j in range(i, nants)]
+        )
+    kw["beams"] = [beam0, beam1]
+    vis_matvis = simulate_vis(
+        precision=2,
+        beam_idx=beam_idx,
+        use_gpu=use_gpu,
+        matprod_method=matprod_method,
+        **extra,
+        **kw,
+    )
+
+    # (Nfreqs, Ntimes, Nant * Nant, 2, 2), with pair index i * nants + j
+    vis_uvsim = np.zeros_like(vis_matvis)
+    for i in range(nants):
+        for j in range(nants):
+            for if1, feed1 in enumerate("XY"):
+                for if2, feed2 in enumerate("XY"):
+                    vis_uvsim[:, :, i * nants + j, if1, if2] = uvd_uvsim.get_data(
+                        (i, j, feed1 + feed2)
+                    ).T
+
+    # Interpolation and coordinate differences between the codes are ~1e-4 of
+    # the peak; using the wrong antenna's beam conjugate is a ~10-100% error.
+    np.testing.assert_allclose(
+        vis_matvis, vis_uvsim, rtol=0, atol=1e-3 * np.abs(vis_uvsim).max()
+    )
 
 
 def compare_sims(uvd_uvsim, vis_matvis, nants, polarized, rtol):

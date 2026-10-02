@@ -67,7 +67,7 @@ def _reference_vis(z, nant, nfeed, antpairs):
     Mirrors the ``simple_matprod`` reference already used in ``test_matprod.py``.
     """
     v = z.conj().dot(z.T)
-    v = v.reshape((nant, nfeed, nant, nfeed)).transpose((0, 2, 3, 1))
+    v = v.reshape((nant, nfeed, nant, nfeed)).transpose((0, 2, 1, 3))
     ant1, ant2 = antpairs[:, 0], antpairs[:, 1]
     return v[ant1, ant2]
 

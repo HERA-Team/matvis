@@ -17,7 +17,7 @@ def _random_complex(rng, shape, dtype):
 def _reference_z(
     beam, exptau, sqrt_flux, beam_idx, antenna_order, nant, nfeed, nax, nsrc
 ):
-    """Z[p] = beam[beam_idx[ant]] * exptau[ant] * sqrt_flux, with ant = order[p]."""
+    """Z[p] = conj(beam[beam_idx[ant]]) * exptau[ant] * sqrt_flux, with ant = order[p]."""
     order = np.arange(nant) if antenna_order is None else np.asarray(antenna_order)
     if beam.shape[0] == 1:
         # One shared beam: broadcast, whatever the indexing says.
@@ -26,7 +26,7 @@ def _reference_z(
         # Without beam_idx there is one beam per antenna, in antenna order.
         bidx = np.arange(nant) if beam_idx is None else np.asarray(beam_idx)
         a = beam[bidx[order]]
-    return (a * exptau[order][:, None, None, :] * sqrt_flux).reshape(
+    return (a.conj() * exptau[order][:, None, None, :] * sqrt_flux).reshape(
         nant * nfeed, nax * nsrc
     )
 

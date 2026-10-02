@@ -1,4 +1,4 @@
-// Z[ant, feed, ax, src] = A[beam_idx[ant], feed, ax, src] * exptau[ant, src] * sqrtI[src]
+// Z[ant, feed, ax, src] = conj(A[beam_idx[ant], feed, ax, src]) * exptau[ant, src] * sqrtI[src]
 //
 // With ant_order != NULL, output row `ant` is built for antenna ant_order[ant]
 // instead (the matprod classes can want z's antenna axis relabelled; see
@@ -34,7 +34,7 @@ __device__ void fused_z(
     const long ant = ant_order == NULL ? row : ant_order[row];
     const long bm = beam_idx == NULL ? ant * bmul : beam_idx[ant];
 
-    const T a = beam[((bm * nfeed + fd) * nax + ax) * nsrc + s];
+    const T a = conj(beam[((bm * nfeed + fd) * nax + ax) * nsrc + s]);
     out[i] = a * exptau[ant * nsrc + s] * sqrt_flux[s];
 }
 

@@ -103,7 +103,7 @@ class GPUMatMul(_AccumulatingMatProd):
         finalize_zdotz(self.vis)
 
         # (nfeed, nant, nfeed, nant) -> (nant, nant, nfeed, nfeed)
-        transposed = self.vis.transpose((1, 3, 2, 0))
+        transposed = self.vis.transpose((1, 3, 0, 2))
         if self.all_pairs:
             self._dev_out_4d[:] = transposed
         else:
@@ -134,7 +134,7 @@ class GPUVectorDot(_AccumulatingMatProd):
 
     def sum_chunks(self, out: np.ndarray):
         """Write the accumulated visibilities into the output array."""
-        out[:] = self.vis.transpose((2, 1, 0)).get()
+        out[:] = self.vis.transpose((2, 0, 1)).get()
         self.vis.fill(0)
 
 
@@ -190,7 +190,7 @@ class GPUMatBlock(_AccumulatingMatProd):
             # (F) memory layout. cupy (like numpy) copies as needed here.
             block = complex_matmul(zr, zc)
             block = block.reshape((blk.nrow, self.nfeed, blk.ncol, self.nfeed))
-            block = block.transpose((0, 2, 3, 1))  # -> (rows, cols, nfeed_j, nfeed_i)
+            block = block.transpose((0, 2, 1, 3))  # -> (rows, cols, nfeed_i, nfeed_j)
 
             # `+=`, not `=`: every chunk adds into the one accumulator (see
             # _AccumulatingMatProd). Each slot is claimed by exactly one block
