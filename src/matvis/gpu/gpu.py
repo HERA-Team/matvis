@@ -6,7 +6,8 @@ import importlib
 import logging
 import time
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import Literal
 
 import numpy as np
@@ -23,6 +24,13 @@ from .._nvtx import nvtx_range  # noqa: F401  (re-exported for back-compat)
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from ..core import _validate_inputs
 from ..core import beams as _core_beams
+from ..core.coherency import (
+    categorize_sources,
+    check_sky_physicality,
+    partition_and_negate,
+    process_polarized_chunk,
+    stokes_to_coherency,
+)
 from ..core.coords import CoordinateRotation
 from ..core.tau import TauCalculator
 from ..cpu.cpu import simulate as simcpu
@@ -99,9 +107,9 @@ def simulate(  # noqa: C901
     times: Time,
     skycoords: SkyCoord,
     telescope_loc: EarthLocation,
-    I_sky: np.ndarray,
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
-    polarized: bool = False,
+    I_sky: np.ndarray | None = None,
+    polarized: bool | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
     antenna_blocks: list[tuple[np.ndarray, np.ndarray]] | None = None,
     beam_idx: np.ndarray | None = None,
@@ -118,6 +126,8 @@ def simulate(  # noqa: C901
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
     memory_buffer: float = 0.9,
+    stokes: np.ndarray | None = None,
+    raise_on_negative_flux: bool | None = None,
     gpu_event_timing: bool = False,
 ) -> np.ndarray:
     """GPU implementation of the visibility simulator.
@@ -174,9 +184,49 @@ def simulate(  # noqa: C901
         _phase_t = now
 
     pr = psutil.Process()
-    nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, times, I_sky
+
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
+        )
+
+    nax, nfeed, nant, ntimes, nsrc = _validate_inputs(
+        precision, polarized, antpos, times, I_sky=I_sky, stokes=stokes
     )
+    if raise_on_negative_flux is None:
+        raise_on_negative_flux = stokes is None
+
+    # Determine if we have a polarized sky model
+    polarized_sky = stokes is not None and polarized
+
+    use_sign_split = False
+    use_partition = False
+    n_P = n_N = 0
+    if polarized_sky:
+        I_s, Q_s, U_s, V_s = stokes
+        use_sign_split = check_sky_physicality(
+            I_s, Q_s, U_s, V_s, raise_on_negative=raise_on_negative_flux
+        )
+        if use_sign_split:
+            idx_P, idx_N, idx_M = categorize_sources(I_s, Q_s, U_s, V_s)
+            if len(idx_M) == 0:
+                use_partition = True
+                stokes, skycoords, I_sky, n_P, n_N = partition_and_negate(
+                    stokes, skycoords, I_sky
+                )
+                I_s, Q_s, U_s, V_s = stokes
+
+    if polarized_sky:
+        coherency = stokes_to_coherency(I_s, Q_s, U_s, V_s)  # (2, 2, Nsrc)
+        flux_for_coords = coherency.transpose(2, 0, 1)[
+            :, np.newaxis, :, :
+        ]  # (Nsrc, 1, 2, 2)
+    else:
+        flux_for_coords = np.sqrt(0.5 * I_sky)
 
     rtype, ctype = get_dtypes(precision)
     _mark("validate")
@@ -188,10 +238,12 @@ def simulate(  # noqa: C901
         nax,
         nfeed,
         nant,
-        len(I_sky),
+        nsrc,
         precision,
         source_buffer=source_buffer,
         memory_buffer=memory_buffer,
+        polarized_sky=polarized_sky,
+        sign_split=use_sign_split,
         # The GPU matprods accumulate every chunk into one buffer, and keep a
         # second one holding the result in output ordering, rather than one
         # buffer per chunk.
@@ -202,7 +254,7 @@ def simulate(  # noqa: C901
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
     coords = coord_method(
-        flux=np.sqrt(0.5 * I_sky),
+        flux=flux_for_coords,
         times=times,
         telescope_loc=telescope_loc,
         skycoords=skycoords,
@@ -268,6 +320,18 @@ def simulate(  # noqa: C901
     )
     debug_enabled = logger.isEnabledFor(logging.DEBUG)
 
+    matprod_neg = None
+    if use_sign_split:
+        matprod_neg = mpcls(
+            nchunks,
+            nfeed,
+            nant,
+            antpairs,
+            precision=precision,
+            antenna_blocks=antenna_blocks,
+            antenna_order=antenna_order,
+        )
+
     logger.debug("Starting GPU allocations...")
 
     init_mem = cp.cuda.Device().mem_info[0]
@@ -300,10 +364,9 @@ def simulate(  # noqa: C901
         logger.debug(f"After zcalc, GPU mem avail is: {memnow / 1024**3} GB.")
 
     matprod.setup()
+    if matprod_neg is not None:
+        matprod_neg.setup()
     _mark("matprod_setup")
-    if debug_enabled:
-        memnow = cp.cuda.Device().mem_info[0]
-        logger.debug(f"After matprod, GPU mem avail is: {memnow / 1024**3} GB.")
 
     # A single in-order stream serializes the chunk pipeline on the device.
     # This is required for correctness (the stage objects share one set of
@@ -316,8 +379,6 @@ def simulate(  # noqa: C901
         event_eq2top = [cp.cuda.Event() for _ in range(nchunks)]
         event_beam = [cp.cuda.Event() for _ in range(nchunks)]
         event_tau = [cp.cuda.Event() for _ in range(nchunks)]
-        event_z = [cp.cuda.Event() for _ in range(nchunks)]
-        event_matprod = [cp.cuda.Event() for _ in range(nchunks)]
         event_end = [cp.cuda.Event() for _ in range(nchunks)]
         active_chunks = np.zeros(nchunks, dtype=bool)
         # Full per-chunk sample lists rather than running means: medians are
@@ -352,12 +413,24 @@ def simulate(  # noqa: C901
     # cupy's pool bookkeeping is host-side, so sampling it costs no sync.
     peak_device_bytes = int(cp.get_default_memory_pool().used_bytes())
 
+    @contextmanager
+    def time_stage(name: str) -> Iterator[None]:
+        with nvtx_range(name):
+            if gpu_event_timing:
+                start, end = cp.cuda.Event(), cp.cuda.Event()
+                start.record(stream)
+            yield
+            if gpu_event_timing:
+                end.record(stream)
+                chunk_stage_events[c][name].append((start, end))
+
     for t in range(ntimes):
         t_int_start = time.time()
         with nvtx_range("rotate"):
             coords.rotate(t)
         if gpu_event_timing:
             active_chunks.fill(False)
+            chunk_stage_events = [{"z": [], "matprod": []} for _ in range(nchunks)]
 
         for c in range(nchunks):
             if gpu_event_timing:
@@ -406,26 +479,44 @@ def simulate(  # noqa: C901
             if gpu_event_timing:
                 event_tau[c].record(stream)
 
-            with nvtx_range("z"):
-                z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
-            if gpu_event_timing:
-                event_z[c].record(stream)
-            logdebug("Z", z)
-            if debug_enabled:
-                logger.debug(
-                    f"After Z, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
+            if polarized_sky:
+                n_P_chunk = n_N_chunk = 0
+                if use_partition:
+                    chunk_start = c * npixc
+                    p_local_end = min(max(n_P - chunk_start, 0), npixc)
+                    n_local_end = min(max(n_P + n_N - chunk_start, 0), npixc)
+                    above = coords.above_horizon
+                    # Preserve the sorted horizon indices; only transfer the two counts.
+                    counts = cp.searchsorted(
+                        above, cp.asarray([p_local_end, n_local_end])
+                    )
+                    counts = counts.get()
+                    n_P_chunk = int(counts[0])
+                    n_N_chunk = int(counts[1]) - n_P_chunk
+                process_polarized_chunk(
+                    Isqrt,
+                    zcalc,
+                    A,
+                    exptau,
+                    bmfunc.beam_idx,
+                    matprod,
+                    c,
+                    use_sign_split=use_sign_split,
+                    matprod_neg=matprod_neg,
+                    use_partition=use_partition,
+                    n_P_chunk=n_P_chunk,
+                    n_N_chunk=n_N_chunk,
+                    xp=cp,
+                    stage=time_stage,
                 )
-
-            # compute vis = Z.Z^dagger
-            with nvtx_range("matprod"):
-                matprod(z, c)
-            if debug_enabled:
-                logger.debug(
-                    f"After matprod, GPU mem: {cp.cuda.Device().mem_info[0] / 1024**3} GB."
-                )
+            else:
+                with time_stage("z"):
+                    z = zcalc(Isqrt, A, exptau, bmfunc.beam_idx)
+                with time_stage("matprod"):
+                    matprod(z, c)
+                logdebug("Z", z)
 
             if gpu_event_timing:
-                event_matprod[c].record(stream)
                 event_end[c].record(stream)
 
         if gpu_event_timing:
@@ -444,12 +535,13 @@ def simulate(  # noqa: C901
                 event_samples["tau"].append(
                     cp.cuda.get_elapsed_time(event_beam[c], event_tau[c])
                 )
-                event_samples["z"].append(
-                    cp.cuda.get_elapsed_time(event_tau[c], event_z[c])
-                )
-                event_samples["matprod"].append(
-                    cp.cuda.get_elapsed_time(event_z[c], event_matprod[c])
-                )
+                for stage_name in ("z", "matprod"):
+                    event_samples[stage_name].append(
+                        sum(
+                            cp.cuda.get_elapsed_time(start, end)
+                            for start, end in chunk_stage_events[c][stage_name]
+                        )
+                    )
 
         # No explicit synchronization needed: sum_chunks' device-to-host copy
         # is ordered on the same stream as all the compute above.
@@ -465,6 +557,10 @@ def simulate(  # noqa: C901
 
         with nvtx_range("sum_chunks"):
             matprod.sum_chunks(vis[t])
+            if matprod_neg is not None:
+                vis_neg = np.zeros_like(vis[t])
+                matprod_neg.sum_chunks(vis_neg)
+                vis[t] -= vis_neg
 
         if gpu_event_timing:
             event_sum_end[t].record(stream)

@@ -139,3 +139,18 @@ class TestLogProgress:
         assert t > prev_time
         assert mem > 0
         assert "Progress Info" in caplog.text
+
+
+@pytest.mark.parametrize("sign_split", [False, True])
+def test_polarized_memory_budget(sign_split: bool):
+    """Polarization scratch and a negative accumulator need additional chunks."""
+    kwargs = dict(_BASE_KWARGS, nant=128, nsrc=20000, freemem=256 * 1024**2)
+    scalar = _utils.get_required_chunks(vis_buffers=2, **kwargs)
+    polarized = _utils.get_required_chunks(
+        vis_buffers=2, polarized_sky=True, sign_split=sign_split, **kwargs
+    )
+    assert polarized > scalar
+    if sign_split:
+        assert polarized >= _utils.get_required_chunks(
+            vis_buffers=2, polarized_sky=True, **kwargs
+        )

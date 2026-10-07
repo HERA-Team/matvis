@@ -349,6 +349,16 @@ class MatProd(ABC):
         self.compute(z, out=self.vis[chunk])
         return self.vis[chunk]
 
+    def reset_chunk(self, chunk: int) -> None:
+        """Clear a chunk before a time step, including empty signed partitions.
+
+        Parameters
+        ----------
+        chunk
+            Index of the chunk to clear.
+        """
+        self.vis[chunk].fill(0)
+
     def sum_chunks(self, out: np.ndarray):
         """
         Sum the chunks into the output array.

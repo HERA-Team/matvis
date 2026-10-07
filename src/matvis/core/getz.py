@@ -83,32 +83,56 @@ class ZMatrixCalc:
 
     def __call__(
         self,
-        sqrt_flux: np.ndarray,
+        sqrt_flux: np.ndarray | None,
         beam: np.ndarray,
         exptau: np.ndarray,
         beam_idx: np.ndarray | None,
+        m_matrix: np.ndarray | None = None,
     ) -> np.ndarray:
         """Compute the Z matrix.
 
-        Z = conj(A) * I * exp(tau)
+        Z = conj(A) * sqrt_flux * exp(tau), or conj(A @ M) * exp(tau).
 
         Parameters
         ----------
         sqrt_flux
-            Square root of the flux. Shape=(Nsrcs,).
+            Square root of the flux. Shape=(Nsrcs,). May be None when m_matrix is given.
         beam
             Beam. Shape=(Nbeams, Nfeed, Nax, Nsrcs).
         exptau
-            Complex exponential of the delay (i.e. exp(-2π*i*nu*D.X)).
+            Complex exponential of the delay (i.e. exp(+2π*i*nu*D.X/c)).
             Shape=(Nant, Nsrcs).
         beam_idx
             The beam indices, i.e. the beam index that each antenna corresponds to.
+
+        m_matrix
+            Optional sky factor of shape (2, 2, Nsrcs), with C = M M†.
+            When provided, sqrt_flux is ignored.
 
         Returns
         -------
         Z
             The Z matrix. Shape=(Nfeed*Nant, Nax*Nsrcs).
         """
+        if m_matrix is not None:
+            xp = self.xp
+            src_ant = self.antenna_order
+            rowbeam = xp.arange(self.nant) if beam_idx is None else xp.asarray(beam_idx)
+            if src_ant is not None:
+                rowbeam = rowbeam[src_ant]
+            bm = beam if beam.shape[0] == 1 else beam[rowbeam]
+            phase = exptau if src_ant is None else exptau[src_ant]
+            # MatProd sums conj(Z_i) Z_j: conjugate the entire Jones-sky product,
+            # including complex M, without changing the shared phase buffer.
+            self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
+            self.z[:] = (
+                bm[:, :, :1, :] * m_matrix[None, None, 0]
+                + bm[:, :, 1:2, :] * m_matrix[None, None, 1]
+            ).conj()
+            self.z *= phase[:, None, None, :]
+            self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
+            return self.z
+
         exptau *= sqrt_flux
 
         self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
