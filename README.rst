@@ -50,7 +50,7 @@ Limitations
 
 
 Full-Stokes sky input
-====================
+=====================
 
 Existing positional and keyword calls with ``fluxes`` remain supported. For a
 polarized sky, pass ``stokes`` with shape ``(4, Nsource, Nfreq)``, ordered I, Q, U,
