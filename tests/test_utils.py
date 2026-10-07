@@ -1,5 +1,9 @@
 """Test the utils module."""
 
+import logging
+import time
+
+import psutil
 import pytest
 
 from matvis import _utils
@@ -12,7 +16,7 @@ _BASE_KWARGS = {
     "nant": 4,
     "nsrc": 100,
     "nbeam": 2,
-    "nbeampix": 0,
+    "nbeampix_tot": 0,
     "precision": 1,
 }
 
@@ -33,6 +37,30 @@ def test_human_readable_size():
         _utils.human_readable_size(1024**6, decimal_places=3, indicate_sign=True)
         == "+1024.000 PiB"
     )
+
+
+class TestVisBuffers:
+    """Tests for the vis_buffers argument of get_required_chunks."""
+
+    def test_defaults_to_one_per_chunk(self):
+        """Omitting vis_buffers reproduces the historical behaviour."""
+        assert _utils.get_required_chunks(**_BASE_KWARGS) == _utils.get_required_chunks(
+            vis_buffers=None, **_BASE_KWARGS
+        )
+
+    def test_fewer_buffers_never_needs_more_chunks(self):
+        """Holding a couple of vis buffers instead of one per chunk can only help.
+
+        The GPU backend accumulates chunks into a single buffer, so its
+        visibility memory no longer grows with the chunk count.
+        """
+        # A config where the visibility buffers are a large share of the
+        # budget: many antennas, relatively few sources.
+        kwargs = dict(_BASE_KWARGS)
+        kwargs.update(nant=512, nsrc=20000, freemem=2 * 1024**3)
+        with_accum = _utils.get_required_chunks(vis_buffers=2, **kwargs)
+        per_chunk = _utils.get_required_chunks(**kwargs)
+        assert with_accum <= per_chunk
 
 
 class TestGetRequiredChunks:
@@ -80,3 +108,49 @@ class TestGetRequiredChunks:
         """memory_buffer = 1.0 is valid (use all free memory)."""
         result = _utils.get_required_chunks(**{**_BASE_KWARGS, "memory_buffer": 1.0})
         assert result >= 1
+
+
+class TestLogProgress:
+    """Tests for log_progress."""
+
+    def test_noop_when_info_disabled(self, caplog):
+        """When INFO is not enabled, inputs are returned unchanged and nothing is logged."""
+        pr = psutil.Process()
+        prev_time = time.time()
+        last_mem = 12345
+
+        with caplog.at_level(logging.WARNING, logger="matvis._utils"):
+            t, mem = _utils.log_progress(prev_time - 5, prev_time, 1, 10, pr, last_mem)
+
+        assert t == prev_time
+        assert mem == last_mem
+        assert caplog.text == ""
+
+    def test_logs_progress_when_info_enabled(self, caplog):
+        """When INFO is enabled, progress is logged and updated time/memory returned."""
+        pr = psutil.Process()
+        start_time = time.time() - 10
+        prev_time = time.time() - 1
+        last_mem = 0
+
+        with caplog.at_level(logging.INFO, logger="matvis._utils"):
+            t, mem = _utils.log_progress(start_time, prev_time, 5, 10, pr, last_mem)
+
+        assert t > prev_time
+        assert mem > 0
+        assert "Progress Info" in caplog.text
+
+
+@pytest.mark.parametrize("sign_split", [False, True])
+def test_polarized_memory_budget(sign_split: bool):
+    """Polarization scratch and a negative accumulator need additional chunks."""
+    kwargs = dict(_BASE_KWARGS, nant=128, nsrc=20000, freemem=256 * 1024**2)
+    scalar = _utils.get_required_chunks(vis_buffers=2, **kwargs)
+    polarized = _utils.get_required_chunks(
+        vis_buffers=2, polarized_sky=True, sign_split=sign_split, **kwargs
+    )
+    assert polarized > scalar
+    if sign_split:
+        assert polarized >= _utils.get_required_chunks(
+            vis_buffers=2, polarized_sky=True, **kwargs
+        )

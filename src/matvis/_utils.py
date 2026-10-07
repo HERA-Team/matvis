@@ -128,10 +128,13 @@ def get_required_chunks(
     nant: int,
     nsrc: int,
     nbeam: int,
-    nbeampix: int,
+    nbeampix_tot: int,
     precision: int,
     source_buffer: float = 1.0,
     memory_buffer: float = 0.9,
+    vis_buffers: int | None = None,
+    polarized_sky: bool = False,
+    sign_split: bool = False,
 ) -> int:
     """
     Compute number of chunks (over sources) required to fit data into available memory.
@@ -150,8 +153,8 @@ def get_required_chunks(
         The number of sources.
     nbeam : int
         The number of beams.
-    nbeampix : int
-        The number of beam pixels.
+    nbeampix_tot : int
+        The total number of beam pixels in *all* beams.
     precision : int
         The precision of the data.
     source_buffer : float, optional
@@ -160,6 +163,16 @@ def get_required_chunks(
         The fraction of free memory to use for the calculation. Default is 0.9,
         which leaves some buffer for other processes and overhead. Must be in
         the range (0, 1].
+    vis_buffers : int, optional
+        How many full ``(nfeed, nant, nfeed, nant)`` visibility buffers are held
+        at once. Defaults to one per chunk, which is the CPU backend's layout.
+        The GPU backend accumulates every chunk into a single buffer, so it
+        passes a small constant instead (see ``matvis.gpu.matprod``).
+
+    polarized_sky : bool, optional
+        Budget complex coherency, M matrices, and vectorized Jones temporaries.
+    sign_split : bool, optional
+        Budget a second visibility accumulator for signed polarized sources.
 
     Returns
     -------
@@ -182,11 +195,14 @@ def get_required_chunks(
     while sum(gpusize.values()) >= freemem * memory_buffer and ch < 100:
         ch += 1
         nchunk = int(nsrc // ch * source_buffer)
+        if polarized_sky:
+            width = ceildiv(nsrc, ch)
+            nchunk = int(width * source_buffer) if width > 1000 else width
 
         gpusize = {
             "antpos": nant * 3 * rsize,
             "flux": nsrc * rsize,
-            "beam": nbeampix * nfeed * nax * csize,
+            "beam": nbeampix_tot * nfeed * nax * csize,
             "crd_eq": 3 * nsrc * rsize,
             "eq2top": 3 * 3 * rsize,
             "crd_top": 3 * nsrc * rsize,
@@ -195,8 +211,17 @@ def get_required_chunks(
             "exptau": nant * nchunk * csize,
             "beam_interp": nbeam * nfeed * nax * nchunk * csize,
             "zmat": nchunk * nfeed * nant * nax * csize,
-            "vis": ch * nfeed * nant * nfeed * nant * csize,
+            "vis": (vis_buffers or ch) * nfeed * nant * nfeed * nant * csize,
         }
+        if polarized_sky:
+            gpusize["flux"] = 4 * nsrc * csize
+            gpusize["flux_chunk"] = 4 * nchunk * csize
+            # Rotation, both M factors, eigen scratch, Jones products and gathers.
+            gpusize["polarized_scratch"] = (
+                12 * csize + 32 * rsize
+            ) * nchunk + 3 * gpusize["zmat"]
+            if sign_split:
+                gpusize["vis"] *= 2
         logger.debug(
             f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize.values())}"
         )
@@ -220,6 +245,9 @@ def get_desired_chunks(
     precision: int,
     source_buffer: float = 1.0,
     memory_buffer: float = 0.9,
+    vis_buffers: int | None = None,
+    polarized_sky: bool = False,
+    sign_split: bool = False,
 ) -> tuple[int, int]:
     """Get the desired number of chunks.
 
@@ -247,6 +275,13 @@ def get_desired_chunks(
         The fraction of free memory to use for the calculation. Default is 0.9,
         which leaves some buffer for other processes and overhead. Must be in
         the range (0, 1].
+    vis_buffers : int, optional
+        Passed through to :func:`get_required_chunks`.
+
+    polarized_sky : bool, optional
+        Whether to include polarized-sky scratch storage in the memory estimate.
+    sign_split : bool, optional
+        Whether a second visibility accumulator is needed.
 
     Returns
     -------
@@ -280,6 +315,9 @@ def get_desired_chunks(
                 precision,
                 source_buffer,
                 memory_buffer,
+                vis_buffers,
+                polarized_sky,
+                sign_split,
             ),
         ),
         nsrc,

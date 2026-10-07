@@ -10,6 +10,7 @@ High-Level Wrapper
    :toctree: _autosummary
 
    matvis.wrapper
+   matvis.uvdata
 
 
 Simulator implementations
@@ -21,6 +22,16 @@ Simulator implementations
    matvis.cpu.cpu
    matvis.gpu.gpu
 
+Beam Interpolators
+------------------
+.. autosummary::
+   :template: custom-module.rst
+   :toctree: _autosummary
+
+   matvis.core.beams
+   matvis.cpu.beams
+   matvis.gpu.beams
+
 Other Utilities
 ---------------
 .. autosummary::
@@ -28,3 +39,5 @@ Other Utilities
    :toctree: _autosummary
 
    matvis.coordinates
+   matvis.core.coherency
+   matvis.redundancy

@@ -3,6 +3,7 @@
 import numpy as np
 from astropy.constants import c as speed_of_light
 
+from .._nvtx import nvtx_range
 from .._utils import get_dtypes
 
 try:
@@ -28,7 +29,11 @@ class TauCalculator:
         self.nant = len(antpos)
         self.nsrc = nsrc
         ang_freq = self.rtype(2.0 * np.pi * freq)
-        self.antpos = antpos.astype(self.rtype) * ang_freq * 1j / speed_of_light.value
+        # The 1j promotes to complex128; cast back so the per-chunk matmul
+        # runs at the requested precision.
+        self.antpos = (
+            antpos.astype(self.rtype) * ang_freq * 1j / speed_of_light.value
+        ).astype(self.ctype)
 
         self.gpu = gpu
         if gpu and not HAVE_CUDA:
@@ -48,7 +53,8 @@ class TauCalculator:
     def __call__(self, crdtop: np.ndarray) -> np.ndarray:
         """Compute the complex exponential of the delay.
 
-        exp(-2π*i*nu*D.X)
+        exp(+2πi * nu * x . s / c), with x the antenna position and s the source
+        direction.
 
         Parameters
         ----------
@@ -62,10 +68,12 @@ class TauCalculator:
         exptau
             The complex exponential of the delay. Shape=(Nant, Nsrcs).
         """
-        self._xp.matmul(self.antpos, crdtop, out=self.exptau)
-        self._xp.exp(self.exptau, out=self.exptau)
-
-        if self.gpu:
-            cp.cuda.Device().synchronize()
+        # Two NVTX ranges: the b.s dot product depends only on geometry (the
+        # per-frequency scaling is folded into self.antpos at construction), so
+        # a multi-frequency loop could share it; the exp could not. Issue #134.
+        with nvtx_range("tau_dot"):
+            self._xp.matmul(self.antpos, crdtop, out=self.exptau)
+        with nvtx_range("tau_exp"):
+            self._xp.exp(self.exptau, out=self.exptau)
 
         return self.exptau

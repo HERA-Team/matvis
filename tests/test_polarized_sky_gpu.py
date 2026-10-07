@@ -9,6 +9,8 @@ import pytest
 
 pytest.importorskip("cupy")
 
+pytestmark = pytest.mark.gpu
+
 import numpy as np
 from astropy import units as un
 from astropy.coordinates import EarthLocation, SkyCoord
@@ -74,7 +76,6 @@ def test_gpu_stokes_matches_cpu():
         polarized=True,
         stokes=stokes,
         use_gpu=False,
-        beam_spline_opts={"order": 1},
         **params,
     )
     vis_gpu = simulate_vis(
@@ -108,7 +109,6 @@ def test_gpu_sign_split_matches_cpu():
         stokes=stokes,
         raise_on_negative_flux=False,
         use_gpu=False,
-        beam_spline_opts={"order": 1},
         **params,
     )
     vis_gpu = simulate_vis(
@@ -147,7 +147,6 @@ def test_gpu_sign_split_negative_flux():
         stokes=stokes,
         raise_on_negative_flux=False,
         use_gpu=False,
-        beam_spline_opts={"order": 1},
         **params,
     )
     vis_gpu = simulate_vis(
@@ -160,3 +159,40 @@ def test_gpu_sign_split_negative_flux():
 
     np.testing.assert_allclose(vis_gpu.real, vis_cpu.real, rtol=2e-4, atol=5e-4)
     np.testing.assert_allclose(vis_gpu.imag, vis_cpu.imag, rtol=2e-4, atol=5e-4)
+
+
+@pytest.mark.parametrize("method", ["MatMul", "VectorDot", "MatBlock"])
+@pytest.mark.parametrize("precision", [1, 2])
+@pytest.mark.parametrize("signs", ["positive", "partition", "mixed"])
+def test_gpu_polarized_chunk_lifecycle(method: str, precision: int, signs: str):
+    """Signed GPU accumulators reset across times, chunks and horizon crossings."""
+    params = _make_sim_params(nsrc=15, ntime=4, nfreq=2, precision=precision)
+    params["times"] = Time(
+        np.linspace(2459863.0, 2459863.8, 4), format="jd", scale="utc"
+    )
+    stokes = np.ones((4, 15, 2))
+    stokes[1:] *= 0.1
+    if signs == "partition":
+        stokes[:, 7:] *= -1
+    elif signs == "mixed":
+        stokes[1, :7] = 2
+    original = stokes.copy()
+    extra = {}
+    if method == "MatBlock":
+        from matvis.redundancy import antpairs_to_blocks
+
+        extra["antenna_blocks"] = antpairs_to_blocks(
+            [(i, j) for i in range(3) for j in range(i, 3)]
+        )
+    expected = simulate_vis(stokes=stokes, min_chunks=1, **params)
+    for chunks in (1, 4):
+        actual = simulate_vis(
+            stokes=stokes,
+            min_chunks=chunks,
+            use_gpu=True,
+            matprod_method=method,
+            **extra,
+            **params,
+        )
+        np.testing.assert_allclose(actual, expected, rtol=2e-4, atol=5e-4)
+    np.testing.assert_array_equal(stokes, original)

@@ -10,6 +10,9 @@ Contents
    Authors <authors>
    Changelog <changelog>
    Understanding The Algorithm <understanding_the_algorithm>
+   Beam Interpolation <beam_interpolation>
+   Performance <performance>
+   CLI <cli>
    Tutorials <tutorials>
    Module Reference <api>
 

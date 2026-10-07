@@ -1,0 +1,886 @@
+===========
+Performance
+===========
+
+This page describes how ``matvis`` performance scales with simulation size,
+gives measured rule-of-thumb numbers for estimating run times, and records a
+changelog of changes that significantly affected performance.
+
+Unless noted otherwise, all statements refer to the GPU implementation with
+the following settings: **single precision**, polarized (2 feeds
+× 2 E-field axes), gridded (``UVBeam``) beams with linear interpolation
+explicitly selected via ``beam_spline_opts={"order": 1}`` (the default is
+cubic; see `Beam interpolation order`_ for its cost), and
+the ERFA coordinate method at its default ``update_bcrs_every = 0``.
+
+.. note::
+
+   That default is the *exact*, most expensive setting: the light-deflection
+   and aberration corrections, which are ~90% of the cost of a coordinate
+   rotation, are recomputed at every integration. Earlier versions of this page
+   claimed the benchmarks used a large ``update_bcrs_every`` instead; they never
+   did, because ``matvis profile`` had no way to set it. It does now
+   (``--update-bcrs-every``), but the numbers below are all at the exact
+   setting. Loosening it to ~180 s is therefore a speed-up relative to what is
+   reported here, not the other way around -- and at production scale on a GPU
+   it is worth well under 1% of an integration, because coordinate rotation is
+   not where the time goes (see the table below).
+
+.. note::
+
+   ``CoordinateRotationERFA`` is the default, and the numbers on this page
+   assume it. The alternative, ``CoordinateRotationAstropy``, costs roughly 25x
+   as much per time step -- 1594 ms against 49 ms at 3.1e6 sources on an
+   RTX A2000, which turns coordinate rotation from ~0.7% of an integration into
+   ~24% of one. The two agree to 10 mas in double precision.
+
+
+The simulations reported here were run with the ``matvis profile`` script,
+documented at :doc:`cli`. This script outputs a JSON file with profiling
+information in it, also documented at :doc:`cli`. Below we make
+reference to some of the data in this JSON output (e.g.
+``derived.gpu_time_per_integration``).
+
+Throughout, we reference a "production-slice". By this we refer to a simulation
+with 350 antennas (each with unique beams) and one million sources, simulated for
+just one time and one channel (i.e. "production" scale refers to the large array
+and number of sources, while the "slice" refers to the single time/frequency).
+This simulation size is large enough that overheads are relatively negligible.
+
+
+Where the time goes
+===================
+
+For each time and frequency, ``matvis`` performs five stages (see
+:doc:`understanding_the_algorithm`). Their costs scale as:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Stage
+     - Scaling (per time, per frequency)
+     - Share at HERA scale [1]_
+   * - Coordinate rotation
+     - :math:`N_{\rm src}`
+     - few %
+   * - Horizon cut / chunk selection
+     - :math:`N_{\rm src}`
+     - few %
+   * - Beam interpolation
+     - :math:`N_{\rm beam} N_{\rm feed} N_{\rm ax} N_{\rm src}`
+     - ~15%
+   * - Phase factor + Z matrix
+     - :math:`N_{\rm ant} N_{\rm feed} N_{\rm ax} N_{\rm src}`
+     - ~12%
+   * - Matrix product :math:`V = Z Z^\dagger`
+     - :math:`(N_{\rm ant} N_{\rm feed})^2 N_{\rm ax} N_{\rm src}`
+     - ~70%
+   * - Total
+     - × :math:`N_{\rm times} \times N_{\rm freq}`
+     -
+
+.. [1] Measured with per-chunk CUDA events for a "production-slice" on an RTX A2000
+   (Ampere) laptop GPU. The matrix product uses the cuBLAS
+   Hermitian rank-k routine (``cherk``) and was tested to run at the library's
+   roofline (i.e. the theoretical maximum),
+   so the ~70% share is a minimum for this setup, with minimal overhead.
+
+Because the matrix product dominates for large arrays, total time is
+approximately **linear in the number of sources and quadratic in the number
+of antennas** (the cross-over to :math:`N_{\rm ant}^2` domination happens
+around 100–200 antennas). The number of *distinct* beams only affects the
+beam-interpolation share, so simulating 350 unique beams costs only ~15%
+more than one shared beam.
+
+Rules of thumb for the matrix product phase
+===========================================
+
+The matrix product phase is the dominant phase for interferometers of a realistic size
+(~100 antennas or more). Here we list the measured and theoretical cost of this phase
+per integration (one time sample, one frequency) at the
+canonical production-slice configuration via ``profiling/run-canonical.sh`` for
+some GPUs that were available (if you have your own GPU and check the peformance,
+please report it to us so we can add it here)!
+
+The theoretical minimum here is given by the number of floating point operations required
+divided by the *advertised* performance (TFLOPS) of the card, :math:`P_{\rm theo}`. That is,
+
+.. math::
+
+  t_{\rm min} ({\rm sec}) = \frac{4 \,(N_{\rm feed} N_{\rm ant})^2 \, N_{\rm ax} N_{\rm src}^{\rm alloc}}{P_{\rm theo}} = \frac{3.92}{P_{\rm theo}}.
+
+In this equation we have set :math:`N_{\rm feed}=N_{\rm ax}=2`, :math:`N_{\rm ant}=350`,
+and :math:`N_{\rm src}^{\rm alloc}=10^6` (i.e. the production slice settings), and the
+factor of four accounts for the data being complex valued.
+Note that this theoretical minimum assumes that the matrix-multiply uses CHERK, with
+half the operations of a standard GEMM, and also assumes single precision is being used.
+
+In practice, the matrix multiply operation on a given card will not achieve the theoretical
+FLOPS of the card. Let the actual throughput of the card for the GEMM operation be
+:math:`R`. Then the time taken for a production slice is
+
+.. math::
+
+   t_{\rm gemm} \approx \frac{8 \,(N_{\rm feed} N_{\rm ant})^2 \, N_{\rm ax} N_{\rm src}^{\rm alloc}}{R}.
+
+In this equation, the potential savings that come from using CHERK insead of the general
+GEMM (theoretically up to a factor of two) are absorbed into the performance, :math:`R`.
+That is, :math:`R` is the *effective* achieved FLOPS for a GEMM operation of this
+shape/scale on a given GPU (and therefore could be higher, up to a factor of two, than
+the advertised FLOPS of the card). You can measure :math:`R` for your own GPU with our
+provided ``profiling/gemm_experiments.py`` script.
+
+.. important::
+
+   :math:`N_{\rm src}^{\rm alloc}` above is the *allocated* number of sources
+   per chunk, not the number above the horizon: padded buffer entries go
+   through the GEMM too. The ``source_buffer`` parameter therefore multiplies
+   the dominant cost directly. If your sky is roughly uniform (half below the
+   horizon at any time), ``source_buffer=0.6`` is nearly a 2x saving over the
+   default ``1.0``. These results use the default source buffer.
+
+
+.. list-table::
+   :header-rows: 1
+
+   * - Hardware
+     - GPU time / integration
+     - Wall time / integration
+     - :math:`P_{\rm theo}` (TFLOPS)
+     - :math:`t_{\rm min}`
+     - Efficiency
+   * - RTX A2000 laptop (Ampere, 95 W class)
+     - 2.34 s
+     - 2.37 s
+     - 8
+     - 0.49 s
+     - 21%
+   * - GeForce GTX Titan X (Maxwell, 2015 workstation card)
+     - 1.6 s
+     - 1.7 s
+     - 6.6
+     - 0.59 s
+     - 37%
+   * - Quadro RTX 5000 (Turing, 16 GB workstation card)
+     - 1.8 s
+     - 1.8 s
+     - 11.2
+     - 0.35 s
+     - 19%
+   * - Tesla V100-SXM2-32GB (Volta, data-centre)
+     - 0.8 s
+     - 0.8 s
+     - 15.7
+     - 0.25 s
+     - 31%
+
+**GPU time** (``derived.gpu_time_per_integration``: per-integration sum of
+per-chunk CUDA event totals, median over integrations excluding the first)
+measures the time spanned by the chunk pipeline *on the CUDA stream*. Note
+that this is an upper bound on device compute: CUDA events bracket a region
+of the stream, so any time the device sat idle inside a chunk waiting for the
+host to enqueue more work is counted here too. To separate real device work
+from pipeline stalls, use ``profiling/gpu_idle.py``, which takes the union of
+kernel and memcpy intervals from an ``nsys`` trace.
+**Wall time** (``derived.steady_wall_per_integration``: median
+per-integration wall time, excluding the first integration) adds host-side
+work — coordinate rotation, Python dispatch — and so also depends on the
+machine's CPU; the difference between the columns is the host overhead on
+the benchmark machine (2% or less on all four machines above).
+**Efficiency**: defined as the theoretical minimum time divided by the measured time,
+as a percentage.
+
+.. note::
+
+   These efficiencies (19-37%) are well below 100%. This does not necessarily
+   reflect that ``matvis`` is ineffeciently calling the matrix multiply routine (CHERK),
+   but is more likely a reflection that CHERK (under the given matrix shape conditions)
+   cannot achieve the theoretical peak performance of the card.
+   For the A2000 row in particular, the ~70% matrix-product share quoted in
+   `Where the time goes`_ was itself measured with ``cherk`` already running
+   at *the library's roofline* [1]_ — cuBLAS could not do any better for this
+   problem shape on that card, so the entire 100%→25% shortfall happens
+   inside cuBLAS, not in the code calling it. Two effects are known to pull
+   achieved throughput for complex GEMM/CHERK below a card's advertised
+   (real, fp32) peak: complex-valued kernels generally reach a lower
+   fraction of peak than a real SGEMM of the same size, and vendor-advertised
+   TFLOPS are boost-clock figures rarely sustained under continuous load
+   (especially on the 95 W laptop A2000). GPU time also includes device
+   data transfer (see above), which further widens the gap from the
+   compute-only theoretical minimum, though we have not separately measured
+   how much of the gap this accounts for.
+
+
+GEMM strategy: hardware dependence
+-----------------------------------
+
+``matvis`` computes the matrix product with the cuBLAS Hermitian rank-k
+routine (``cherk``/``zherk``, half the FLOPs of a general GEMM) and, for the
+redundant-baseline ``GPUVectorDot`` path, with ``cgemm3m`` (the Gauss 3M
+algorithm, ~25% fewer real multiplies). Both are bound directly from
+``libcublas`` since cupy doesn't expose them. **How much they help is
+architecture-dependent** — measured at :math:`M=700, K=10^5` (350 antennas,
+polarized, complex64):
+
+.. list-table::
+   :header-rows: 1
+
+   * - GPU
+     - cgemm (baseline)
+     - cgemm3m
+     - cherk
+   * - RTX A2000 (Ampere)
+     - 213 ms
+     - 100 ms (2.1x)
+     - 75 ms (2.8x)
+   * - GeForce GTX Titan X (Maxwell)
+     - 72 ms
+     - 107 ms (0.7x — *slower*)
+     - 71 ms (~1.0x — no measurable gain)
+   * - Quadro RTX 5000 (Turing)
+     - 80 ms
+     - 51 ms (1.6x — *fastest here*)
+     - 80 ms (~1.0x — no measurable gain)
+   * - Tesla V100-SXM2-32GB (Volta)
+     - 36 ms
+     - 21 ms (1.7x — *fastest here*)
+     - 37 ms (~1.0x — no measurable gain)
+
+As you can see, on the cards measured here, there is a significant difference between
+the different matrix-multiply strategies, and which one is fastest is dependent on the
+GPU. ``cherk`` is never *worse* than ``cgemm`` in any of
+the four measurements, so it remains a safe default, but on the two most
+modern architectures measured it captures none of the available speedup.
+There is currently no runtime auto-selection between strategies (tracked in
+`issue #136 <https://github.com/HERA-Team/matvis/issues/136>`_); until then, check
+both with ``profiling/gemm_experiments.py`` before assuming ``cherk`` is optimal.
+
+.. _interpolation-order:
+
+Beam interpolation order
+========================
+
+Bicubic interpolation is the default (see :doc:`beam_interpolation`); it reads
+16 grid points per source instead of 4. The numbers everywhere else on this
+page use linear interpolation, selected explicitly with
+``beam_spline_opts={"order": 1}``, so that the rest of the page isolates the
+other stages:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Configuration
+     - Beam stage (linear)
+     - Beam stage (cubic)
+     - Beam share of GPU time
+     - Total GPU time
+   * - production-slice (350 ants/beams, :math:`10^6` sources, 30 chunks)
+     - 8.2 ms/chunk
+     - 14.8 ms/chunk (1.8x)
+     - 12% → 19%
+     - +9%
+   * - dev (64 ants/beams, :math:`2\times10^5` sources)
+     - 6.8 ms/chunk
+     - 11.5 ms/chunk (1.7x)
+     - 12% → 17%
+     - +14%
+
+Measured on an RTX A2000 laptop GPU with ``--gpu-event-timing``, polarized,
+single precision, 180 × 360 beam grid; medians of four runs per order for the
+production slice. The total is quoted as the beam-stage *delta* over the linear
+chunk total (+6.6 ms on ~68 ms), because the matrix product's own run-to-run
+jitter is larger than the effect being measured and swamps a direct
+before/after comparison of totals.
+
+.. note::
+
+   Per-chunk stage timings are only comparable between runs at the same chunk
+   size, and absolute values drift with the GPU's clock and thermal state — on
+   a laptop card they moved by up to 20% between sessions. Use the ``tau`` and
+   ``z`` stages as a control: they are unaffected by the interpolation order,
+   so a pair of runs whose ``tau``/``z`` agree is a valid comparison. On that
+   basis the 1.8x stage cost and the 12% → 19% share reproduced across two
+   independent sessions (1.80x and 1.75x) even as the absolute milliseconds
+   moved.
+
+Reproduce with::
+
+    matvis profile -a 350 -b 350 -s 1000000 -t 4 --nchunks 30 --gpu \
+        --interpolated-beam --single-precision --gpu-event-timing \
+        --coord-method CoordinateRotationERFA -f 1 --spline-order 3 \
+        -o profiling/results
+
+The 1.8x on the stage is much less than the 4x increase in grid points read,
+because the stage is bound by the coefficient loads, and the 4 × 4
+neighbourhoods of neighbouring sources overlap heavily in cache. The total-run
+penalty is smaller again (~9%), because the matrix product still dominates —
+so the *relative* cost of cubic falls as the array grows, and rises as the
+source count per antenna falls.
+
+Two one-off setup costs come with ``order=3``, both small:
+
+- The spline **prefilter** (see :doc:`beam_interpolation`) takes ~0.4 s for 350
+  unique beams on a 180 × 360 grid — under a fifth of a single integration,
+  and it does not scale with the number of times, frequencies or sources.
+- The coefficient array carries a one-node halo on each grid axis, making it
+  1.7% larger than the beam grid it replaces (692 → 704 MiB at 350 beams).
+  Negligible against the per-chunk terms discussed under `Memory and
+  chunking`_. Beams are prefiltered one at a time as they reach the device, so
+  setup never holds the raw grids and the coefficients simultaneously (peak
+  720 MiB rather than 1408 MiB at 350 beams).
+
+Block-decomposed products on redundant arrays
+=============================================
+
+A *redundant* array measures far fewer distinct baselines than it has antenna
+pairs, so the full :math:`N_{\rm ant} \times N_{\rm ant}` product computes many
+visibilities that are, by construction, copies of one another. The
+``MatBlock`` matprod methods compute a handful of rectangular antenna-index
+sub-matrix products instead, gathering just the requested ``antpairs`` out of
+them (see :doc:`understanding_the_algorithm` for the mechanism, and
+:func:`~matvis.redundancy.find_dense_blocks` for building the decomposition).
+
+.. important::
+
+   **This only helps if the array is redundant.** The saving comes entirely
+   from asking for fewer visibilities than :math:`N_{\rm ant}^2`; the
+   decomposition cannot create redundancy that isn't there. In particular, if
+   every antenna has its own beam, no two antenna pairs give the same
+   visibility, every pair is wanted, and there is nothing to exploit. The
+   control measurement at the end of this section shows that case running
+   **slower** than plain ``MatMul``, not faster. Use ``MatBlock`` only when
+   ``len(antpairs)`` is a small fraction of :math:`N_{\rm ant}^2`.
+
+Measured speedup
+----------------
+
+Benchmark configuration: ``matvis hera-profile -a 11`` — a HERA-like split-core
+hex layout with **320 antennas**, i.e. 102 400 antenna pairs but only **1 501
+unique baselines** (a redundancy factor of 68) — with 995 328 sources
+(``--nside 288``) in 30 source chunks, i.e. the same ~10\ :sup:`6` sources and
+~33k sources per chunk as the production-slice configuration used elsewhere on
+this page. One shared beam, gridded/interpolated with linear interpolation
+(``--spline-order 1``, as elsewhere on this page — see `Beam interpolation
+order`_), polarized, single precision, ``CoordinateRotationERFA``, 5
+integrations, on an **RTX A2000 laptop GPU**.
+
+"Area" is :math:`\sum_b N^b_{\rm row} N^b_{\rm col}` summed over blocks, the
+quantity the FLOP count is proportional to; the full product's area is
+:math:`N_{\rm ant}^2 = 102\,400`. "Matrix product" is the ``matprod``
+CUDA-event median per chunk; "Wall" is
+``derived.steady_wall_per_integration``. Host overhead was 2-4 per cent of the
+wall time in every row, so these are GPU-bound measurements.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Method
+     - Area (FLOP proxy)
+     - Predicted from area
+     - Matrix product
+     - Wall / integration
+     - Actual speedup
+   * - ``MatMul`` (full product)
+     - 102 400
+     - 1.0x
+     - 40.6 ms
+     - 1.415 s
+     - 1.00x
+   * - ``MatBlock``, ``max_blocks=2``
+     - 7 623
+     - 13.4x
+     - 10.4 ms
+     - 0.534 s
+     - 2.65x
+   * - ``MatBlock``, ``max_blocks=3``
+     - 3 527
+     - 29.0x
+     - 8.0 ms
+     - 0.460 s
+     - 3.08x
+   * - ``MatBlock``, ``max_blocks=4``
+     - 2 707
+     - 37.8x
+     - **6.6 ms**
+     - **0.418 s**
+     - **3.39x**
+   * - ``MatBlock``, ``max_blocks=6``
+     - 1 920
+     - 53.3x
+     - 8.3 ms
+     - 0.470 s
+     - 3.01x
+   * - ``MatBlock``, ``max_blocks=8``
+     - 1 714
+     - 59.7x
+     - 8.3 ms
+     - 0.466 s
+     - 3.04x
+   * - ``VectorDot`` (one GEMM per baseline)
+     - 1 501
+     - 68.2x
+     - 199.9 ms
+     - 6.259 s
+     - 0.23x (*4.4x slower*)
+
+Building the decomposition is a one-off setup cost of 20-60 ms across this
+sweep (rising with ``max_blocks``) — negligible against any real simulation,
+but it is paid per ``simulate_vis`` call, so build it once and reuse it if you
+are calling in a loop.
+
+The headline is that the block decomposition **is** a real win —
+3.4x end-to-end, 6.2x on the matrix product itself — but it realizes only about
+16 per cent of the 37.8x that the FLOP count alone predicts, and the best
+``max_blocks`` is **not** the one that minimizes FLOPs. Cutting past four blocks
+keeps reducing the area and starts making things slower again.
+
+Why the FLOP ratio isn't achievable
+-----------------------------------
+
+The full product is compute-bound; the block products are not. Each block reads
+:math:`(N^b_{\rm row} + N^b_{\rm col})` antennas' worth of the :math:`Z` matrix
+to produce an :math:`N^b_{\rm row} \times N^b_{\rm col}` result, and because
+:math:`N_{\rm src}` is enormous compared to any block edge, these are extremely
+"skinny" GEMMs (at ``max_blocks=4`` the blocks are 3x319, 10x38, 27x46 and
+64x2 antennas, i.e. :math:`M` as small as 6 rows against :math:`K \approx
+66\,000`). Their cost is set by streaming :math:`Z`, not by arithmetic — and
+*more blocks stream more of it*, because antennas get re-read by every block
+they appear in:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``max_blocks``
+     - 1
+     - 2
+     - 3
+     - 4
+     - 6
+     - 8
+     - 12
+   * - Area (arithmetic)
+     - 33 176
+     - 7 623
+     - 3 527
+     - 2 707
+     - 1 920
+     - 1 714
+     - 1 542
+   * - :math:`\sum_b (N^b_{\rm row} + N^b_{\rm col})` (traffic)
+     - 423
+     - 489
+     - 491
+     - 509
+     - 600
+     - 620
+     - 898
+
+(The full product streams 320 — each antenna exactly once.) The two columns
+pull in opposite directions, and the measured optimum sits where they balance.
+This also explains ``VectorDot``: it has the least arithmetic of all, but
+streams :math:`Z` twice per baseline over 1 501 separate tiny GEMMs.
+
+Isolating the pieces with a micro-benchmark at the ``max_blocks=4`` shapes
+(complex64, :math:`K = 65\,536`, i.e. one production-sized chunk, A2000):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Operation
+     - Time
+   * - Full product, ``cherk`` (what ``MatMul`` does)
+     - 39.4 ms
+   * - 4 blocks: ``cgemm3m`` calls only
+     - 6.4 ms
+   * - 4 blocks: staging copies only, natural antenna order
+     - 6.4 ms
+   * - 4 blocks: staging copies only, reordered antenna axis
+     - 0.4 ms
+   * - 4 blocks: copies + GEMM, natural antenna order
+     - 12.3 ms
+   * - 4 blocks: copies + GEMM, reordered antenna axis (what ``MatBlock`` does)
+     - **6.7 ms**
+
+Two things follow. First, even with the staging removed entirely, the four
+GEMMs are only 6.2x faster than the full ``cherk``, not 37.8x — the arithmetic
+saving is genuinely not collectible at these shapes, and that is the binding
+limit today. Second, the staging *was* half of ``MatBlock``'s time, and is now
+almost none of it — see the next section.
+
+.. _Ordering the antenna axis:
+
+Ordering the antenna axis to avoid the staging copies
+-----------------------------------------------------
+
+cuBLAS needs each operand contiguous, so a block whose antennas are scattered
+over the antenna axis has to be copied into a staging buffer before its GEMM —
+:math:`(N^b_{\rm row} + N^b_{\rm col}) \times N_{\rm feed} \times K` complex
+values per block, read and written, every chunk of every integration. That was
+originally about half of ``MatBlock``'s runtime.
+
+A block whose antennas happen to be *consecutive* needs no copy at all: the
+operand is a plain slice of :math:`Z`. Which antennas are consecutive is just a
+labelling choice, and relabelling costs nothing, because the :math:`Z`
+construction can write its rows in any order it likes for free (the fused
+kernel just reads a different row of ``exptau`` and a different beam). So
+``matvis`` chooses the labelling to suit the decomposition:
+:func:`~matvis.redundancy.contiguity_order` picks an antenna order that makes
+as many block antenna sets as possible contiguous, and the drivers hand that
+same order to both the :math:`Z` construction and the matprod, which then
+resolves everything back to the requested ``antpairs``. The visibilities are
+unchanged; only the internal row order of :math:`Z` moves.
+
+Blocks overlap, so not every set can be made contiguous at once (deciding the
+maximum achievable subset is the NP-hard weighted consecutive-ones problem);
+the greedy in ``contiguity_order`` takes the largest sets first, which is where
+the traffic is. On this array it removes most of the copying:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``max_blocks``
+     - 2
+     - 3
+     - 4
+     - 6
+     - 8
+   * - Antenna-rows copied, natural order
+     - 170
+     - 172
+     - 180
+     - 270
+     - 290
+   * - Antenna-rows copied, reordered
+     - 3
+     - 40
+     - 30
+     - 87
+     - 107
+
+(Compare the traffic row above: at ``max_blocks=4`` the GEMMs stream 509
+antenna-rows of :math:`Z` either way, but only 30 of them now need to be
+copied first, instead of 180.)
+
+Two separate things are at work, and they are worth separating. Even in the
+natural antenna order some blocks are *already* consecutive — on this array
+block 0's 319 columns happen to be — and simply recognizing that and slicing
+instead of copying gets a good part of the way. Reordering then goes after the
+rest. Measured at ``max_blocks=4``, all else equal:
+
+.. list-table::
+   :header-rows: 1
+
+   * -
+     - Rows copied
+     - Matrix product
+     - Wall / integration
+     - vs ``MatMul``
+   * - Gather every block (no slicing, no reordering)
+     - 509
+     - 12.5 ms
+     - 0.588 s
+     - 2.41x
+   * - Slice the blocks that are already consecutive
+     - 180
+     - 8.5 ms
+     - 0.476 s
+     - 2.97x
+   * - ...and reorder the antenna axis to make more of them so
+     - 30
+     - 6.6 ms
+     - 0.418 s
+     - 3.39x
+
+A third, smaller effect: ``MatMul`` uses the Hermitian rank-k routine
+``cherk``, which halves the work of a general GEMM, while the rectangular
+blocks cannot and use ``cgemm3m``. On this card that alone is worth ~1.3x in
+``MatMul``'s favour (see `GEMM strategy: hardware dependence`_), and it is
+architecture-dependent, so the crossover will differ on other GPUs.
+
+.. note::
+
+   **The speedup is not an artifact of problem size.** Because sources are
+   chunked, what the GEMMs actually see is the chunk size, not the total source
+   count, and both the full product and the blocks are linear in it. Repeating
+   the ``max_blocks=4`` micro-benchmark across a 16x range of chunk size gives
+   a flat ratio — 5.4x, 5.5x, 7.0x, 5.7x, 5.4x at 4k, 8k, 16k, 33k and 66k
+   sources per chunk respectively — with no trend. Increasing the *total*
+   source count at fixed chunk size simply adds chunks, and if anything helps
+   ``MatBlock`` slightly by amortizing the per-integration host work. The
+   measured limit is set by the block *shapes*, which depend on the array and
+   the redundancy pattern — not on how big the sky model is.
+
+When it's worth it
+------------------
+
+- **Only for redundant arrays.** The speedup is bounded above by
+  :math:`N_{\rm ant}^2 / N_{\rm antpairs}`, and in practice lands far below
+  that bound. If you are simulating per-antenna unique beams, or otherwise
+  want every pair, use the default ``MatMul``.
+- **Benchmark ``max_blocks``; don't minimize area.** 4 blocks was best here;
+  the FLOP-minimizing choice (12+) was substantially *worse* than the best. The
+  ``matvis hera-profile --matprod-method MatBlock --max-blocks N`` sweep used
+  for the table above takes a few minutes and is the reliable way to pick.
+- **Never use ``VectorDot`` on a GPU for this.** It has the lowest FLOP count
+  of any option and is 4.4x slower than doing nothing special at all.
+- The gain applies to the matrix-product stage only, so the end-to-end benefit
+  is capped by that stage's share of the run (see `Where the time goes`_) —
+  here 86 per cent of GPU time with ``MatMul``, and 50 per cent once the
+  decomposition has done its work, at which point beam interpolation, the
+  phase factor and :math:`Z` dominate instead.
+
+Control: what happens without redundancy
+----------------------------------------
+
+Same array, same sky, but requesting *all* 102 400 antenna pairs (the
+non-redundant case — e.g. every antenna having a unique beam):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Method
+     - Area
+     - Matrix product
+     - Wall / integration
+   * - ``MatMul``
+     - 102 400
+     - 40.6 ms
+     - 1.427 s
+   * - ``MatBlock``, ``max_blocks=4``
+     - 64 000
+     - 43.8 ms
+     - 1.523 s (**1.07x slower**)
+
+Note that ``find_dense_blocks`` is not helpless here: because
+:math:`V_{ij} = V_{ji}^\dagger` it covers all the pairs with a staircase of
+four 80-row blocks spanning 320, 240, 160 and 80 columns, for an area of
+64 000 rather than 102 400. It is *still* slower, because that 1.6x notional
+saving is cancelled by ``cgemm3m`` standing in for ``cherk``, which exploits
+exactly the same Hermitian symmetry with none of the overhead. (Before the
+antenna axis was reordered — see `Ordering the antenna axis`_ — the staging
+copies made this case 1.31x slower rather than 1.07x. Reordering helps here
+too; it just has nothing to win on top of it.)
+
+Precision
+=========
+
+Single precision is the recommended production mode: it is validated against
+double precision in ``tests/test_precision_gpu.py`` (agreement to :math:`10^{-5}`
+of the peak visibility at test scale), uses half the memory, and is at least
+2x faster even on data-centre GPUs with strong fp64 (V100/A100). On
+consumer/workstation GPUs, fp64 arithmetic runs at 1/32 of fp32 throughput,
+so double precision there is 10-30x slower end-to-end.
+
+Memory and chunking
+===================
+
+Device memory is dominated by the per-chunk :math:`Z` matrix and interpolated
+beam array, each of size
+:math:`N_{\rm ant/beam} N_{\rm feed} N_{\rm ax} N_{\rm src}^{\rm alloc}`
+complex values, plus the raw beam grids
+(:math:`N_{\rm beam} N_{\rm feed} N_{\rm ax} N_{\rm pix}`). Sources are
+automatically chunked to fit free GPU memory (see ``min_chunks`` and
+``memory_buffer``); chunking is cheap as long as chunks stay :math:`\gtrsim
+10^4` sources, so large problems run fine on small GPUs.
+
+The raw beam-grid term doesn't scale with chunk size (it's the same whether
+you have 1 chunk or 100), while the :math:`Z`/interpolated-beam terms scale
+with :math:`N_{\rm src}^{\rm alloc}`, i.e. with the chunk size. For
+production-scale runs (:math:`N_{\rm pix} \sim 6.5 \times 10^4` for
+degree-scale beam sampling), the raw beam grids can dominate total memory
+when chunks are small, but become a negligible fraction once chunks are
+large enough that the chunk-scaled terms take over. Worth checking
+explicitly if you're tuning ``min_chunks``/``memory_buffer`` on a
+memory-constrained GPU with many unique beams.
+
+Benchmarking your own configuration
+===================================
+
+The ``matvis profile`` CLI runs a synthetic simulation of any size and
+writes a machine-readable ``summary-stats-*.json``::
+
+    matvis profile -a 350 -b 350 -s 1000000 -t 4 --gpu \
+        --interpolated-beam --single-precision --gpu-event-timing \
+        --coord-method CoordinateRotationERFA -o outdir
+
+The script is designed so its headline numbers are robust out of the box:
+
+- An untimed **warmup** simulation runs first (disable with ``--no-warmup``),
+  so one-time costs — cupy kernel compilation, cuBLAS workspace allocation,
+  ERFA/IERS cache loads — are paid before any timing starts. Without it, the
+  first integration can be several times slower than steady state and
+  contaminate every average.
+- Per-integration wall times are recorded individually, and the headline
+  ``derived.steady_wall_per_integration`` is the **median excluding the
+  first integration**.
+- Per-chunk CUDA-event stage timings (``--gpu-event-timing``) keep all
+  samples and report per-stage **medians** alongside means;
+  ``derived.gpu_time_per_integration`` sums each integration's actual chunk
+  totals and takes the **median across integrations, excluding the first**
+  — the same warmup-robust treatment as the wall time above.
+
+- ``derived.sum_chunks_per_integration`` measures the once-per-integration
+  readout (completing the Hermitian matrix, reordering it, and copying it to
+  the host). It is timed *after* an explicit stream drain, so unlike the
+  line-profiler and NVTX views of the same call it excludes time spent
+  waiting on the queued chunk pipeline.
+- ``nchunks_used`` records what auto-chunking actually settled on.
+  ``--nchunks`` is only a *minimum*: when device memory is tight the run can
+  silently use many more chunks, which changes the per-chunk problem size and
+  makes stage timings incomparable. The profiler prints a warning when this
+  happens, and frees the warmup run's device buffers beforehand so the timed
+  run sees the whole card.
+
+The three ``derived`` values (steady wall, GPU time, host overhead) are the
+ones to quote and compare — they are what the Rules of Thumb table reports.
+
+The ``profiling/`` directory in the repository contains canonical benchmark
+configurations, GEMM/interpolation roofline micro-benchmarks (i.e. measures
+of performance compared to the theoretical maximum), an ``nsys`` recipe (the
+GPU loop is annotated with NVTX ranges), and ``gpu_idle.py``, which reports
+how much of a run the device spends idle and which stage the host was in at
+the time. See ``profiling/README.md``.
+
+.. tip::
+
+   Idle time is the headroom available to changes that only make the *host*
+   faster — deeper queueing, fewer kernel launches, removing a
+   synchronization. It does not shrink when you move to a faster GPU, so on
+   a faster card it is a larger fraction of the run. That makes
+   ``gpu_idle.py`` the right tool for judging a host-side optimization on
+   modest hardware: measure the idle it removes, and scale only the *busy*
+   part by the ratio between your card and the target card.
+
+.. warning::
+
+   The ``stages`` table in the JSON output comes from ``line_profiler``
+   timing individual Python lines, but the GPU loop is asynchronous: a line
+   can appear expensive simply because it's where the host next blocks on
+   already-queued GPU work. Use it
+   only as a rough indicator for the CPU backend; for the GPU backend use
+   the ``derived`` and ``run_stats.event_timing_ms`` values.
+
+   "Sum Chunks" is the clearest example of how badly this can mislead. Its
+   ``stages`` entry once read ~73 ms per integration, but essentially all of
+   that was the host waiting on the integration's queued chunk pipeline, plus
+   the first integration's one-off allocations skewing a 4-sample mean. The
+   ``derived.sum_chunks_per_integration`` value — measured after an explicit
+   stream drain, and reported as a median excluding the first integration —
+   put the true cost at 13.9 ms.
+
+Performance changelog
+=====================
+
+Changes that significantly altered performance, newest first:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Version / PR
+     - Change
+     - Measured impact
+   * - `PR #153 <https://github.com/HERA-Team/matvis/pull/153>`_ (Sept 2026)
+     - Added the block-decomposed matrix product
+       (``matprod_method="CPUMatBlock"/"GPUMatBlock"``) plus
+       :mod:`matvis.redundancy` helpers for building the decomposition, with
+       the antenna axis of :math:`Z` ordered to suit the blocks so that most
+       of them are handed to BLAS as slices of :math:`Z` rather than staged
+       into a copy first (:func:`~matvis.redundancy.contiguity_order`).
+       Opt-in; the default ``MatMul`` path is unchanged.
+     - 3.4x steady-state wall time (6.2x on the matrix product itself) at
+       production slice scale on a 320-antenna redundant hex layout with 1 501
+       unique baselines, RTX A2000. Without the antenna reordering it would be
+       2.4x; see `Ordering the antenna axis`_. **No benefit on non-redundant
+       arrays**; see `Block-decomposed products on redundant arrays`_.
+   * - `issue #133 <https://github.com/HERA-Team/matvis/issues/133>`_
+       (Sept 2026)
+     - Removed the three remaining per-chunk host synchronizations from the
+       GPU loop:
+
+       - The horizon cut is now a device-side order-preserving compaction
+         (``kernels/horizon_compact.cu``); the per-chunk counts needed to
+         skip empty chunks are gathered for the whole integration in one
+         batched pass, so the ``cp.where`` result size is no longer read
+         back once per chunk.
+       - The beam grid geometry (``daz``/``dza``/``azmin``) is uploaded once
+         at setup instead of being copied from pageable host memory on every
+         chunk.
+       - ``enu_to_az_za`` clamps instead of using boolean-mask indexing,
+         whose result size is only known on the host.
+     - GPU idle time per integration 50.3 → 15.4 ms at 350 antennas / 350
+       beams / 1M sources / fp32 / 30 chunks / ``source_buffer=1.0`` (RTX
+       A2000, ``gpu_idle.py``, mean of 5 settled integrations); 42.2 → 14.3
+       ms at ``source_buffer=0.55``. Device *busy* time is unchanged
+       (1972 → 1954 ms and 1208 → 1181 ms, both within this card's
+       clock drift), so the wall-time gain is the idle saving and scales
+       with how fast the card is: 1.7-2.2% on an A2000, 4.5-5.7% projected
+       for a V100.
+   * - Bicubic beam interpolation (Sept 2026)
+     - Added a fused bicubic-B-spline CUDA kernel for gridded beams
+       (``beam_spline_opts={"order": 3}``), alongside a one-off spline
+       prefilter at setup. Previously, any order other than 1 fell back to a
+       per-(beam, feed, axis) ``map_coordinates`` loop. The GPU default order
+       also moved from 1 to 3, matching what the CPU backend already did.
+     - Beam-interpolation stage 1.8x slower than linear (12% → 19% of GPU
+       time), ~+9% total runtime at the production slice — versus hundreds of
+       kernel launches per chunk on the old fallback path. ~6x lower RMS
+       interpolation error at 4° beam sampling.
+   * - `issue #132 <https://github.com/HERA-Team/matvis/issues/132>`_
+       (Sept 2026)
+     - GPU chunk accumulation and visibility readout:
+
+       - Source chunks accumulate directly into one device buffer via the
+         ``beta=1`` argument of ``cherk``, instead of each chunk filling its
+         own buffer that is summed at the end of the integration.
+       - The Hermitian mirror kernel runs once per integration rather than
+         once per chunk.
+       - The transpose into output ordering happens on the device, and the
+         result is staged through a pinned host buffer.
+     - ``sum_chunks`` 13.9 → 1.0 ms per integration (14x) at 350 antennas /
+       30 chunks / fp32 on an RTX A2000. The ``beta=1`` accumulation costs
+       the matrix product ~0.15 ms per chunk, so the *net* saving is ~8 ms
+       per integration — about 0.4% of a 2.0 s integration on that GPU, and
+       an estimated ~0.6% on a V100-class card (the device-side parts of the
+       old readout scale with memory bandwidth, but the PCIe copy and the
+       host-side transpose it removed do not). Device memory for the
+       visibility buffers is now independent of the chunk count
+       (118 MB → 8 MB here); that shifts the auto-chunking decision only
+       occasionally at this size (24 → 22 chunks with 2 GB free), but the
+       term grows as :math:`N_{\rm chunk} (N_{\rm ant} N_{\rm feed})^2` and
+       dominates for larger arrays. Also fixes a correctness bug: a chunk skipped because nothing in it
+       was above the horizon used to contribute the *previous* integration's
+       visibilities.
+   * - `PR #130 <https://github.com/HERA-Team/matvis/pull/130>`_ (July 2026)
+     - GPU hot-path overhaul:
+
+       - Matrix product uses the cuBLAS Hermitian rank-k routine (``cherk``)
+         and ``cgemm3m``, bound directly from cuBLAS.
+       - Beam interpolation: replaced per-beam, per-feed, per-polarization
+         ``map_coordinates`` calls (~1400 separate GPU launches per chunk at
+         350 beams) with a single fused kernel launch that covers all of
+         them at once ("fused" = combined into one GPU launch instead of
+         many).
+       - Z-matrix construction is also a single fused kernel.
+       - The per-time, per-chunk simulation loop runs on a single compute
+         stream with no device syncs.
+       - Fixed a silent complex128 promotion in the phase-factor matmul
+         (which also caused OOMs).
+       - Fixed single-precision gridded-beam support.
+     - 7.7x per-chunk GPU time (505 → 65 ms), 7.4x steady-state wall time at
+       350 antennas / 350 beams / polarized / fp32; GPU utilization ~35% →
+       ~95% (RTX A2000).
+   * - v1.3.0 (Dec 2023)
+     - Complete architectural rewrite from PyCUDA + hand-written CUDA kernels
+       to cupy, making the code far easier to maintain and extend.
+     - Introduced host-side overheads (kernel-launch storms, per-chunk
+       synchronization, Python loops) and a hidden double-precision phase
+       matmul that the July 2026 overhaul removed; between these releases,
+       GPU performance was substantially below the figures published in the
+       ``matvis`` paper.
+   * - pre-v1.3 (paper implementation)
+     - Original PyCUDA implementation with fused measurement-equation kernel;
+       basis of the performance results in
+       `Kittiwisit et al. (2025) <https://doi.org/10.1093/rasti/rzaf001>`_
+       (Fig. 6, V100).
+     - Reference point: ~100x GPU speed-up over the CPU implementation at
+       :math:`N_{\rm ant}=256`, :math:`N_{\rm src} \approx 5\times10^5`.

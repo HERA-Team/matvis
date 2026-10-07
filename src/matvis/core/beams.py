@@ -1,5 +1,6 @@
 """Functions for working with beams."""
 
+import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -10,6 +11,31 @@ from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AnalyticBeam
 from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.utils.pol import polstr2num
+
+# Host-side timings of the most recent _wrangle_beams() call, split into the work
+# that depends on the requested frequency and the work that does not. Used by the
+# profiling harness to bound what a multi-frequency restructure could amortize.
+# Not part of the public API.
+LAST_WRANGLE_TIMES: dict = {}
+
+#: Default options for gridded-beam interpolation, shared by every backend so
+#: that the CPU and GPU simulators agree out of the box.
+#:
+#: ``order``
+#:     Cubic. This is what the CPU backend has always used in practice -- it
+#:     inherited the default from ``scipy.ndimage.map_coordinates`` (and, before
+#:     the switch to that routine, from ``RectBivariateSpline``'s ``kx=ky=3``) --
+#:     while the GPU backend defaulted to linear. See :doc:`/beam_interpolation`.
+#: ``mode``
+#:     The boundary condition of the spline. For ``order >= 2`` this is not an
+#:     out-of-grid detail: since scipy 1.6 it selects the B-spline prefilter,
+#:     and so changes interpolated values *inside* the grid within a few nodes
+#:     of an edge. ``matvis`` never evaluates a beam outside its grid -- sources
+#:     below the horizon are dropped before interpolation -- so the mode is
+#:     chosen purely for accuracy just inside the edges, where whole-sample
+#:     mirror symmetry is the best fit for a beam sampled through the zenith
+#:     pole. See :doc:`/beam_interpolation`.
+DEFAULT_SPLINE_OPTS = {"order": 3, "mode": "mirror"}
 
 
 def prepare_beam_unpolarized(
@@ -30,6 +56,50 @@ def prepare_beam_unpolarized(
         beam = beam.with_feeds([use_feed])
 
     return beam
+
+
+def _already_at_freq(beam: BeamInterface, freq: float) -> bool:
+    """Report whether this UVBeam is a single channel sitting exactly on ``freq``.
+
+    Interpolating such a beam onto that frequency is a no-op in substance, but
+    ``UVBeam.interp(new_object=True)`` rebuilds the whole object regardless --
+    a cost paid per beam, per channel. Callers that interpolate their beams
+    before handing them over, as HERA does for each single-channel job, hit
+    this every time.
+    """
+    fa = np.atleast_1d(beam.beam.freq_array)
+    return fa.size == 1 and bool(np.isclose(fa[0], freq, rtol=0, atol=1e-3))
+
+
+def _interp_beams_to_freq(
+    beam_list: list[BeamInterface], freq: float
+) -> list[BeamInterface]:
+    """Put every UVBeam in ``beam_list`` on a single channel at ``freq``.
+
+    Two shortcuts, both of which leave the result identical:
+
+    * a beam already on exactly that channel is returned untouched;
+    * beams that are the *same object* are interpolated once between them,
+      which matters because a shared beam is usually passed as ``[beam] * nant``.
+
+    Analytic beams carry no frequency axis and are returned as they are.
+    """
+    interped: dict[int, BeamInterface] = {}
+    out = []
+    for bm in beam_list:
+        if not bm._isuvbeam or _already_at_freq(bm, freq):
+            out.append(bm)
+            continue
+
+        key = id(bm.beam)
+        if key not in interped:
+            interped[key] = bm.clone(
+                beam=bm.beam.interp(
+                    freq_array=np.array([freq]), new_object=True, run_check=False
+                )
+            )
+        out.append(interped[key])
+    return out
 
 
 def _wrangle_beams(
@@ -59,6 +129,7 @@ def _wrangle_beams(
         Frequency to interpolate beam to.
     """
     # Get the number of unique beams
+    _t0 = time.perf_counter()
     nbeam = len(beam_list)
     beam_list = [BeamInterface(beam) for beam in beam_list]
 
@@ -78,19 +149,24 @@ def _wrangle_beams(
                 "beam_idx contains indices greater than the number of beams"
             )
 
+    _t_indep = time.perf_counter() - _t0
+
     # make sure we interpolate to the right frequency first.
-    beam_list = [
-        (
-            bm.clone(
-                beam=bm.beam.interp(
-                    freq_array=np.array([freq]), new_object=True, run_check=False
-                )
-            )
-            if bm._isuvbeam
-            else bm
-        )
-        for bm in beam_list
-    ]
+    _t0 = time.perf_counter()
+    beam_list = _interp_beams_to_freq(beam_list, freq)
+
+    LAST_WRANGLE_TIMES.clear()
+    LAST_WRANGLE_TIMES.update(
+        {
+            # BeamInterface wrapping, power conversion and beam_idx validation:
+            # identical for every frequency.
+            "freq_independent": _t_indep,
+            # UVBeam.interp onto the single requested channel: genuinely
+            # per-frequency, but a multi-frequency call could do all channels
+            # in one vectorized pass instead of nfreq separate ones.
+            "freq_dependent": time.perf_counter() - _t0,
+        }
+    )
 
     if polarized:
         if any(b.beam_type != "efield" for b in beam_list):
@@ -120,6 +196,8 @@ class BeamInterpolator(ABC):
         Frequency to interpolate beam to.
     spline_opts
         A dictionary of options to send to the spline interpolation method.
+        Merged over :data:`DEFAULT_SPLINE_OPTS`, so keys left out keep their
+        default.
     precision
         The precision of the data (1 or 2).
     """
@@ -147,7 +225,7 @@ class BeamInterpolator(ABC):
         self.polarized = polarized
         self.nant = nant
         self.freq = freq
-        self.spline_opts = spline_opts or {}
+        self.spline_opts = DEFAULT_SPLINE_OPTS | (spline_opts or {})
 
         if self.polarized:
             self.nfeed = 2

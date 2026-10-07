@@ -282,3 +282,101 @@ class TestPolarizedInference:
 
         with pytest.raises(ValueError, match="incompatible with stokes"):
             simulate_vis(polarized=False, stokes=stokes, **params)
+
+
+@pytest.mark.parametrize(
+    "missing", ["ra", "dec", "freqs", "times", "beams", "telescope_loc"]
+)
+def test_missing_required_wrapper_input(missing: str):
+    """Required geometry and observation inputs remain required for Stokes calls."""
+    params = _make_sim_params()
+    stokes = np.zeros((4, len(params["ra"]), len(params["freqs"])))
+    del params[missing]
+    with pytest.raises(TypeError, match=missing):
+        simulate_vis(stokes=stokes, **params)
+
+
+def test_legacy_positional_wrapper():
+    """Preserve upstream's positional order for the existing wrapper parameters."""
+    params = _make_sim_params()
+    flux = np.ones((len(params["ra"]), len(params["freqs"])))
+    expected = simulate_vis(fluxes=flux, **params)
+    positional = [
+        params[key]
+        for key in ("ants", "ra", "dec", "freqs", "times", "beams", "telescope_loc")
+    ]
+    positional.insert(1, flux)
+    actual = simulate_vis(*positional, precision=params["precision"])
+    np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("method", ["MatMul", "VectorDot", "MatBlock"])
+@pytest.mark.parametrize("signs", ["positive", "partition", "mixed"])
+def test_polarized_chunk_time_invariance(method: str, signs: str):
+    """Chunking preserves signed skies across horizon changes and frequencies."""
+    params = _make_sim_params(nsrc=15, ntime=4, nfreq=2)
+    params["times"] = Time(
+        np.linspace(2459863.0, 2459863.8, 4), format="jd", scale="utc"
+    )
+    stokes = np.ones((4, 15, 2))
+    stokes[1:] *= 0.1
+    if signs == "partition":
+        stokes[:, 7:] *= -1
+    elif signs == "mixed":
+        stokes[1, :7] = 2
+    before = stokes.copy()
+    extra = {}
+    if method == "MatBlock":
+        from matvis.redundancy import antpairs_to_blocks
+
+        extra["antenna_blocks"] = antpairs_to_blocks(
+            [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)]
+        )
+    reference = simulate_vis(stokes=stokes, min_chunks=1, **params)
+    result = simulate_vis(
+        stokes=stokes, matprod_method=method, min_chunks=4, **extra, **params
+    )
+    np.testing.assert_allclose(result, reference, rtol=1e-11, atol=1e-11)
+    np.testing.assert_array_equal(stokes, before)
+
+
+@pytest.mark.parametrize("both", [False, True])
+def test_wrapper_requires_one_sky(both: bool):
+    """Sky inputs are mutually exclusive and one must always be supplied."""
+    params = _make_sim_params()
+    extra = {}
+    if both:
+        shape = (len(params["ra"]), len(params["freqs"]))
+        extra = {"fluxes": np.ones(shape), "stokes": np.ones((4, *shape))}
+    with pytest.raises(ValueError, match="exactly one"):
+        simulate_vis(**params, **extra)
+
+
+def test_wrapper_legacy_optional_positions():
+    """Optional arguments through matprod_method keep their upstream positions."""
+    params = _make_sim_params()
+    flux = np.ones((len(params["ra"]), len(params["freqs"])))
+    expected = simulate_vis(fluxes=flux, polarized=True, **params)
+    actual = simulate_vis(
+        params["ants"],
+        flux,
+        params["ra"],
+        params["dec"],
+        params["freqs"],
+        params["times"],
+        params["beams"],
+        params["telescope_loc"],
+        True,
+        params["precision"],
+        "x",
+        False,
+        None,
+        None,
+        None,
+        None,
+        1.0,
+        "CoordinateRotationERFA",
+        None,
+        "MatMul",
+    )
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)

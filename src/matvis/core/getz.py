@@ -18,14 +18,46 @@ class ZMatrixCalc:
 
     .. math::
 
-            Z = A I \exp(tau)
+            Z = A^* I \exp(tau)
 
     where A is the beam, I is the square root of the flux, and tau is the phase.
+    The beam enters conjugated so that the source sum ``conj(Z_i) Z_j^T``
+    computed by the matprod classes is ``A_i C A_j^H`` times the fringe term for
+    feeds (p, q) of antennas (i, j), with A indexed [feed, sky component]. This
+    is pyuvsim's convention.
+
+    Parameters
+    ----------
+    antenna_order
+        Optional length-``Nant`` permutation: row ``p`` of the returned ``Z`` is
+        built for antenna ``antenna_order[p]`` rather than for antenna ``p``.
+        Relabelling the antenna axis costs nothing here (it only changes which
+        row of ``exptau`` and which beam each output row reads), but it lets the
+        block-decomposed matprod classes slice their operands straight out of
+        ``Z`` instead of gathering them -- see
+        :func:`~matvis.redundancy.contiguity_order`. Whatever is passed here
+        must also be passed to the matprod class, or the visibilities will be
+        attributed to the wrong antennas.
     """
 
     def __init__(
-        self, nant: int, nfeed: int, nax: int, nsrc: int, ctype, gpu: bool = False
+        self,
+        nant: int,
+        nfeed: int,
+        nax: int,
+        nsrc: int,
+        ctype,
+        gpu: bool = False,
+        antenna_order: np.ndarray | None = None,
     ):
+        self.antenna_order = (
+            None if antenna_order is None else np.asarray(antenna_order)
+        )
+        if self.antenna_order is not None and self.antenna_order.shape != (nant,):
+            raise ValueError(
+                f"antenna_order must have shape ({nant},), got "
+                f"{self.antenna_order.shape}"
+            )
         self.nant = nant
         self.nfeed = nfeed
         self.nax = nax
@@ -51,7 +83,7 @@ class ZMatrixCalc:
 
     def __call__(
         self,
-        sqrt_flux: np.ndarray,
+        sqrt_flux: np.ndarray | None,
         beam: np.ndarray,
         exptau: np.ndarray,
         beam_idx: np.ndarray | None,
@@ -59,26 +91,23 @@ class ZMatrixCalc:
     ) -> np.ndarray:
         """Compute the Z matrix.
 
-        When m_matrix is None (default), computes the unpolarized case:
-            Z = A * sqrt_flux * exp(tau)
-
-        When m_matrix is provided, computes the full polarized case:
-            Z[ant, fd, ax, src] = Σ_k beam[ant, fd, k, src] * exp(tau) * M[k, ax, src]
+        Z = conj(A) * sqrt_flux * exp(tau), or conj(A @ M) * exp(tau).
 
         Parameters
         ----------
         sqrt_flux
-            Square root of the flux. Shape=(Nsrcs,). Ignored when m_matrix is provided.
+            Square root of the flux. Shape=(Nsrcs,). May be None when m_matrix is given.
         beam
             Beam. Shape=(Nbeams, Nfeed, Nax, Nsrcs).
         exptau
-            Complex exponential of the delay (i.e. exp(-2π*i*nu*D.X)).
+            Complex exponential of the delay (i.e. exp(+2π*i*nu*D.X/c)).
             Shape=(Nant, Nsrcs).
         beam_idx
             The beam indices, i.e. the beam index that each antenna corresponds to.
+
         m_matrix
-            The M matrix from coherency decomposition C = M @ M†.
-            Shape=(2, 2, Nsrcs). If None, uses the existing unpolarized path.
+            Optional sky factor of shape (2, 2, Nsrcs), with C = M M†.
+            When provided, sqrt_flux is ignored.
 
         Returns
         -------
@@ -86,53 +115,63 @@ class ZMatrixCalc:
             The Z matrix. Shape=(Nfeed*Nant, Nax*Nsrcs).
         """
         if m_matrix is not None:
-            # Full polarized path: Z[ant, fd, ax, src] = Σ_k bm[ant, fd, k, src] * exptau[ant, src] * M[k, ax, src]
-            # IMPORTANT: do NOT mutate exptau here. Sign-split negative-flux
-            # simulations call this method twice per chunk sharing the same
-            # exptau buffer — once with M_pos and once with M_neg. Mutating
-            # the buffer in place would corrupt the second call.
-            #
-            # Manually unrolled k-contraction (k=0,1) with broadcasting.
-            # This avoids Python loops and is ~1.6x faster than the loop version.
             xp = self.xp
-            bm = beam[beam_idx] if beam_idx is not None else beam
-
-            # bm[:,:,k,:] → (Nant, Nfeed, Nsrc), add ax dim → (Nant, Nfeed, 1, Nsrc)
-            # m_matrix[k,:,:] → (2, Nsrc), add ant/feed dims → (1, 1, 2, Nsrc)
-            b0 = bm[:, :, :1, :]
-            b1 = bm[:, :, 1:2, :]
-            m0 = m_matrix[xp.newaxis, xp.newaxis, 0, :, :]
-            m1 = m_matrix[xp.newaxis, xp.newaxis, 1, :, :]
-
-            # Z = (b0*M0 + b1*M1) * exptau — single vectorized expression
+            src_ant = self.antenna_order
+            rowbeam = xp.arange(self.nant) if beam_idx is None else xp.asarray(beam_idx)
+            if src_ant is not None:
+                rowbeam = rowbeam[src_ant]
+            bm = beam if beam.shape[0] == 1 else beam[rowbeam]
+            phase = exptau if src_ant is None else exptau[src_ant]
+            # MatProd sums conj(Z_i) Z_j: conjugate the entire Jones-sky product,
+            # including complex M, without changing the shared phase buffer.
             self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
-            self.z[:] = (b0 * m0 + b1 * m1) * exptau[:, xp.newaxis, xp.newaxis, :]
+            self.z[:] = (
+                bm[:, :, :1, :] * m_matrix[None, None, 0]
+                + bm[:, :, 1:2, :] * m_matrix[None, None, 1]
+            ).conj()
+            self.z *= phase[:, None, None, :]
             self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
+            return self.z
+
+        exptau *= sqrt_flux
+
+        self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
+
+        # Row p of z belongs to antenna src_ant[p]; the identity unless the
+        # caller asked for a different antenna order (see the class docstring).
+        src_ant = self.antenna_order
+
+        # z is built as conj(conj(exptau) * A), which equals conj(A) * exptau
+        # without allocating a conjugated copy of the beam.
+        exptau_conj = exptau.conj()
+        for fd in range(self.nfeed):
+            for ax in range(self.nax):
+                self.z[:, fd, ax, :] = (
+                    exptau_conj if src_ant is None else exptau_conj[src_ant]
+                )
+
+        if beam.shape[0] == 1 or (beam_idx is None and src_ant is None):
+            # A single shared beam broadcasts over the antenna axis; and with no
+            # beam_idx and no reordering, `beam` is already one-per-antenna in
+            # row order. Either way a plain broadcast multiply is correct.
+            self.z *= beam
         else:
-            # Existing unpolarized path.
-            exptau *= sqrt_flux
+            # Which beam each *row* of z wants. Without beam_idx there is one
+            # beam per antenna, so the beam index is just the antenna index.
+            rowbeam = np.arange(self.nant) if beam_idx is None else beam_idx
+            if src_ant is not None:
+                rowbeam = rowbeam[src_ant]
+            # Since rowbeam is an array of integers, using it as an index into beam
+            # is "fancy indexing", which causes a memory copy. To avoid this, we loop
+            # over the indices. While this might be a bit slower, it avoids the memory
+            # copy and thus is more memory efficient.
+            for ant, bmidx in enumerate(rowbeam):
+                self.z[ant] *= beam[bmidx]
 
-            self.z = self.z.reshape(self.nant, self.nfeed, self.nax, self.nsrc)
+        self.xp.conj(self.z, out=self.z)
 
-            for fd in range(self.nfeed):
-                for ax in range(self.nax):
-                    self.z[:, fd, ax, :] = exptau
-
-            if beam_idx is None:
-                self.z *= beam
-            else:
-                # Since beam_idx is an array of integers, using it as an index into
-                # beam is "fancy indexing", which causes a memory copy. To avoid this,
-                # we loop over the indices. While this might be a bit slower, it avoids
-                # the memory copy and thus is more memory efficient.
-                for ant, bmidx in enumerate(beam_idx):
-                    self.z[ant] *= beam[bmidx]
-
-            # Here we expand the beam to all ants (from its beams), then broadcast to
-            # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
-            self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
-
-        if self.gpu:
-            cp.cuda.Device().synchronize()
+        # Here we expand the beam to all ants (from its beams), then broadcast to
+        # the shape of exptau, so we end up with shape (Nant, Nfeed, Nax, Nsources)
+        self.z = self.z.reshape(self.nant * self.nfeed, self.nax * self.nsrc)
 
         return self.z

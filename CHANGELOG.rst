@@ -15,6 +15,100 @@ Added
   so total matmul cost stays at ``O(Nsrc)`` per chunk even when sources
   carry negative flux.
 
+- Profiling: per-frequency accounting. ``simulate_vis`` calls the backend once
+  per channel, so both backends now append one entry per call to
+  ``ALL_RUN_STATS`` (with ``reset_run_stats()`` to clear it), and the harness
+  reports the whole multi-frequency run instead of only its last channel.
+  ``LAST_RUN_STATS`` is unchanged and still holds the most recent call.
+- Profiling: ``run_stats.setup_breakdown``, a host-timed breakdown of each
+  named setup phase, split by ``matvis.cli.classify_setup`` into the work that
+  depends on the requested frequency and the work that does not
+  (`#134 <https://github.com/HERA-Team/matvis/issues/134>`_).
+- Profiling: the CPU backend now populates ``LAST_RUN_STATS``/``ALL_RUN_STATS``
+  too, including host-timed per-stage costs. The CPU path is synchronous, so
+  unlike the GPU backend's CUDA events these attribute work unambiguously.
+- Profiling: ``run_stats.peak_device_bytes`` (GPU).
+- ``matvis profile --update-bcrs-every`` plumbs ``coord_method_params`` through
+  to the ERFA coordinate rotators. Until now nothing in the CLI could set it,
+  so every published benchmark ran at the exact (and slowest) default of 0.
+- ``matvis profile --repeat N`` runs the whole simulation N times and reports
+  the median of every derived quantity plus the spread across repeats.
+- NVTX sub-ranges ``beam_azza``/``beam_gather`` and ``tau_dot``/``tau_exp``,
+  separating the geometry-only part of each stage (shareable across
+  frequencies) from the per-frequency part.
+- ``matvis profile --beam-nfreq`` sets the number of frequency channels in the
+  gridded test beam independently of ``--nfreq``. The default of 0 keeps the
+  old behaviour, in which the beam carries exactly the simulated channels --
+  the one configuration where matvis's per-channel beam interpolation has
+  almost nothing to do, and so the one that hides its cost.
+- ``profiling/beam_freq_cost.py`` measures what putting a beam on the simulated
+  frequency costs, both when batched across channels and when the beam is
+  already on the requested one.
+- ``profiling/freq_sweeps.py`` runs and tabulates the sweeps bearing on
+  `#134 <https://github.com/HERA-Team/matvis/issues/134>`_.
+- Block-decomposed matrix product: ``matprod_method="MatBlock"`` computes a
+  handful of rectangular antenna-index sub-matrix products instead of the full
+  ``Nant x Nant`` one, for arrays whose requested ``antpairs`` are far fewer
+  than ``Nant**2`` (i.e. redundant arrays). The new ``matvis.redundancy``
+  module provides helpers for building the decomposition, chiefly
+  ``find_dense_blocks``. Opt-in; the default ``MatMul`` path is unchanged, and
+  the result is exact -- a rearrangement of the same computation, not an
+  approximation. On a 320-antenna redundant hex layout at production-slice
+  scale (RTX A2000) this is 3.4x faster end-to-end than ``MatMul``, with the
+  matrix product itself going from 41 ms to 6.6 ms per chunk. It is *slower*
+  than ``MatMul`` on non-redundant arrays; see the Performance docs page for
+  the sweep and for how to choose ``max_blocks``.
+
+Performance
+-----------
+
+- Beams are no longer re-interpolated onto a frequency they already sit on.
+  ``_wrangle_beams`` runs once per frequency channel and called
+  ``UVBeam.interp(freq_array=[freq], new_object=True)`` unconditionally, which
+  rebuilds the ``UVBeam`` even when it is already a single channel at exactly
+  that frequency -- the normal case for callers that interpolate their beams
+  before handing them over. Beams passed as the same object more than once
+  (``[beam] * nant``) are also interpolated once between them rather than once
+  each. At 350 such beams this takes ``_wrangle_beams`` from 0.56 s to 0.005 s,
+  which at the production slice is 70% of what setup costs per channel.
+
+- GPU source chunks now accumulate straight into a single device visibility
+  buffer (via ``beta=1`` in ``cherk``) instead of each chunk filling its own
+  buffer that is summed at the end of the integration. The Hermitian mirror
+  kernel runs once per integration rather than per chunk, the transpose into
+  output ordering happens on the device, and the result is staged through a
+  pinned host buffer. ``sum_chunks`` drops from 13.9 ms to 1.0 ms per
+  integration at 350 antennas / 30 chunks / single precision; the ``beta=1``
+  accumulation costs the matrix product ~0.15 ms per chunk, so the net saving
+  is ~8 ms per integration (~0.4% of wall time on an RTX A2000). Device
+  memory held for visibility buffers no longer scales with the chunk count
+  (118 MB → 8 MB in that configuration); this only occasionally changes the
+  auto-chunking decision at 350 antennas (e.g. 24 → 22 chunks with 2 GB
+  free), but the buffers previously grew with the very chunk count they
+  helped determine, and that term dominates for larger arrays.
+- ``MatBlock`` builds the ``Z`` matrix with its antenna axis ordered to suit
+  the block decomposition, so that most blocks can be handed to BLAS as slices
+  of ``Z`` rather than being staged into a contiguous copy first -- that
+  staging would otherwise be about half of ``MatBlock``'s runtime. The order
+  is chosen by ``matvis.redundancy.contiguity_order`` and wired up
+  automatically; the visibilities are unchanged.
+- Major GPU hot-path overhaul (~7.7x faster per chunk at 350 antennas / 350
+  beams / polarized / single precision; see the new "Performance" docs page):
+
+  - Matrix product now uses the cuBLAS Hermitian rank-k routine
+    (``cherk``/``zherk``, half the FLOPs) with ``cgemm3m`` for general
+    products, bound directly from ``libcublas``.
+  - Beam interpolation for gridded beams is a single fused bilinear kernel
+    over all (beam, feed, axis) combos instead of one ``map_coordinates``
+    launch per combo.
+  - The Z matrix is computed in one fused kernel (previously several
+    broadcast passes plus a Python loop over antennas).
+  - The GPU loop runs on a single stream with no device synchronization,
+    keeping the GPU ~95% utilized.
+  - The phase-factor matmul no longer silently runs in complex128 when
+    single precision is requested (this also removes a large hidden
+    temporary array that could cause out-of-memory errors).
+
 Changed
 -------
 
@@ -28,16 +122,126 @@ Changed
   models can legitimately carry negative Stokes I). Set explicitly to
   override.
 
+- **The default** ``coord_method`` **is now** ``CoordinateRotationERFA``, where it
+  was ``CoordinateRotationAstropy``. Astropy's frame transform costs about 25x
+  what the ERFA path costs: measured on an RTX A2000 at 3.1e6 sources
+  (HEALPix Nside=512), 1594 ms per time step against 49 ms, which is ~24% of a
+  whole integration against ~0.7%. ``tests/test_coordrot.py`` pins the two
+  against each other at 10 mas in double precision, and the end-to-end
+  comparison against ``pyuvsim`` passes unchanged.
+
+  Visibilities computed with the new default therefore differ very slightly
+  from previous releases. Pass ``coord_method="CoordinateRotationAstropy"`` to
+  restore the old behaviour exactly.
+- **Beam interpolation defaults are now shared by both backends**, in
+  ``matvis.core.beams.DEFAULT_SPLINE_OPTS`` (``{"order": 3, "mode":
+  "nearest"}``). Anything a caller leaves out of ``beam_spline_opts`` is taken
+  from there. Two backend disagreements are resolved:
+
+  - **Default order.** The GPU backend defaulted to ``order=1`` (bilinear)
+    while the CPU backend defaulted to ``order=3``, having inherited it from
+    ``scipy.ndimage.map_coordinates`` (and, before the switch to that routine,
+    from ``RectBivariateSpline``'s ``kx=ky=3``). A simulation that did not set
+    ``beam_spline_opts`` therefore used a different interpolant depending on
+    the backend. Both now default to cubic. **GPU simulations of gridded
+    beams that do not set** ``beam_spline_opts`` **will change**: more
+    accurate, and ~9% slower overall at the production slice. Pass
+    ``beam_spline_opts={"order": 1}`` to restore the previous GPU behaviour.
+  - **Boundary mode**, now ``"mirror"`` on both backends. Since ``matvis``
+    drops sources below the horizon before interpolating, it never evaluates a
+    beam outside its grid, so the mode matters for one reason only: for
+    ``order >= 2`` it selects the B-spline prefilter, and so changes
+    interpolated values *inside* the grid within a few nodes of an edge. It is
+    therefore chosen for accuracy just inside the edges. ``"mirror"`` is by far
+    the best fit at the zenith pole — an edge every ``az_za`` beam has, and
+    where the beam is brightest — measuring ~250x more accurate there than
+    ``"nearest"`` on the bundled HERA dipole beam, at the cost of being ~2x
+    worse at a horizon-truncated edge. The GPU's order-3 prefilter previously
+    imposed ``"nearest"`` (12 nodes of edge replication); it now imposes mirror
+    symmetry directly, which also drops that padding approximation and so
+    matches scipy exactly rather than to ~1e-7. Asking the fused kernels for a
+    different mode now raises instead of being silently ignored.
+
+    The CPU backend's in-grid results are unchanged by this: scipy's default
+    ``mode="constant"``, which it previously inherited, shares the ``"mirror"``
+    prefilter. Pinning the mode makes that agreement explicit rather than
+    coincidental.
+
 Fixed
 -----
-
+- ``matvis profile --gpu`` with ``--nfreq > 1`` crashed in the warmup
+  simulation, which sliced the frequency axis of ``freqs`` but not of
+  ``fluxes``.
+- ``docs/performance.rst`` stated that the published numbers used a large
+  ``update_bcrs_every``. They did not, and could not: the CLI had no way to
+  set it.
+- ``matvis profile --nbeams N`` (and ``profiling/beam_freq_cost.py``) passed
+  N references to one beam object. Since matvis now interpolates each beam
+  object onto the channel only once, that timed one beam's per-channel
+  frequency interpolation rather than N's -- about 0.4 s per beam per channel
+  at a 360x181 grid. Each of the N beams is now its own (shallow) copy.
+- Source chunking was planned from ``Device().mem_info[0]``, i.e. free device
+  memory as the *driver* sees it. cupy keeps freed blocks in its own pool
+  rather than returning them, so every ``gpu.simulate`` call after the first in
+  a process saw a fraction of the card free and chunked far more finely than
+  necessary -- at the production slice, 100 chunks instead of the 30 requested.
+  Because ``simulate_vis`` calls the backend once per channel, a
+  multi-frequency run could use a different chunk size for each channel.
+  Availability is now computed as driver-free plus the pool's free blocks.
+- Documentation: the Beam Interpolation page claimed that scipy's ``mode``
+  affects only coordinates outside the beam grid. It does not for
+  ``order >= 2`` — it selects the B-spline prefilter, and so changes
+  interpolated values inside the grid near an edge. The page also no longer
+  justifies the boundary treatment by what happens to sub-horizon sources
+  (``matvis`` never evaluates one), and now documents the O(h) error that every
+  symmetric boundary mode produces in the outermost grid cell, which matters
+  only for beams truncated at the horizon.
+- GPU: a source chunk skipped because it had no sources above the horizon no
+  longer contributes the *previous* integration's visibilities. Previously
+  each chunk kept its own buffer which was only overwritten when the chunk
+  was actually computed, but was summed unconditionally.
 - Better handling of errors when GPUs are present but currently unavailable for some
   reason.
+- Single-precision GPU simulations with gridded (``UVBeam``) beams no longer
+  crash on a dtype mismatch when uploading beam data.
+- GPU buffer sizes now respect the coordinate rotator's ``nsrc_alloc`` (which
+  ignores ``source_buffer`` for chunks of fewer than 1000 sources),
+  preventing shape-mismatch errors in small simulations.
+
+
+Infrastructure
+--------------
+
+- ``matvis profile`` writes machine-readable ``summary-stats-*.json``
+  (including per-stage CUDA-event timings with ``--gpu-event-timing``), and
+  the GPU loop is annotated with NVTX ranges for ``nsys``. Canonical
+  benchmark configs and roofline micro-benchmarks live in ``profiling/``.
+- ``matvis profile`` reports ``sum_chunks`` as its own stage, both in the
+  line-profiler table and as ``derived.sum_chunks_per_integration``, which is
+  measured after an explicit stream drain so it excludes time spent waiting
+  on the queued chunk pipeline.
+- ``matvis profile`` frees the warmup simulation's device memory before the
+  timed run, and warns when auto-chunking used more chunks than ``--nchunks``
+  requested (recorded as ``nchunks_used`` in the JSON). Previously the warmup's
+  retained buffers could make the timed run see only a fraction of the card
+  free and silently pick a much larger chunk count, changing the workload
+  being measured.
+- The profiling harness is robust to one-time costs and host noise: an
+  untimed warmup simulation runs first (``--no-warmup`` to disable),
+  per-integration wall times are recorded individually, CUDA-event stage
+  timings report medians as well as means and standard deviations, and a ``derived``
+  block in the JSON separates steady-state wall time, GPU-only time, and host overhead
+  per integration.
 
 Tests
 -----
 
 - Correct formation of SkyModel for ``pyradiosky>=0.3.0`` in tests.
+- Re-enabled the CPU-vs-GPU parity test suite, which had been silently
+  skipped since the move away from ``pycuda`` (it still guarded on
+  ``importorskip("pycuda")``); extended it to single precision.
+- New ``tests/test_precision_gpu.py`` validating single- against double-precision
+  results end-to-end on both backends.
 
 Version 1.0.1
 =============

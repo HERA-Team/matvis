@@ -378,3 +378,22 @@ class TestEigendecompEdgeCases:
         C = stokes_to_coherency(I, Q, U, V)
         C_recon = _m_times_m_dagger(M)
         np.testing.assert_allclose(C_recon, C, atol=1e-5)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("signed", [False, True])
+def test_nearly_diagonal_coherency(dtype: type[np.floating], signed: bool):
+    """Small U/V must not make T-Q cancellation destroy normalized eigenvectors."""
+    I = np.array([2, 2, 2], dtype=dtype)
+    Q = np.array([1, -1, 1], dtype=dtype)
+    U = np.array([1e-4, 1e-4, 1e-8], dtype=dtype)
+    V = U.copy()
+    if signed:
+        I[:] = [0.1, -2, 0.1]
+        positive, negative, _ = compute_m_matrix_sign_split(I, Q, U, V)
+        actual = _m_times_m_dagger(positive) - _m_times_m_dagger(negative)
+    else:
+        actual = _m_times_m_dagger(compute_m_matrix_eigen(I, Q, U, V))
+    expected = stokes_to_coherency(I, Q, U, V)
+    tolerance = 5e-7 if dtype == np.float32 else 1e-12
+    np.testing.assert_allclose(actual, expected, rtol=tolerance, atol=tolerance)

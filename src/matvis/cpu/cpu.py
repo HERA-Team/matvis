@@ -6,7 +6,8 @@ import importlib
 import logging
 import time
 import tracemalloc as tm
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import Literal
 
 import numpy as np
@@ -19,6 +20,7 @@ from pyuvdata.beam_interface import BeamInterface
 
 from .._utils import get_desired_chunks, get_dtypes, log_progress, logdebug, memtrace
 from ..core import _validate_inputs
+from ..core import beams as _core_beams
 from ..core.coherency import (
     categorize_sources,
     check_sky_physicality,
@@ -29,6 +31,7 @@ from ..core.coherency import (
 from ..core.coords import CoordinateRotation
 from ..core.getz import ZMatrixCalc
 from ..core.tau import TauCalculator
+from ..redundancy import contiguity_order
 from . import matprod as mp
 from .beams import UVBeamInterpolator
 
@@ -37,6 +40,18 @@ importlib.import_module(
 )  # need to import this to register the coordinate rotation methods
 
 logger = logging.getLogger(__name__)
+
+# Wall-clock timings of the most recent simulate() call, and one entry per call
+# in call order, mirroring the GPU backend's dicts of the same names. Used by
+# the profiling harness; not part of the public API.
+LAST_RUN_STATS: dict = {}
+ALL_RUN_STATS: list[dict] = []
+
+
+def reset_run_stats():
+    """Discard the stats of all previous simulate() calls."""
+    LAST_RUN_STATS.clear()
+    ALL_RUN_STATS.clear()
 
 
 def simulate(
@@ -49,15 +64,16 @@ def simulate(
     beam_list: Sequence[UVBeam | AnalyticBeam | BeamInterface] | None,
     I_sky: np.ndarray | None = None,
     antpairs: np.ndarray | list[tuple[int, int]] | None = None,
+    antenna_blocks: list[tuple[np.ndarray, np.ndarray]] | None = None,
     precision: int = 1,
     polarized: bool | None = None,
     beam_idx: np.ndarray | None = None,
     beam_spline_opts: dict | None = None,
     max_progress_reports: int = 100,
-    matprod_method: Literal["CPUMatMul", "CPUVectorLoop"] = "CPUMatMul",
+    matprod_method: Literal["CPUMatMul", "CPUVectorDot", "CPUMatBlock"] = "CPUMatMul",
     coord_method: Literal[
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
-    ] = "CoordinateRotationAstropy",
+    ] = "CoordinateRotationERFA",
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
@@ -80,9 +96,7 @@ def simulate(
         (no ``stokes`` argument). The intensity is split equally between
         the two linear polarization channels, introducing a factor of 0.5
         relative to the value given here; this applies even when only one
-        polarization channel is simulated. When ``stokes`` is provided,
-        ``I_sky`` is used only for source counting and memory allocation
-        and does not enter the visibility calculation.
+        polarization channel is simulated. Exactly one of ``I_sky`` or ``stokes`` must be provided.
         Shape=(NSRCS,).
     beam_list : list of UVBeam, optional
         If specified, evaluate primary beam values directly using UVBeam
@@ -92,8 +106,14 @@ def simulate(
         must be power beams with a single polarization (either XX or YY).
     antpairs : array_like, optional
         Either a 2D array, shape ``(Npairs, 2)``, or list of 2-tuples of ints, with
-        the list of antenna-pairs to return as visibilities (all feed-pairs are always
-        calculated). If None, all feed-pairs are returned.
+        the antenna-index pairs (rows of ``antpos``) to return as visibilities (all
+        feed-pairs are always calculated). If None, all ``NANT**2`` ordered pairs
+        are returned.
+    antenna_blocks : list, optional
+        Advanced/optional. A list of ``(row_antenna_idx, col_antenna_idx)``
+        integer-array tuples defining rectangular sub-matrix blocks to compute
+        instead of the full antenna x antenna product; only used when
+        ``matprod_method`` is ``CPUMatBlock``. See :mod:`matvis.redundancy`.
     precision : int, optional
         Which precision level to use for floats and complex numbers.
         Allowed values:
@@ -112,14 +132,28 @@ def simulate(
         By default, either a single beam is assumed to apply to all antennas or
         each antenna gets its own beam.
     beam_spline_opts : dict, optional
-        Dictionary of options to pass to the beam interpolation function.
+        Options for interpolating gridded (``UVBeam``) beams. Passed through to
+        :func:`scipy.ndimage.map_coordinates` on the CPU backend, and to its GPU
+        equivalent on the GPU backend. Keys left out fall back to
+        :data:`~matvis.core.beams.DEFAULT_SPLINE_OPTS`, currently
+        ``{"order": 3, "mode": "nearest"}``.
+
+        On the GPU backend only ``order`` 1 (bilinear) and 3 (bicubic) have
+        dedicated fused kernels. Any other order falls back to a
+        per-(beam, feed, axis) ``map_coordinates`` loop that issues a separate
+        kernel launch for every combination -- hundreds per source chunk at
+        production scale -- and is *much* slower than either fused kernel. Orders
+        0, 2, 4 and 5 are supported for completeness, not for production use.
+
+        See :doc:`/beam_interpolation` for how to choose an order, and for the
+        behaviour at the edges of the beam grid.
     max_progress_reports : int, optional
         Maximum number of progress reports to print to the screen (if logging level
         allows). Default is 100.
     matprod_method : str, optional
         The method to use for the final matrix multiplication. Default is 'CPUMatMul',
         which simply uses `np.dot` over the two full matrices. Currently, the other
-        option is `CPUVectorLoop`, which uses a loop over the antenna pairs,
+        option is `CPUVectorDot`, which uses a loop over the antenna pairs,
         computing the sum over sources as a vector dot product.
         Whether to calculate visibilities for each antpair in antpairs as a vector
         dot-product instead of using a full matrix-matrix multiplication for all
@@ -128,8 +162,8 @@ def simulate(
         run a performance test before using this.
     coord_method : str, optional
         The method to use to transform coordinates from the equatorial to horizontal
-        frame. The default is to use Astropy coordinate transforms. A faster option,
-        which is accurate to within 6 mas, is to use "CoordinateTransformERFA".
+        frame. The default is "CoordinateRotationERFA". Use
+        "CoordinateRotationAstropy" for direct Astropy coordinate transforms.
     max_memory : int, optional
         The maximum memory (in bytes) to use for the visibility calculation. This is
         not a hard-set limit, but rather a guideline for how much memory to use. If the
@@ -158,11 +192,11 @@ def simulate(
         routes through the eigendecomposition of the coherency matrix;
         passing ``polarized=False`` alongside is an error. If ``None``
         (default), uses ``I_sky`` as Stokes I only (existing behavior).
-        When ``stokes`` is provided, ``I_sky`` is only used for source
-        counting and memory allocation, not for computation.
+        Exactly one of ``I_sky`` or ``stokes`` must be provided.
     raise_on_negative_flux : bool, optional
         How to handle negative eigenvalues in the coherency matrix.
-        If True (default), raise ValueError if any eigenvalue is negative.
+        Defaults to False for Stokes input and True for scalar input.
+        If True, raise ValueError if any coherency eigenvalue is negative.
         If False, use sign-split decomposition to handle negative eigenvalues
         (needed for EoR-like sky models with negative Stokes I).
 
@@ -170,8 +204,9 @@ def simulate(
     -------
     vis : array_like
         Simulated visibilities. If `polarized = True`, the output will have
-        shape (NTIMES, NBLS, NFEED, NFEED), otherwise it will have
-        shape (NTIMES, NBLS).
+        shape (NTIMES, NPAIRS, NFEED, NFEED), otherwise it will have
+        shape (NTIMES, NPAIRS). The pair order, feed order and visibility
+        convention are those of :func:`matvis.simulate_vis`, for one frequency.
 
     Notes
     -----
@@ -192,6 +227,18 @@ def simulate(
 
     init_time = time.time()
 
+    # Host-side breakdown of setup, so the profiling harness can separate the
+    # part of it that a multi-frequency restructure could hoist out of the
+    # per-frequency loop from the part that is irreducibly per-frequency.
+    setup_breakdown: dict[str, float] = {}
+    _phase_t = init_time
+
+    def _mark(name: str):
+        nonlocal _phase_t
+        now = time.time()
+        setup_breakdown[name] = now - _phase_t
+        _phase_t = now
+
     if not tm.is_tracing():
         tm.start()
 
@@ -211,25 +258,6 @@ def simulate(
     )
     if raise_on_negative_flux is None:
         raise_on_negative_flux = stokes is None
-
-    rtype, ctype = get_dtypes(precision)
-
-    current_memory = tm.get_traced_memory()[0]
-
-    nchunks, npixc = get_desired_chunks(
-        min(max_memory - current_memory, psutil.virtual_memory().available),
-        min_chunks,
-        beam_list,
-        nax,
-        nfeed,
-        nant,
-        nsrc,
-        precision,
-        source_buffer=source_buffer,
-        memory_buffer=memory_buffer,
-    )
-
-    coord_method = CoordinateRotation._methods[coord_method]
 
     # Determine if we have a polarized sky model
     polarized_sky = stokes is not None and polarized
@@ -259,6 +287,29 @@ def simulate(
     else:
         flux_for_coords = np.sqrt(0.5 * I_sky)
 
+    rtype, ctype = get_dtypes(precision)
+    _mark("validate")
+
+    current_memory = tm.get_traced_memory()[0]
+
+    nchunks, npixc = get_desired_chunks(
+        min(max_memory - current_memory, psutil.virtual_memory().available),
+        min_chunks,
+        beam_list,
+        nax,
+        nfeed,
+        nant,
+        nsrc,
+        precision,
+        source_buffer=source_buffer,
+        memory_buffer=memory_buffer,
+        polarized_sky=polarized_sky,
+        sign_split=use_sign_split,
+    )
+    _mark("chunk_planning")
+
+    coord_method = CoordinateRotation._methods[coord_method]
+
     coord_method_params = coord_method_params or {}
     coords = coord_method(
         flux=flux_for_coords,
@@ -272,6 +323,8 @@ def simulate(
     )
 
     nsrc_alloc = coords.nsrc_alloc
+    _mark("coord_construct")
+
     bmfunc = UVBeamInterpolator(
         beam_list=beam_list,
         beam_idx=beam_idx,
@@ -282,35 +335,74 @@ def simulate(
         precision=precision,
         nsrc=nsrc_alloc,
     )
+    _mark("beam_construct")
+    # Inside beam_construct, how much was the per-frequency UVBeam.interp.
+    setup_breakdown["beam_wrangle_freq_independent"] = (
+        _core_beams.LAST_WRANGLE_TIMES.get("freq_independent", 0.0)
+    )
+    setup_breakdown["beam_wrangle_freq_dependent"] = _core_beams.LAST_WRANGLE_TIMES.get(
+        "freq_dependent", 0.0
+    )
 
     taucalc = TauCalculator(
         antpos=antpos, freq=freq, precision=precision, nsrc=nsrc_alloc
     )
 
+    # Relabelling the antenna axis is free in the Z construction but lets the
+    # block-decomposed matprod slice most of its operands straight out of Z
+    # instead of gathering them (issue #161). Both ends must agree on the
+    # labelling, so the same array goes to the matprod and to the Z calculator.
+    antenna_order = (
+        contiguity_order(antenna_blocks, nant) if antenna_blocks is not None else None
+    )
+
     mpcls = getattr(mp, matprod_method)
-    matprod = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+    matprod = mpcls(
+        nchunks,
+        nfeed,
+        nant,
+        antpairs,
+        precision=precision,
+        antenna_blocks=antenna_blocks,
+        antenna_order=antenna_order,
+    )
     zcalc = ZMatrixCalc(
         nsrc=nsrc_alloc,
         nfeed=nfeed,
         nant=nant,
         nax=nax,
         ctype=ctype,
+        antenna_order=antenna_order,
     )
 
     # For sign-split, allocate a second matprod for negative eigenvalue contributions
     matprod_neg = None
     if use_sign_split:
-        matprod_neg = mpcls(nchunks, nfeed, nant, antpairs, precision=precision)
+        matprod_neg = mpcls(
+            nchunks,
+            nfeed,
+            nant,
+            antpairs,
+            precision=precision,
+            antenna_blocks=antenna_blocks,
+            antenna_order=antenna_order,
+        )
 
     vis = np.full((ntimes, matprod.npairs, nfeed, nfeed), 0.0, dtype=ctype)
+    _mark("vis_alloc")
 
     bmfunc.setup()
+    _mark("beam_setup")
     coords.setup()
+    _mark("coord_setup")
     matprod.setup()
-    zcalc.setup()
-    taucalc.setup()
     if matprod_neg is not None:
         matprod_neg.setup()
+    _mark("matprod_setup")
+    zcalc.setup()
+    _mark("z_setup")
+    taucalc.setup()
+    _mark("tau_setup")
 
     logger.info(f"Visibility Array takes {vis.nbytes / 1024**2:.1f} MB")
 
@@ -326,20 +418,51 @@ def simulate(
 
     logger.info(f"Setup Time: {setup_time - init_time:1.3e}")
 
+    # Per-stage host timings. The CPU backend is synchronous, so unlike the GPU
+    # backend's event timings these attribute work to the stage that does it
+    # with no pipeline-stall ambiguity. `rotate` and `select_chunk` are the
+    # frequency-independent stages.
+    integration_times = []
+    stage_samples = {
+        "rotate": [],
+        "select_chunk": [],
+        "beam": [],
+        "tau": [],
+        "z": [],
+        "matprod": [],
+        "sum_chunks": [],
+    }
+
+    @contextmanager
+    def time_stage(name: str) -> Iterator[None]:
+        started = time.perf_counter()
+        yield
+        stage_samples[name].append(time.perf_counter() - started)
+
     # Loop over time samples
     for t in range(ntimes):
+        t_int_start = time.perf_counter()
+
+        _t = time.perf_counter()
         coords.rotate(t)
+        stage_samples["rotate"].append(time.perf_counter() - _t)
 
         for c in range(nchunks):
+            _t = time.perf_counter()
             crd_top, flux_sqrt, nn = coords.select_chunk(c, t)
+            stage_samples["select_chunk"].append(time.perf_counter() - _t)
             logdebug("crdtop", crd_top[:, :nn])
             logdebug("Isqrt", flux_sqrt[:nn])
 
+            _t = time.perf_counter()
             A = bmfunc(crd_top[0], crd_top[1], check=t == 0)
+            stage_samples["beam"].append(time.perf_counter() - _t)
             logdebug("beam", bmfunc.interpolated_beam[..., :nn])
 
             # Calculate delays, where tau = 2pi*nu*(b * s) / c
+            _t = time.perf_counter()
             exptau = taucalc(crd_top)
+            stage_samples["tau"].append(time.perf_counter() - _t)
             logdebug("exptau", exptau[:, :nn])
 
             if polarized_sky:
@@ -365,24 +488,63 @@ def simulate(
                     use_partition=use_partition,
                     n_P_chunk=n_P_chunk,
                     n_N_chunk=n_N_chunk,
+                    stage=time_stage,
                 )
             else:
-                z = zcalc(flux_sqrt, A, exptau, bmfunc.beam_idx)
-                matprod(z, c)
+                with time_stage("z"):
+                    z = zcalc(flux_sqrt, A, exptau, bmfunc.beam_idx)
+                with time_stage("matprod"):
+                    matprod(z, c)
                 logdebug("Z", z[..., :nn])
 
             if not t % report_chunk and t != ntimes - 1 and c == nchunks - 1:
                 plast, mlast = log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
                 highest_peak = memtrace(highest_peak)
 
+        _t = time.perf_counter()
         matprod.sum_chunks(vis[t])
         if matprod_neg is not None:
             vis_neg = np.zeros_like(vis[t])
             matprod_neg.sum_chunks(vis_neg)
             vis[t] -= vis_neg
+        stage_samples["sum_chunks"].append(time.perf_counter() - _t)
         logdebug("vis", vis[t])
+        integration_times.append(time.perf_counter() - t_int_start)
 
     final_time = time.time()
     logger.info(f"Loop Time: {final_time - setup_time:1.3e}")
+
+    # The first integration carries one-time costs (ERFA/IERS cache loads, BLAS
+    # workspace allocation, first-touch page faults), so the steady-state
+    # throughput is the median of the remaining ones.
+    steady = integration_times[1:] if len(integration_times) > 1 else integration_times
+
+    stats = {
+        "freq": float(freq),
+        "setup_time": setup_time - init_time,
+        "loop_time": final_time - setup_time,
+        "ntimes": ntimes,
+        "nchunks": nchunks,
+        "time_per_integration": (final_time - setup_time) / ntimes,
+        "integration_times": integration_times,
+        "steady_time_per_integration": float(np.median(steady)),
+        "setup_breakdown": setup_breakdown,
+        # Per-stage totals for the whole run, in seconds. Divide by ntimes for a
+        # per-integration figure; `rotate` and `select_chunk` are the stages a
+        # multi-frequency restructure could share across frequencies.
+        "stage_totals": {k: float(np.sum(v)) for k, v in stage_samples.items()},
+        "stage_median_ms": {
+            k: float(np.median(v)) * 1e3 if v else 0.0 for k, v in stage_samples.items()
+        },
+    }
+
+    logger.info(
+        "CPU stage totals (s): %s",
+        " ".join(f"{k}={v:.3e}" for k, v in stats["stage_totals"].items()),
+    )
+
+    LAST_RUN_STATS.clear()
+    LAST_RUN_STATS.update(stats)
+    ALL_RUN_STATS.append(stats)
 
     return vis if polarized else vis[:, :, 0, 0]

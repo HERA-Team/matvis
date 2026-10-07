@@ -4,16 +4,21 @@ The coherency matrix C for a source with Stokes parameters (I, Q, U, V) is:
 
     C = 0.5 * [[I+Q, U+iV], [U-iV, I-Q]]
 
-The matvis algorithm factorizes C = M @ M† and builds Z = Σ_k A·F·M
-so that V = Z @ Z† recovers the full RIME.
+The matvis algorithm factorizes C = M @ M† and builds Z = conj(A @ M) * F.
+The product conj(Z) @ Z.T sums the source and sky-component axes and
+recovers A_i @ C @ A_j† with the existing geometric phase convention.
 
-For physical sources (I² > Q²+U²+V²), the eigenvalues of C are both
+For physical sources (I >= sqrt(Q²+U²+V²)), the eigenvalues of C are both
 non-negative, and M can be constructed via eigendecomposition. For
 EOR-like scenarios where I < 0, a sign-split approach separates
 positive and negative eigenvalue contributions.
 
 Reference: Kittiwisit et al. (2025), arXiv:2312.09763, Section 3.2 & Appendix B.
 """
+
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
+from types import ModuleType
 
 import numpy as np
 
@@ -80,6 +85,16 @@ def coherency_to_stokes(C):
     U = 2.0 * C[0, 1].real
     V = 2.0 * C[0, 1].imag
     return I, Q, U, V
+
+
+def _eigenvectors(
+    T: np.ndarray, Q: np.ndarray, U: np.ndarray, V: np.ndarray, xp: ModuleType
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Normalize eigenvectors without subtracting nearly equal T and abs(Q)."""
+    norm = xp.sqrt(2 * T * (T + xp.abs(Q)))
+    first = xp.where(Q >= 0, T + Q, U + 1j * V) / norm
+    second = xp.where(Q >= 0, U - 1j * V, T - Q) / norm
+    return first, second, -second.conj(), first.conj()
 
 
 def compute_m_matrix_eigen(I, Q, U, V, xp=np):
@@ -177,25 +192,7 @@ def compute_m_matrix_eigen(I, Q, U, V, xp=np):
         U_g = U[mg]
         V_g = V[mg]
 
-        # Eigenvectors of C (unnormalized):
-        #   v+ = [U+iV, T-Q]   for eigenvalue λ+
-        #   v- = [Q-T, U-iV]   for eigenvalue λ-
-        # Norm: ||v+||² = (U²+V²) + (T-Q)² = 2T(T-Q)
-        #        ||v-||² = (Q-T)² + (U²+V²) = 2T(T-Q)  [same]
-        norm_sq = 2.0 * T_g * (T_g - Q_g)
-
-        # Guard against norm_sq ≈ 0 (happens when T ≈ Q, i.e. U,V ≈ 0)
-        # This should be caught by mask_diagonal, but add safety
-        safe_norm = xp.sqrt(xp.maximum(norm_sq, xp.finfo(norm_sq.dtype).tiny))
-
-        # Normalized eigenvectors
-        # v+_hat = [U+iV, T-Q] / norm
-        v_plus_0 = (U_g + 1j * V_g) / safe_norm
-        v_plus_1 = (T_g - Q_g) / safe_norm
-
-        # v-_hat = [Q-T, U-iV] / norm
-        v_minus_0 = (Q_g - T_g) / safe_norm
-        v_minus_1 = (U_g - 1j * V_g) / safe_norm
+        v_plus_0, v_plus_1, v_minus_0, v_minus_1 = _eigenvectors(T_g, Q_g, U_g, V_g, xp)
 
         # M = [v+_hat * √λ+, v-_hat * √λ-]  (columns)
         slp = sqrt_lp[mg]
@@ -298,13 +295,7 @@ def compute_m_matrix_sign_split(I, Q, U, V, xp=np):
         U_g = U[mg]
         V_g = V[mg]
 
-        norm_sq = 2.0 * T_g * (T_g - Q_g)
-        safe_norm = xp.sqrt(xp.maximum(norm_sq, xp.finfo(norm_sq.dtype).tiny))
-
-        v_plus_0 = (U_g + 1j * V_g) / safe_norm
-        v_plus_1 = (T_g - Q_g) / safe_norm
-        v_minus_0 = (Q_g - T_g) / safe_norm
-        v_minus_1 = (U_g - 1j * V_g) / safe_norm
+        v_plus_0, v_plus_1, v_minus_0, v_minus_1 = _eigenvectors(T_g, Q_g, U_g, V_g, xp)
 
         # Positive contributions
         slp_p = sqrt_lp_pos[mg]
@@ -511,6 +502,7 @@ def process_polarized_chunk(
     n_P_chunk=0,
     n_N_chunk=0,
     xp=np,
+    stage: Callable[[str], AbstractContextManager] | None = None,
 ):
     """Process a single chunk for polarized sky simulation.
 
@@ -526,8 +518,8 @@ def process_polarized_chunk(
       matmul cost is ``O(Nsrc)`` instead of the sign-split fallback's
       ``2·O(Nsrc)``.
     - ``use_sign_split=True, use_partition=False`` (sky has mixed-sign
-      sources): full sign-split — two eigendecompositions and two
-      full-width matprod writes.
+      sources): full sign-split — one eigendecomposition with positive
+      and negative factors, followed by two full-width matprod writes.
 
     Parameters
     ----------
@@ -560,39 +552,42 @@ def process_polarized_chunk(
         this chunk. Only consulted when ``use_partition=True``.
     xp : module
         Array module (numpy or cupy).
+    stage : callable, optional
+        Context factory for timing "z" and "matprod" stages separately.
     """
-    C_rot = flux_above_horizon[:, 0]  # (nsrc_alloc, 2, 2)
-    I_r, Q_r, U_r, V_r = coherency_to_stokes(
-        C_rot.transpose(1, 2, 0)  # -> (2, 2, nsrc_alloc)
-    )
+    stage = stage or (lambda name: nullcontext())
+    matprod.reset_chunk(chunk_idx)
+    if matprod_neg is not None:
+        matprod_neg.reset_chunk(chunk_idx)
+    with stage("z"):
+        C_rot = flux_above_horizon[:, 0]
+        I_r, Q_r, U_r, V_r = coherency_to_stokes(C_rot.transpose(1, 2, 0))
+        if use_sign_split and not use_partition:
+            M, M_neg, _ = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=xp)
+        else:
+            M = compute_m_matrix_eigen(I_r, Q_r, U_r, V_r, xp=xp)
+        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M)
 
     if use_partition:
-        # Eigen on the (already-negated-for-N) chunk Stokes; slice z
-        # into the P and N source ranges and dispatch to the two
-        # matprod accumulators.
-        M = compute_m_matrix_eigen(I_r, Q_r, U_r, V_r, xp=xp)
-        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M)
-        nax = zcalc.nax
-        nsrc = zcalc.nsrc
-        if n_P_chunk > 0:
-            z3 = z.reshape(z.shape[0], nax, nsrc)
+        # The partition is in source order, independently of antenna ordering.
+        with stage("z"):
+            z3 = z.reshape(z.shape[0], zcalc.nax, zcalc.nsrc)
             z_P = xp.ascontiguousarray(z3[:, :, :n_P_chunk]).reshape(
-                z.shape[0], nax * n_P_chunk
+                z.shape[0], zcalc.nax * n_P_chunk
             )
-            matprod(z_P, chunk_idx)
-        if n_N_chunk > 0:
-            z3 = z.reshape(z.shape[0], nax, nsrc)
             z_N = xp.ascontiguousarray(
                 z3[:, :, n_P_chunk : n_P_chunk + n_N_chunk]
-            ).reshape(z.shape[0], nax * n_N_chunk)
-            matprod_neg(z_N, chunk_idx)
-    elif use_sign_split:
-        M_pos, M_neg, _ = compute_m_matrix_sign_split(I_r, Q_r, U_r, V_r, xp=xp)
-        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_pos)
-        matprod(z, chunk_idx)
-        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_neg)
-        matprod_neg(z, chunk_idx)
+            ).reshape(z.shape[0], zcalc.nax * n_N_chunk)
+        with stage("matprod"):
+            if n_P_chunk:
+                matprod(z_P, chunk_idx)
+            if n_N_chunk:
+                matprod_neg(z_N, chunk_idx)
     else:
-        M = compute_m_matrix_eigen(I_r, Q_r, U_r, V_r, xp=xp)
-        z = zcalc(None, beam, exptau, beam_idx, m_matrix=M)
-        matprod(z, chunk_idx)
+        with stage("matprod"):
+            matprod(z, chunk_idx)
+        if use_sign_split:
+            with stage("z"):
+                z = zcalc(None, beam, exptau, beam_idx, m_matrix=M_neg)
+            with stage("matprod"):
+                matprod_neg(z, chunk_idx)
