@@ -397,3 +397,50 @@ def test_nearly_diagonal_coherency(dtype: type[np.floating], signed: bool):
     expected = stokes_to_coherency(I, Q, U, V)
     tolerance = 5e-7 if dtype == np.float32 else 1e-12
     np.testing.assert_allclose(actual, expected, rtol=tolerance, atol=tolerance)
+
+
+def test_integer_stokes_and_physicality_boundary():
+    """Integer inputs promote safely, and roundoff does not reject a zero sky."""
+    from matvis.core.coherency import categorize_sources, check_sky_physicality
+
+    stokes = np.array([[3, -3, 0], [1, 1, 1], [1, 1, 0], [1, 1, 0]])
+    positive = compute_m_matrix_eigen(*stokes[:, :1])
+    np.testing.assert_allclose(
+        _m_times_m_dagger(positive),
+        stokes_to_coherency(*stokes[:, :1]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    pos, neg, has_neg = compute_m_matrix_sign_split(*stokes)
+    assert has_neg
+    np.testing.assert_allclose(
+        _m_times_m_dagger(pos) - _m_times_m_dagger(neg),
+        stokes_to_coherency(*stokes),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert check_sky_physicality(*stokes, raise_on_negative=False)
+    for actual, expected in zip(
+        categorize_sources(*stokes), [[0], [1], [2]], strict=True
+    ):
+        np.testing.assert_array_equal(actual, expected)
+    assert not check_sky_physicality(np.array([-1e-18]), *[np.zeros(1)] * 3)
+
+
+def test_partition_contract_and_optional_intensity():
+    """Partitioning preserves coordinates/intensities and rejects mixed eigenvalues."""
+    from astropy.coordinates import SkyCoord
+
+    from matvis.core.coherency import partition_and_negate
+
+    sky = SkyCoord(ra=[0, 1], dec=[0, 0], unit="rad")
+    stokes = np.array([[2.0, 3.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]])
+    intensity = stokes[0].copy()
+    actual, coords, flux, npos, nneg = partition_and_negate(stokes, sky, intensity)
+    np.testing.assert_array_equal(actual, stokes)
+    np.testing.assert_array_equal(coords.ra.rad, sky.ra.rad)
+    np.testing.assert_array_equal(flux, intensity)
+    assert (npos, nneg) == (2, 0)
+    stokes[1, 0] = 4
+    with pytest.raises(ValueError, match="mixed-sign eigenvalues"):
+        partition_and_negate(stokes, sky)

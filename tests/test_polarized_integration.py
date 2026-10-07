@@ -223,3 +223,62 @@ def test_stokes_i_complex_beams_matches_legacy(method: str, mapping: str):
         **kw, **extra, stokes=stokes, precision=2, use_gpu=gpu, matprod_method=method
     )
     np.testing.assert_allclose(actual, reference, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.parametrize("backend", ["cpu", pytest.param("gpu", marks=pytest.mark.gpu)])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "flux",
+        "stokes",
+        "reject_polarized",
+        "missing_sky",
+        "both_skies",
+        "reject_negative",
+    ],
+)
+def test_backend_sky_contract(backend: str, mode: str):
+    """Direct backend calls enforce the same sky contract and defaults as the wrapper."""
+    import importlib
+
+    from astropy.coordinates import SkyCoord
+
+    from matvis._test_utils import get_standard_sim_params
+
+    if backend == "gpu":
+        pytest.importorskip("cupy")
+    simulate = importlib.import_module(f"matvis.{backend}.{backend}").simulate
+    kw, *_ = get_standard_sim_params(True, True, nsource=3, ntime=1)
+    arguments = {
+        "antpos": np.array(list(kw["ants"].values())),
+        "freq": kw["freqs"][0],
+        "times": kw["times"],
+        "skycoords": SkyCoord(ra=kw["ra"], dec=kw["dec"], unit="rad"),
+        "telescope_loc": kw["telescope_loc"],
+        "beam_list": kw["beams"],
+        "precision": 2,
+    }
+    stokes = np.zeros((4, 3))
+    stokes[0] = kw["fluxes"][:, 0]
+    if mode in ("flux", "both_skies"):
+        arguments["I_sky"] = stokes[0]
+    if mode in ("stokes", "reject_polarized", "both_skies", "reject_negative"):
+        arguments["stokes"] = stokes
+    if mode == "reject_polarized":
+        arguments["polarized"] = False
+    elif mode == "reject_negative":
+        arguments["raise_on_negative_flux"] = True
+        stokes[:, 0] *= -1
+    if mode in ("flux", "stokes"):
+        result = simulate(**arguments)
+        assert result.shape == ((1, 9) if mode == "flux" else (1, 9, 2, 2))
+        assert np.isfinite(result).all()
+    else:
+        message = {
+            "reject_polarized": "incompatible with stokes",
+            "reject_negative": "Negative eigenvalue",
+            "missing_sky": "exactly one",
+            "both_skies": "exactly one",
+        }[mode]
+        with pytest.raises(ValueError, match=message):
+            simulate(**arguments)
