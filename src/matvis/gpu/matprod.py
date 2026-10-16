@@ -34,6 +34,15 @@ class _AccumulatingMatProd(MatProd):
     result.
     """
 
+    def reset_chunk(self, chunk: int) -> None:
+        """Keep prior chunks; sum_chunks resets the integration accumulator.
+
+        Parameters
+        ----------
+        chunk
+            Chunk index, unused because the GPU accumulates across chunks.
+        """
+
     def __call__(self, z: cp.ndarray, chunk: int) -> cp.ndarray:
         """Accumulate the source-sum for a single chunk into the visibilities.
 

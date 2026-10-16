@@ -24,14 +24,14 @@ logger = logging.getLogger(__name__)
 
 def simulate_vis(
     ants: dict[int, np.ndarray],
-    fluxes: np.ndarray,
-    ra: np.ndarray,
-    dec: np.ndarray,
-    freqs: np.ndarray,
-    times: Time,
-    beams: list[AnalyticBeam | UVBeam | BeamInterface],
-    telescope_loc: EarthLocation,
-    polarized: bool = False,
+    fluxes: np.ndarray | None = None,
+    ra: np.ndarray | None = None,
+    dec: np.ndarray | None = None,
+    freqs: np.ndarray | None = None,
+    times: Time | None = None,
+    beams: list[AnalyticBeam | UVBeam | BeamInterface] | None = None,
+    telescope_loc: EarthLocation | None = None,
+    polarized: bool | None = None,
     precision: Literal[1, 2] = 1,
     use_feed: Literal["x", "y"] = "x",
     use_gpu: bool = False,
@@ -57,6 +57,9 @@ def simulate_vis(
         "CPUMatBlock",
         "GPUMatBlock",
     ] = "MatMul",
+    *,
+    stokes: np.ndarray | None = None,
+    raise_on_negative_flux: bool | None = None,
     **backend_kwargs,
 ):
     r"""
@@ -70,11 +73,10 @@ def simulate_vis(
         Dictionary of antenna positions. The keys are the antenna names
         (integers) and the values are the Cartesian x,y,z positions of the
         antennas (in meters) relative to the array center. The order of the
-        keys defines the antenna indices used by ``beam_idx``, ``antpairs`` and
-        the output.
-    fluxes : array_like
-        2D array with the flux of each source as a function of frequency, of
-        shape (NSRCS, NFREQS).
+        keys defines the antenna indices used by beam_idx, antpairs and output.
+    fluxes : array_like, optional
+        Stokes I fluxes, shape (NSRCS, NFREQS). Exactly one of fluxes or stokes
+        must be provided.
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi/2, +pi/2].
@@ -87,10 +89,12 @@ def simulate_vis(
     telescope_loc
         An EarthLocation object representing the center of the array.
     polarized : bool, optional
-        If True, use efield beams and calculate the visibility for every pair of
-        feeds in the beams' ``feed_array`` (e.g. xx, xy, yx, yy). If False
-        (default), calculate a single visibility from the beams' power response.
-        See Returns for both layouts.
+        If True, use polarized beams and calculate all available linearly-
+        polarized visibilities, e.g. V_nn, V_ne, V_en, V_ee. If left as
+        ``None`` (default), inferred from ``stokes``: True when ``stokes``
+        is given, False when ``fluxes`` is given. Passing ``polarized=False``
+        together with ``stokes`` raises ``ValueError``, since a Stokes-Q/U/V
+        sky cannot be represented by a single feed.
     precision : int, optional
         Which precision setting to use for :func:`~matvis`. If set to ``1``,
         uses the (``np.float32``, ``np.complex64``) dtypes. If set to ``2``,
@@ -138,9 +142,8 @@ def simulate_vis(
         ~0.55 should be sufficient.
     coord_method
         The method to use to transform coordinates from the equatorial to horizontal
-        frame. The default is to use Astropy coordinate transforms. A faster option,
-        which is accurate to within 6 mas, is to use "CoordinateTransformERFA" (or
-        its GPU version, if using GPU).
+        frame. The default is "CoordinateRotationERFA". Use
+        "CoordinateRotationAstropy" for direct Astropy coordinate transforms.
     coord_method_params
         Parameters particular to the coordinate rotation method of choice. For example,
         for the CoordinateRotationERFA (and GPU version of the same) method, there
@@ -154,6 +157,19 @@ def simulate_vis(
         large arrays where `antpairs` is small (possibly from high redundancy). You
         should run a performance test before changing this. If not CPU/GPU prefix is
         specified, it will be added automatically based on the value of `use_gpu`.
+    stokes : array_like, optional
+        Full Stokes parameters of shape (4, NSRCS, NFREQS) with [I, Q, U, V].
+        Enables polarized sky model support via eigendecomposition of the
+        coherency matrix. Setting ``stokes`` automatically enables
+        ``polarized=True``; passing ``polarized=False`` alongside is an
+        error. Exactly one of ``fluxes`` or ``stokes`` must be provided.
+    raise_on_negative_flux : bool, optional
+        How to handle sources with a negative coherency eigenvalue. If
+        ``None`` (default), the choice depends on the sky-model mode:
+        ``True`` when ``fluxes`` is given (an unpolarized sky with
+        negative flux is almost always a bug) and ``False`` when
+        ``stokes`` is given (EoR-like models can legitimately have
+        negative Stokes I). Set explicitly to override.
 
     Returns
     -------
@@ -178,8 +194,8 @@ def simulate_vis(
 
         where :math:`A_i` is antenna ``i``'s Jones matrix in the source
         direction :math:`\hat{\mathbf{s}}`, indexed [feed, sky component],
-        :math:`C` is the source coherency (:math:`I/2` times the identity for the
-        unpolarized sources simulated here), and :math:`\mathbf{x}` are the
+        :math:`C` is the source coherency (:math:`I/2` times the identity for an
+        unpolarized sky), and :math:`\mathbf{x}` are the
         positions in ``ants``. So ``vis[..., p, q]`` correlates feed ``p`` of
         antenna ``i`` with the conjugate of feed ``q`` of antenna ``j``, with
         feeds ordered as in the beams' ``feed_array``. In pyuvdata's naming this
@@ -204,6 +220,18 @@ def simulate_vis(
     --------
     matvis.matvis_to_uvdata : Put this output into a ``UVData`` object.
     """
+    required = {
+        "ra": ra,
+        "dec": dec,
+        "freqs": freqs,
+        "times": times,
+        "beams": beams,
+        "telescope_loc": telescope_loc,
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
+        raise TypeError(f"Missing required arguments: {', '.join(missing)}")
+
     if use_gpu:
         if not HAVE_GPU:
             raise ImportError("You cannot use GPU without installing GPU-dependencies!")
@@ -221,10 +249,32 @@ def simulate_vis(
 
     fnc = gpu.simulate if use_gpu else cpu.simulate
 
-    assert fluxes.shape == (
-        ra.size,
-        freqs.size,
-    ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
+    if (fluxes is None) == (stokes is None):
+        raise ValueError("Provide exactly one of `fluxes` or `stokes` to simulate_vis.")
+
+    if polarized is None:
+        polarized = stokes is not None
+    elif not polarized and stokes is not None:
+        raise ValueError(
+            "polarized=False is incompatible with stokes=... — "
+            "stokes input implies polarized=True. "
+            "Either omit `polarized` or set polarized=True."
+        )
+
+    if stokes is not None:
+        assert stokes.shape == (
+            4,
+            ra.size,
+            freqs.size,
+        ), "The `stokes` array must have shape (4, NSRCS, NFREQS)."
+    else:
+        assert fluxes.shape == (
+            ra.size,
+            freqs.size,
+        ), "The `fluxes` array must have shape (NSRCS, NFREQS)."
+
+    if raise_on_negative_flux is None:
+        raise_on_negative_flux = stokes is None
 
     # Determine precision
     complex_dtype = np.complex64 if precision == 1 else np.complex128
@@ -247,18 +297,21 @@ def simulate_vis(
     else:
         vis = np.zeros((freqs.size, times.size, npairs), dtype=complex_dtype)
 
-    if matprod_method in ["MatMul", "VectorDot"]:
+    if matprod_method in ["MatMul", "VectorDot", "MatBlock"]:
         matprod_method = f"GPU{matprod_method}" if use_gpu else f"CPU{matprod_method}"
 
     # Loop over frequencies and call matvis_cpu/gpu
     for i, freq in enumerate(freqs):
+        if stokes is not None:
+            per_freq_kwargs = {"stokes": stokes[:, :, i]}
+        else:
+            per_freq_kwargs = {"I_sky": fluxes[:, i]}
         vis[i] = fnc(
             antpos=antpos,
             freq=freq,
             times=times,
             skycoords=skycoords,
             telescope_loc=telescope_loc,
-            I_sky=fluxes[:, i],
             beam_list=beams,
             precision=precision,
             polarized=polarized,
@@ -270,6 +323,8 @@ def simulate_vis(
             matprod_method=matprod_method,
             coord_method=coord_method,
             coord_method_params=coord_method_params,
+            raise_on_negative_flux=raise_on_negative_flux,
+            **per_freq_kwargs,
             **backend_kwargs,
         )
     return vis
