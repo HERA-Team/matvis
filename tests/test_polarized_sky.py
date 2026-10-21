@@ -8,9 +8,9 @@ Both code paths coexist in the same simulate_vis function:
 import numpy as np
 import pytest
 from astropy import units as un
-from astropy.coordinates import EarthLocation, SkyCoord
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
-from pyuvdata.analytic_beam import GaussianBeam
+from pyuvdata.analytic_beam import GaussianBeam, ShortDipoleBeam
 
 from matvis import simulate_vis
 
@@ -380,3 +380,56 @@ def test_wrapper_legacy_optional_positions():
         "MatMul",
     )
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("pol", ["Q", "U"])
+def test_linear_polarization_response_is_azimuth_independent(pol: str):
+    """Fixed ground dipoles see a near-zenith source's polarization at any azimuth.
+
+    One degree from zenith, the celestial north-south direction at a source
+    projects onto the ground within about a degree of local north, whatever the
+    source azimuth. A fully linearly polarized source must therefore give the
+    same dipole-frame polarization at every azimuth. Matvis's own response at
+    the first azimuth is the reference, so the test holds for any consistent
+    choice of Stokes sign or beam sky-component order.
+    """
+    location = EarthLocation(
+        lat="-30d43m17.5s", lon="21d25m41.9s", height=1073.0 * un.m
+    )
+    obstime = Time(2459863.0, format="jd", scale="utc")
+    beam = ShortDipoleBeam()
+    east, north = beam.east_ind, beam.north_ind
+    stokes = {"Q": [1.0, 1.0, 0.0, 0.0], "U": [1.0, 0.0, 1.0, 0.0]}[pol]
+    measured = []
+    for az_deg in range(0, 360, 45):
+        source = SkyCoord(
+            alt=89.0 * un.deg,
+            az=az_deg * un.deg,
+            frame=AltAz(obstime=obstime, location=location),
+        ).icrs
+        vis = simulate_vis(
+            ants={0: np.zeros(3)},
+            ra=np.array([source.ra.rad]),
+            dec=np.array([source.dec.rad]),
+            freqs=np.array([150e6]),
+            times=Time([obstime.jd], format="jd", scale="utc"),
+            beams=[beam],
+            telescope_loc=location,
+            precision=2,
+            stokes=np.array(stokes).reshape(4, 1, 1),
+        )
+        auto = vis[0, 0, 0]
+        total = (auto[east, east] + auto[north, north]).real
+        measured.append(
+            [
+                (auto[east, east] - auto[north, north]).real / total,
+                2 * auto[east, north].real / total,
+            ]
+        )
+    measured = np.array(measured)
+    # A fully linearly polarized source stays fully linearly polarized.
+    np.testing.assert_allclose(np.hypot(*measured.T), 1.0, rtol=0, atol=1e-3)
+    # The ground projection turns the polarization by about a degree at most,
+    # i.e. a few hundredths in each normalized dipole-frame parameter.
+    reference = np.broadcast_to(measured[0], measured.shape)
+    np.testing.assert_allclose(measured, reference, rtol=0, atol=0.05)
