@@ -55,9 +55,10 @@ def _coherency(stokes: np.ndarray) -> np.ndarray:
     return 0.5 * np.array([[i + q, u + 1j * v], [u - 1j * v, i - q]])
 
 
-def _oracle(
+def _direct_sum(
     beam: np.ndarray, phase: np.ndarray, coherency: np.ndarray, indices: np.ndarray
 ) -> np.ndarray:
+    """Sum A_i C A_j† times the fringe over sources, one baseline at a time."""
     nant, nsrc = phase.shape
     out = np.zeros((nant * nant, 2, 2), dtype=np.complex128)
     for i in range(nant):
@@ -116,7 +117,7 @@ def test_polarized_rime(method: str, precision: int, sky: str, mapping: str):
         rng.normal(size=(nbeam, 2, 2, nsrc)) + 1j * rng.normal(size=(nbeam, 2, 2, nsrc))
     ).astype(ctype)
     phase = np.exp(1j * rng.normal(size=(nant, nsrc))).astype(ctype)
-    expected = _oracle(beam, phase, original, indices)
+    expected = _direct_sum(beam, phase, original, indices)
     xp, pos, neg, zcalc = _components(method, precision, nant, nsrc, nbeam)
     phase_device = xp.asarray(phase)
     phase_before = phase_device.copy()

@@ -52,9 +52,8 @@ Limitations
 Full-Stokes sky input
 =====================
 
-Existing positional and keyword calls with ``fluxes`` remain supported. For a
-polarized sky, pass ``stokes`` with shape ``(4, Nsource, Nfreq)``, ordered I, Q, U,
-V, and omit ``fluxes``::
+For a polarized sky, pass ``stokes`` instead of ``fluxes``, with shape
+``(4, Nsource, Nfreq)`` ordered I, Q, U, V::
 
     vis = matvis.simulate_vis(
         ants=ants, ra=ra, dec=dec, freqs=freqs, times=times,
@@ -62,27 +61,12 @@ V, and omit ``fluxes``::
         precision=2,
     )
 
-Exactly one sky input is required. Stokes input enables ``polarized=True``
-automatically; explicitly setting it to False is an error. ``stokes`` and
-``raise_on_negative_flux`` are keyword-only. Source coordinates, frequencies,
-times, beams, and telescope location are still required.
-
-The coherency is ``C = 0.5 * [[I+Q, U+iV], [U-iV, I-Q]]`` in the spherical
-basis. It is rotated into the local sky basis before applying each antenna's
-Jones matrix. Signed models are allowed by default for Stokes input; set
-``raise_on_negative_flux=True`` to reject negative coherency eigenvalues.
-Ordinary nonnegative ``fluxes`` retain the existing scalar execution path.
-
-All three product methods (``MatMul``, ``VectorDot``, ``MatBlock``) support
-Stokes input. The GPU uses the shared array implementation for polarized Z
-construction and retains the fused kernel for ordinary flux input. No
-polarized performance improvement is claimed. Output ordering and
-``matvis.matvis_to_uvdata`` are unchanged.
-
-For external comparisons, pyuvsim 1.4 / pyradiosky use a different Jones
-sky-component order and the opposite Stokes-V sign. Directly comparing the
-same full-Stokes inputs can therefore disagree. The algorithm documentation
-and regression tests describe the explicit convention conversion.
+Exactly one of ``fluxes`` and ``stokes`` must be given. Passing ``stokes``
+computes all feed pairs (``polarized=True``), so the beams must be E-field beams.
+Sources whose coherency has negative eigenvalues, as in Epoch of Reionization
+models with negative intensities, are supported; set
+``raise_on_negative_flux=True`` to reject them instead. Polarized skies work on
+CPU and GPU and with every ``matprod_method``.
 
 
 Installation

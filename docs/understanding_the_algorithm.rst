@@ -88,8 +88,8 @@ Here *p* is a feed of antenna *i* and *q* a feed of antenna *j*, so in pyuvdata'
 and y on antenna *j*). This is the same convention as ``pyuvsim``. The factor of 1/2
 splits the unpolarized intensity equally between the two polarizations.
 
-This is the scalar-sky equation that ``matvis`` calculates. Full-Stokes input
-uses the coherency form described below.
+This is the equation that ``matvis`` calculates for an unpolarized sky. Polarized
+skies are described in `Polarized Skies`_ below.
 
 The ``matvis`` Algorithm
 =========================
@@ -136,70 +136,40 @@ Then, for a particular frequency and time, the ``matvis`` algorithm is:
        visibility: :math:`V = Z^* Z^T`. Its feed-by-feed block for antennas *a* and
        *b* is :math:`A_a C A_b^\dagger` times the fringe term, as above.
 
-Full-Stokes coherency
-=====================
+Polarized Skies
+===============
 
-The wrapper accepts exactly one of ``fluxes`` (shape ``(Nsource, Nfreq)``)
-or keyword-only ``stokes`` (shape ``(4, Nsource, Nfreq)``). Existing positional
-arguments retain their order. Stokes input infers a polarized response and
-requires electric-field beams. For each source,
-
-.. math::
-
-   C = \frac{1}{2}\begin{pmatrix} I+Q & U+iV \\ U-iV & I-Q \end{pmatrix}.
-
-The spherical sky basis is rotated from ICRS into the local horizontal frame.
-For nonnegative eigenvalues, factorize :math:`C=MM^\dagger` and replace step 6 by
+The steps above treat each source as unpolarized, with a coherency :math:`C` equal
+to :math:`I/2` times the identity, so step 6 only needs :math:`\sqrt{I/2}`.
+A polarized source with Stokes parameters :math:`(I, Q, U, V)` has the coherency
 
 .. math::
 
-   Z_i = \operatorname{conj}(A_i M) F_i,\qquad
-   F_i = \exp(2\pi i\nu\vec{x}_i\cdot\hat{n}/c).
+   C = \frac{1}{2}\begin{pmatrix} I+Q & U+iV \\ U-iV & I-Q \end{pmatrix},
 
-Step 7 remains :math:`V=Z^* Z^T`. Thus its baseline block is
-:math:`A_i C A_j^\dagger F_i^*F_j`, including all feed products. Conjugating
-only :math:`A_i` would conjugate the sky coherency incorrectly for complex
-:math:`M`, notably circular polarization. Stokes-I-only gives the existing
-scalar result, including with distinct complex beams per antenna.
+which is rotated from the equatorial frame into the local horizontal frame at each
+time. The same approach still works if we write the coherency as a matrix times its
+conjugate transpose, :math:`C = M M^\dagger`. Because :math:`C` is Hermitian, its
+eigendecomposition provides such an :math:`M` whenever both eigenvalues are
+non-negative, which holds for any physical source
+(:math:`I \geq \sqrt{Q^2 + U^2 + V^2}`). Step 6 becomes
 
-The default ``raise_on_negative_flux=False`` for Stokes input permits signed
-models. ``True`` rejects negative eigenvalues. If every source is positive or
-negative semidefinite, sources are partitioned by sign and the negative
-sources' Stokes vectors are negated before decomposition. Separate positive
-and negative products are then subtracted. For mixed-sign eigenvalues,
-:math:`C=M_+M_+^\dagger-M_-M_-^\dagger`, with separate full-width products.
-Both accumulators use identical antenna ordering and blocks and are reset
-for each integration, including empty partitions and horizon crossings.
+.. math::
 
-Polarized Z construction does not modify the shared geometric phase buffer.
-On GPU it uses NumPy/CuPy array operations; the scalar fused Z kernel,
-interpolation kernels, stream ordering, and matrix products remain in use.
-Memory planning includes coherency and decomposition buffers and the second
-accumulator. Profiling records both sign passes, separating Z construction
-from matrix-product time.
+   Z_i = (A_i M)^* \exp(\tau_i),
 
-External convention comparison
-------------------------------
+and step 7 is unchanged: the block of :math:`V = Z^* Z^T` for antennas *a* and *b* is
+:math:`A_a C A_b^\dagger` times the fringe term. For an unpolarized source,
+:math:`M` is :math:`\sqrt{I/2}` times the identity, which gives back the original
+step 6.
 
-The independent regression oracle evaluates :math:`A_i C A_j^\dagger`
-source by source, with complex beams, both baseline orders and all feeds.
-An end-to-end oracle also checks sky rotation and interpolated UVBeams.
-
-Pyuvsim's ``Antenna.get_beam_jones`` reverses the sky-component axis returned
-by ``BeamInterface.compute_response``. Pyradiosky's ``stokes_to_coherency``
-also uses :math:`C_{01}=(U-iV)/2`, whereas this interface uses
-:math:`C_{01}=(U+iV)/2`. These are independent convention differences;
-a sky-component swap alone does not explain a general full-Stokes result.
-
-``test_polarized_uvbeam_direct_oracle`` verifies the component permutation
-and the direct measurement equation at double precision.
-``test_compare_pyuvsim_polarized_converted_conventions`` explicitly reverses
-the beam's sky-component data for the matvis comparison and negates Stokes V
-for the pyuvsim comparison. That comparison passes at the existing
-interpolated-beam accuracy. The comparison without either conversion remains
-a strict expected failure, so a future external convention change is visible.
-This does not establish which convention an external beam or sky catalogue
-uses; callers must supply a consistent basis and Stokes convention.
+Some sky models, such as those of the Epoch of Reionization, contain negative
+intensities, so a source's coherency can have negative eigenvalues. Then we write
+:math:`C = M_+ M_+^\dagger - M_- M_-^\dagger`, where :math:`M_+` carries the positive
+eigenvalues and :math:`M_-` the magnitudes of the negative ones, compute the
+visibilities of the two parts separately, and subtract them. A source whose
+eigenvalues are both negative needs only one part: negating its Stokes parameters
+makes them positive, and its visibilities are subtracted.
 
 Exploiting Redundancy: Block-Decomposed Products
 =================================================

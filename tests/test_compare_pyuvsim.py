@@ -74,7 +74,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
                 reason=(
                     "pyuvsim swaps the Jones sky components and pyradiosky uses "
                     "C01=(U-iV)/2, whereas matvis uses native components and "
-                    "C01=(U+iV)/2. Independently verified by the direct-oracle "
+                    "C01=(U+iV)/2. Independently verified by the direct-sum "
                     "and convention-converted comparison tests in this module."
                 ),
                 strict=True,
@@ -223,11 +223,12 @@ def compare_sims(
 
 
 @pytest.mark.parametrize("swap_components", [False, True])
-def test_polarized_uvbeam_direct_oracle(swap_components: bool):
-    """Native and swapped Jones components each reproduce a direct local-basis RIME.
+def test_polarized_uvbeam_matches_direct_sum(swap_components: bool):
+    """Matvis matches a direct per-source sum of A_i C A_j† for either beam order.
 
-    Pyradiosky supplies the independent sky rotation. Neither this oracle nor
-    pyuvsim's Jones construction uses matvis's decomposition or Z calculation.
+    The expected visibilities take the sky rotation from pyradiosky and the Jones
+    matrices from the beam or pyuvsim, so they use none of matvis's own
+    decomposition or Z calculation.
     """
     from astropy.constants import c
     from pyuvsim.antenna import Antenna
@@ -269,7 +270,7 @@ def test_polarized_uvbeam_direct_oracle(swap_components: bool):
         assert not np.allclose(external, response, rtol=1e-4, atol=1e-4)
         if swap_components:
             response = external
-        # Pyradiosky uses C01=(U-iV)/2; this PR explicitly uses (U+iV)/2.
+        # Pyradiosky uses C01=(U-iV)/2; matvis uses (U+iV)/2.
         # Its real basis rotation commutes with complex conjugation.
         local_c = sky.coherency_calc().to_value("Jy")[:, :, 0].conj()
         direction = np.array(

@@ -191,7 +191,7 @@ def simulate(
         Setting ``stokes`` automatically enables ``polarized=True`` and
         routes through the eigendecomposition of the coherency matrix;
         passing ``polarized=False`` alongside is an error. If ``None``
-        (default), uses ``I_sky`` as Stokes I only (existing behavior).
+        (default), ``I_sky`` is used as an unpolarized (Stokes I only) sky.
         Exactly one of ``I_sky`` or ``stokes`` must be provided.
     raise_on_negative_flux : bool, optional
         How to handle negative eigenvalues in the coherency matrix.
@@ -214,7 +214,7 @@ def simulate(
 
     1. ``polarized=False`` — single-feed calculation using ``I_sky``.
     2. ``polarized=True, stokes=None`` — uses ``I_sky`` as Stokes I only,
-       split 50/50 across the two feeds (legacy behavior).
+       split 50/50 across the two feeds.
     3. ``polarized=True, stokes.shape == (4, NSRCS)`` — full-Stokes
        visibility via eigendecomposition of the per-source coherency
        matrix ``C = 0.5 * [[I+Q, U+iV], [U-iV, I-Q]]``.

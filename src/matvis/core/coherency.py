@@ -4,9 +4,10 @@ The coherency matrix C for a source with Stokes parameters (I, Q, U, V) is:
 
     C = 0.5 * [[I+Q, U+iV], [U-iV, I-Q]]
 
-The matvis algorithm factorizes C = M @ M† and builds Z = conj(A @ M) * F.
-The product conj(Z) @ Z.T sums the source and sky-component axes and
-recovers A_i @ C @ A_j† with the existing geometric phase convention.
+matvis factorizes C = M @ M† and builds Z = conj(A @ M) * F, where
+F = exp(2πiν x·n/c) is the antenna phase. The product conj(Z) @ Z.T sums
+over sources and sky components, giving A_i @ C @ A_j† * conj(F_i) * F_j
+for antennas i and j.
 
 For physical sources (I >= sqrt(Q²+U²+V²)), the eigenvalues of C are both
 non-negative, and M can be constructed via eigendecomposition. For
@@ -33,9 +34,8 @@ except ImportError:
 def stokes_to_coherency(I, Q, U, V, xp=np):
     """Convert Stokes parameters to 2x2 coherency matrices.
 
-    Includes the factor of 0.5 so that the unpolarized case gives
-    C = diag(I/2, I/2), matching the current matvis convention where
-    flux is split equally between two feeds.
+    Includes the factor of 0.5, so an unpolarized source has
+    C = diag(I/2, I/2), splitting its flux equally between the two feeds.
 
     Parameters
     ----------
@@ -334,8 +334,8 @@ def check_sky_physicality(I, Q, U, V, raise_on_negative=True, xp=np):
     I, Q, U, V : array_like
         Stokes parameters, each shape (Nsrc,).
     raise_on_negative : bool
-        If True, raise ``ValueError`` when any source has a genuinely
-        negative eigenvalue (matches the historical per-chunk behavior).
+        If True, raise ``ValueError`` when any source has a negative
+        eigenvalue beyond floating-point round-off.
     xp : module
         Array module (numpy or cupy).
 
