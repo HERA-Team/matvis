@@ -137,3 +137,25 @@ def test_profile_beams_are_distinct_objects(analytic):
     if not analytic:
         # Distinct objects, but no extra memory: the data are shared.
         assert all(b.data_array is beams[0].data_array for b in beams)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("negative", [False, True])
+def test_polarized_stage_timings(backend: tuple, negative: bool):
+    """Signed polarization contributes to both Z and product profiling stages."""
+    use_gpu, module = backend
+    kw, *_ = get_standard_sim_params(
+        True, True, nsource=20, ntime=2, use_polarized_sky=True
+    )
+    if negative:
+        kw["stokes"][0, :10] = 0.1
+    extra = {"gpu_event_timing": True} if use_gpu else {}
+    simulate_vis(**kw, use_gpu=use_gpu, **extra)
+    stats = module.LAST_RUN_STATS
+    for stage in ("z", "matprod"):
+        value = (
+            stats["event_timing_ms"][stage]["median"]
+            if use_gpu
+            else stats["stage_totals"][stage]
+        )
+        assert value > 0
