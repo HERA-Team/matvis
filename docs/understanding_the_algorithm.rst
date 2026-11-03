@@ -67,11 +67,10 @@ explicit pixelization that is consistent with these assumptions is the HEALpix p
 In ``matvis``, we also make the following assumptions/approximations (these aren't
 fundamental to the algorithm, and may be updated at a later date):
 
-    1. The sky is unpolarized
-    2. The ground provides a perfectly conducting ground plane and is perfectly flat
+    1. The ground provides a perfectly conducting ground plane and is perfectly flat
        out to the horizon (i.e., we see everything up to the horizon, and nothing at all
        beyond it).
-    3. The Earth rotates as a rigid body along a single axis. This makes updating of
+    2. The Earth rotates as a rigid body along a single axis. This makes updating of
        sky coordinates over time much faster, at the expense of a little bit of accuracy,
        if a long time is simulated.
 
@@ -79,7 +78,7 @@ Now, let the discrete pixels of the sky model (or discrete sources, if the sky m
 composed of such) *in topocentric coordinates* (i.e. sin-projected l, m)
 be :math:`\vec{X}(t)`, and their flux-density by *I*.
 
-Then, with all these approximations in place, we can rewrite our visibility equation for
+For a Stokes-I-only sky, we can rewrite our visibility equation for
 baseline *ij* and feed-pair *pq* as:
 
 .. math:: V^{pq}_{ij}(t) = \sum_n \vec{A}^p_i(\vec{X}_n(t)) \cdot \vec{A}^{q*}_j(\vec{X}_n(t)) \frac{I_n}{2} \exp(2\pi i \nu \vec{X}_n \cdot \vec{b}_{ij}/c).
@@ -89,7 +88,8 @@ Here *p* is a feed of antenna *i* and *q* a feed of antenna *j*, so in pyuvdata'
 and y on antenna *j*). This is the same convention as ``pyuvsim``. The factor of 1/2
 splits the unpolarized intensity equally between the two polarizations.
 
-This is the equation that ``matvis`` calculates.
+This is the equation that ``matvis`` calculates for an unpolarized sky. Polarized
+skies are described in `Polarized Skies`_ below.
 
 The ``matvis`` Algorithm
 =========================
@@ -135,6 +135,41 @@ Then, for a particular frequency and time, the ``matvis`` algorithm is:
     7. Compute the :math:`N_{\rm feed} N_{\rm ant} \times N_{\rm feed} N_{\rm ant}`
        visibility: :math:`V = Z^* Z^T`. Its feed-by-feed block for antennas *a* and
        *b* is :math:`A_a C A_b^\dagger` times the fringe term, as above.
+
+Polarized Skies
+===============
+
+The steps above treat each source as unpolarized, with a coherency :math:`C` equal
+to :math:`I/2` times the identity, so step 6 only needs :math:`\sqrt{I/2}`.
+A polarized source with Stokes parameters :math:`(I, Q, U, V)` has the coherency
+
+.. math::
+
+   C = \frac{1}{2}\begin{pmatrix} I+Q & U+iV \\ U-iV & I-Q \end{pmatrix},
+
+which is rotated from the equatorial frame into the local horizontal frame at each
+time. The same approach still works if we write the coherency as a matrix times its
+conjugate transpose, :math:`C = M M^\dagger`. Because :math:`C` is Hermitian, its
+eigendecomposition provides such an :math:`M` whenever both eigenvalues are
+non-negative, which holds for any physical source
+(:math:`I \geq \sqrt{Q^2 + U^2 + V^2}`). Step 6 becomes
+
+.. math::
+
+   Z_i = (A_i M)^* \exp(\tau_i),
+
+and step 7 is unchanged: the block of :math:`V = Z^* Z^T` for antennas *a* and *b* is
+:math:`A_a C A_b^\dagger` times the fringe term. For an unpolarized source,
+:math:`M` is :math:`\sqrt{I/2}` times the identity, which gives back the original
+step 6.
+
+Some sky models, such as those of the Epoch of Reionization, contain negative
+intensities, so a source's coherency can have negative eigenvalues. Then we write
+:math:`C = M_+ M_+^\dagger - M_- M_-^\dagger`, where :math:`M_+` carries the positive
+eigenvalues and :math:`M_-` the magnitudes of the negative ones, compute the
+visibilities of the two parts separately, and subtract them. A source whose
+eigenvalues are both negative needs only one part: negating its Stokes parameters
+makes them positive, and its visibilities are subtracted.
 
 Exploiting Redundancy: Block-Decomposed Products
 =================================================

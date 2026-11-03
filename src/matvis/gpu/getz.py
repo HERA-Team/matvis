@@ -31,15 +31,20 @@ class GPUZMatrixCalc(ZMatrixCalc):
     @combine_docstrings(ZMatrixCalc.__call__)
     def __call__(
         self,
-        sqrt_flux: cp.ndarray,
+        sqrt_flux: cp.ndarray | None,
         beam: cp.ndarray,
         exptau: cp.ndarray,
         beam_idx: np.ndarray | None,
+        m_matrix: cp.ndarray | None = None,
     ) -> cp.ndarray:
         """Compute Z = conj(A) * sqrtI * exp(tau) in one pass.
 
-        Unlike the base implementation, ``exptau`` is not modified in place.
+        Unlike the scalar base implementation, ``exptau`` is not modified in place.
+        Full-Stokes input uses the shared CuPy matrix path when m_matrix is supplied.
         """
+        if m_matrix is not None:
+            return super().__call__(sqrt_flux, beam, exptau, beam_idx, m_matrix)
+
         if beam_idx is None:
             bidx = np.uint64(0)  # NULL pointer
             # A single beam is shared by all antennas; otherwise one per ant.
