@@ -39,14 +39,34 @@ Features
 * Includes a wrapper for simulating multiple frequencies and setting up the simulation.
 * No approximations of the visibility integral (such as the flat-sky approximation).
 * Arbitrary primary beams per-antenna using the ``pyuvdata.UVBeam`` class.
+* Full-Stokes skies, including signed coherency models, on CPU and GPU.
+* Dense, selected-pair, and redundant block matrix products.
 
 Limitations
 -----------
 
-* Currently no support for polarized sky models.
-* Currently no way of taking advantage of baseline redundancy to speed up simulations.
 * Diffuse sky models must be pixelised, which may not be the best basis-function for
   some sky models.
+
+
+Full-Stokes sky input
+=====================
+
+For a polarized sky, pass ``stokes`` instead of ``fluxes``, with shape
+``(4, Nsource, Nfreq)`` ordered I, Q, U, V::
+
+    vis = matvis.simulate_vis(
+        ants=ants, ra=ra, dec=dec, freqs=freqs, times=times,
+        beams=efield_beams, telescope_loc=telescope_loc, stokes=stokes,
+        precision=2,
+    )
+
+Exactly one of ``fluxes`` and ``stokes`` must be given. Passing ``stokes``
+computes all feed pairs (``polarized=True``), so the beams must be E-field beams.
+Sources whose coherency has negative eigenvalues, as in Epoch of Reionization
+models with negative intensities, are supported; set
+``raise_on_negative_flux=True`` to reject them instead. Polarized skies work on
+CPU and GPU and with every ``matprod_method``.
 
 
 Installation

@@ -39,4 +39,5 @@ Other Utilities
    :toctree: _autosummary
 
    matvis.coordinates
+   matvis.core.coherency
    matvis.redundancy
